@@ -1,7 +1,14 @@
 import numpy as np
-from scipy.stats import hypergeom
+from scipy import stats
+from scipy.stats import hypergeom, mannwhitneyu
+from scipy.sparse import issparse
 from collections import Counter
 import scanpy as sc
+from . import preprocess as pp
+from . import tcr_scores
+from . import util
+import sys
+from sys import exit
 
 def compute_cluster_interactions( aclusters_in, bclusters_in, barcodes_in, barcode2tcr, outlog, max_pval = 1.0 ):
 
@@ -289,3 +296,362 @@ def run_rank_genes_on_good_cluster_pairs(
 
     # sys.stdout.flush()
     # return retvals
+
+
+def run_rank_genes_on_cells(
+        adata,
+        mask,
+        key_added='rank_genes_on_cells',
+        pos_tag='pos',
+        #rank_method='t-test',
+        rank_method='wilcoxon',
+        rg_tag = 'test',
+        neg_tag='neg',
+        min_pos=3,
+        max_pval_for_output=10,
+        n_genes=100
+):
+    ''' Returns list of the top n_genes [rank(0-indexed), gene, log2fold, pval_adj, score ]
+    '''
+    assert mask.shape[0] == adata.shape[0]
+    if np.sum(mask) < min_pos:
+        return []
+
+    if not pp.check_if_raw_matrix_is_logged(adata):
+        print('ERROR need to log the raw matrix before calling run_rank_genes_on_cells')
+        exit()
+
+    vals = [ pos_tag if a else neg_tag for a in mask ]
+
+    adata.obs[rg_tag] = vals
+
+    sc.tl.rank_genes_groups(adata, groupby=rg_tag, method=rank_method, groups=[pos_tag], reference=neg_tag,
+                            key_added=key_added, n_genes=n_genes)
+
+    retvals = []
+
+    for igene,gene in enumerate( adata.uns[key_added]['names'][pos_tag] ):
+        log2fold = adata.uns[key_added]['logfoldchanges'][pos_tag][igene]
+        pval_adj = adata.uns[key_added]['pvals_adj'][pos_tag][igene]
+        score = adata.uns[key_added]['scores'][pos_tag][igene]
+        retvals.append( [ igene, gene, log2fold, pval_adj, score ] )
+
+    return retvals
+
+
+def get_nbrhood_infostrings( adata, nbrs ):
+    ''' Returns a list of infostrings of len= adata.shape[0]
+    clusters and consensus clusters
+    mait fraction
+    '''
+
+    tcrs = pp.retrieve_tcrs_from_adata(adata)
+
+    clusters_gex = adata.obs['clusters_gex']
+    clusters_tcr = adata.obs['clusters_tcr']
+
+    infostrings = []
+    for ii in range(adata.shape[0]):
+        tcr_string = '{} {}'.format(' '.join(tcrs[ii][0][:3]), ' '.join(tcrs[ii][1][:3]) )
+        is_mait = util.is_human_mait_alpha_chain(tcrs[ii][0])
+        mait_count = sum( util.is_human_mait_alpha_chain(tcrs[x][0]) for x in nbrs[ii]) + is_mait
+        mait_frac = mait_count/(1+len(nbrs[ii])) ## including ii too
+        clp = ( clusters_gex[ii], clusters_tcr[ii])
+        clp_counts = Counter( zip( (clusters_gex[x] for x in nbrs[ii]), (clusters_tcr[x] for x in nbrs[ii]) ) )
+        clp_counts[clp] += 1
+        top_clp = clp_counts.most_common(1)[0][0]
+        info = 'clp {:2d} {:2d} top {:2d} {:2d} {} m: {:d} {:.3f} {}'\
+               .format( clp[0], clp[1], top_clp[0], top_clp[1], tcr_string, is_mait, mait_frac, ii)
+        infostrings.append(info)
+    return infostrings
+
+
+
+# def tcr_nbrhood_rank_genes( adata, nbrs_tcr, pval_threshold, rank_method=None):
+#     assert False # not using this anymore?
+#     if rank_method is None:
+#         rank_method = 'wilcoxon'
+
+#     num_clones = adata.shape[0]
+#     tcrs = pp.retrieve_tcrs_from_adata(adata)
+
+#     for ii in range(num_clones):
+#         nbrhood_mask = np.full( (num_clones,), False)
+#         nbrhood_mask[ nbrs_tcr[ii] ] = True
+#         nbrhood_mask[ ii ] = True
+
+#         print('run_rank_genes_on_cells:', ii, num_clones)
+#         results = run_rank_genes_on_cells(adata, nbrhood_mask, rank_method=rank_method )
+#         for igene, gene, log2fold, pval_adj, score in results:
+#             if pval_adj < pval_threshold and gene.lower()[:4] not in ['trav','trbv']:
+#                 print('tcr_nbrhood_rank_genes: {:4d} {:2d} {:9.2e} {:7.3f} {} {} {}'\
+#                       .format( ii, igene, pval_adj, log2fold, gene, ' '.join(tcrs[ii][0][:3]),
+#                                ' '.join(tcrs[ii][1][:3]) ) )
+#         sys.stdout.flush()
+
+# def get_split_mean_var( X, mask, mean, mean_sq ):
+#     # use: var = (mean_sq - mean**2)
+#     #
+#     N = mask.shape[0]
+#     assert X.shape[0] == N
+#     fg_wt = np.sum(mask) / N
+#     bg_wt = 1. - fg_wt
+#     fg_X = X[mask]
+#     fg_mean = fg_X.mean(axis=0)
+#     fg_mean_sq = np.multiply(fg_X, fg_X).mean(axis=0)
+#     bg_mean = (mean - fg_wt*fg_mean)/bg_wt
+#     bg_mean_sq = (mean_sq - fg_wt*fg_mean_sq)/bg_wt
+#     fg_var = (fg_mean_sq - fg_mean**2)
+#     bg_var = (bg_mean_sq - bg_mean**2)
+#     return fg_mean, fg_var, bg_mean, bg_var
+def get_split_mean_var( X, X_sq, mask, mean, mean_sq ):
+    # use: var = (mean_sq - mean**2)
+    #
+    N = mask.shape[0]
+    assert X.shape[0] == N
+    wt_fg = np.sum(mask) / N
+    wt_bg = 1. - wt_fg
+    mean_fg = X[mask].mean(axis=0)
+    mean_sq_fg = X_sq[mask].mean(axis=0)
+    if issparse(X):
+        mean_fg = mean_fg.A1
+        mean_sq_fg = mean_sq_fg.A1
+    mean_bg = (mean - wt_fg*mean_fg)/wt_bg
+    mean_sq_bg = (mean_sq - wt_fg*mean_sq_fg)/wt_bg
+    var_fg = (mean_sq_fg - mean_fg**2)
+    var_bg = (mean_sq_bg - mean_bg**2)
+    return mean_fg, var_fg, mean_bg, var_bg
+
+
+
+def gex_nbrhood_rank_tcr_scores(
+        adata,
+        nbrs_gex,
+        tcr_score_names,
+        pval_threshold,
+        prefix_tag='nbr',
+        min_num_fg=3,
+):
+    ''' pvalues are bonferroni corrected (actually just multiplied by numtests)
+    '''
+    num_clones = adata.shape[0]
+
+    tcrs = pp.retrieve_tcrs_from_adata(adata)
+    pp.add_mait_info_to_adata_obs(adata)
+    is_mait = adata.obs['is_mait']
+    clusters_gex = adata.obs['clusters_gex']
+    clusters_tcr = adata.obs['clusters_tcr']
+
+    #nbrhood_infos = get_nbrhood_infostrings(adata, nbrs_gex)
+    print('making tcr score table:', tcr_score_names)
+    score_table = tcr_scores.make_tcr_score_table(adata, tcr_score_names)
+    score_table_sq = np.multiply(score_table, score_table)
+    mean = score_table.mean(axis=0)
+    mean_sq = score_table_sq.mean(axis=0)
+
+    num_nonempty_nbrhoods = sum(1 for x in nbrs_gex if len(x)>0)
+    pval_rescale = num_nonempty_nbrhoods * len(tcr_score_names)
+
+    nbrhood_mask = np.full( (num_clones,), False)
+    for ii in range(num_clones):
+        if len(nbrs_gex[ii])==0:
+            continue
+        nbrhood_mask.fill(False)
+        nbrhood_mask[ nbrs_gex[ii] ] = True
+        nbrhood_mask[ ii ] = True
+        mean_fg, var_fg, mean_bg, var_bg = get_split_mean_var(score_table, score_table_sq, nbrhood_mask, mean, mean_sq)
+        num_fg = np.sum(nbrhood_mask)
+        if num_fg < min_num_fg:
+            continue
+        scores, pvals = stats.ttest_ind_from_stats(
+            mean1=mean_fg, std1=np.sqrt(var_fg), nobs1=num_fg,
+            mean2=mean_bg, std2=np.sqrt(var_bg), nobs2=num_clones-num_fg, # scanpy ttest-over-estim-var uses nobs1 here
+            equal_var=False  # Welch's
+        )
+
+        scores[np.isnan(scores)] = 0  # I think it's only nan when means are the same and vars are 0
+        pvals[np.isnan(pvals)] = 1  # This also has to happen for Benjamini Hochberg
+
+        # crude bonferroni
+        pvals *= pval_rescale
+
+        nbrhood_clusters_gex, nbrhood_clusters_tcr = None,None # lazy
+
+        for ind in np.argsort(pvals):
+            pval = pvals[ind]
+            if pval<=pval_threshold:
+                if nbrhood_clusters_gex is None: # lazy
+                    nbrhood_clusters_gex = clusters_gex[nbrhood_mask]
+                    nbrhood_clusters_tcr = clusters_tcr[nbrhood_mask]
+                    nbrhood_is_mait = is_mait[nbrhood_mask]
+
+                # get info about the clones most contributing to this skewed score
+                score_name = tcr_score_names[ind]
+                score = scores[ind] # ie the t-statistic
+
+                num_top = num_fg//4
+                if score>0: # score is high
+                    top_indices = np.argpartition( score_table[:,ind][nbrhood_mask], -num_top)[-num_top:]
+                else: # score is low
+                    top_indices = np.argpartition( score_table[:,ind][nbrhood_mask], num_top-1)[:num_top]
+
+                _,mwu_pval = mannwhitneyu( score_table[:,ind][nbrhood_mask], score_table[:,ind][~nbrhood_mask] )
+                mwu_pval_adj = mwu_pval * pval_rescale
+
+                gex_cluster = Counter( nbrhood_clusters_gex[ top_indices ]).most_common(1)[0][0]
+                tcr_cluster = Counter( nbrhood_clusters_tcr[ top_indices ]).most_common(1)[0][0]
+                mait_fraction = np.sum(nbrhood_is_mait[ top_indices ] )/len(top_indices)
+
+                print('gex_{}_score: {:9.2e} {:9.2e} {:7.2f} clp {:2d} {:2d} {:15s} {} {} mf: {:.3f} {}'\
+                      .format( prefix_tag, pval, mwu_pval_adj, score, gex_cluster, tcr_cluster, score_name,
+                               ' '.join(tcrs[ii][0][:3]), ' '.join(tcrs[ii][1][:3]), mait_fraction, ii ))
+        sys.stdout.flush()
+        # if corr_method == 'benjamini-hochberg':
+        #     _, pvals_adj, _, _ = multipletests(pvals, alpha=0.05, method='fdr_bh')
+        # elif corr_method == 'bonferroni':
+        #     pvals_adj = np.minimum(pvals * n_genes, 1.0)
+
+
+def tcr_nbrhood_rank_genes_fast(
+        adata,
+        nbrs_tcr,
+        pval_threshold,
+        top_n=100,
+        prefix_tag='nbr',
+        min_num_fg=3,
+        clone_display_names=None
+):
+    ''' Modeled on scanpy rank_genes_groups
+    All pvals are crude bonferroni corrected for:
+    * number of non-empty nbrhoods in nbrs_tcr and number of genes in adata.raw.X with at least 3 nonzero cells
+      (see pval_rescale below)
+    '''
+
+    ## unpack from adata
+    clusters_gex = adata.obs['clusters_gex']
+    clusters_tcr = adata.obs['clusters_tcr']
+    tcrs = pp.retrieve_tcrs_from_adata(adata)
+    pp.add_mait_info_to_adata_obs(adata)
+    is_mait = adata.obs['is_mait']
+    ## done unpacking
+
+    if clone_display_names is None:
+        clone_display_names = [ '{} {}'.format(' '.join(x[0][:3]), ' '.join(x[1][:3])) for x in tcrs ]
+
+    #corr_method = 'benjamini-hochberg'
+
+    #from scipy import stats
+    from statsmodels.stats.multitest import multipletests
+    assert pp.check_if_raw_matrix_is_logged(adata)
+
+    rankby_abs = False
+
+    num_clones = adata.shape[0]
+    #tcrs = pp.retrieve_tcrs_from_adata(adata)
+    #nbrhood_infos = get_nbrhood_infostrings(adata, nbrs_tcr)
+
+    genes = adata.raw.var_names
+    X = adata.raw.X
+    assert issparse(X)
+    assert X.shape[1] == len(genes)
+
+    print('to csc')
+    X_csc = adata.raw.X.tocsc()
+
+    print('square X')
+    X2 = X.multiply(X)
+    print('done squaring X')
+
+    mean = X.mean(axis=0)
+    mean_sq = X2.mean(axis=0)
+    print('done taking big means')
+
+    reference_indices = np.arange(X.shape[1], dtype=int)
+    # need this?
+    mean = mean.A1
+    mean_sq = mean_sq.A1
+
+    num_nonempty_nbrhoods = sum(1 for x in nbrs_tcr if len(x)>0)
+
+    # len(genes) is probably too hard since lots of the genes are all zeros
+    min_nonzero_cells = 3
+    gene_nonzero_counts = Counter( X.nonzero()[1] )
+    bad_gene_mask = np.array([ gene_nonzero_counts[x] < min_nonzero_cells for x in range(len(genes)) ])
+    n_genes_eff = np.sum(~bad_gene_mask)
+    pval_rescale = num_nonempty_nbrhoods * n_genes_eff
+
+    for ii in range(num_clones):
+        if len(nbrs_tcr[ii])==0:
+            continue
+        nbrhood_mask = np.full( (num_clones,), False)
+        nbrhood_mask[ nbrs_tcr[ii] ] = True
+        nbrhood_mask[ ii ] = True
+
+        mean_fg, var_fg, mean_bg, var_bg = get_split_mean_var(X, X2, nbrhood_mask, mean, mean_sq)
+        num_fg = np.sum(nbrhood_mask)
+        if num_fg < min_num_fg:
+            continue
+        scores, pvals = stats.ttest_ind_from_stats(
+            mean1=mean_fg, std1=np.sqrt(var_fg), nobs1=num_fg,
+            mean2=mean_bg, std2=np.sqrt(var_bg), nobs2=num_clones-num_fg,
+            equal_var=False  # Welch's
+        )
+
+        # scanpy code:
+        scores[np.isnan(scores)] = 0.
+        pvals [np.isnan(pvals)] = 1.
+        pvals [bad_gene_mask] = 1.
+        logfoldchanges = np.log2((np.expm1(mean_fg) + 1e-9) / (np.expm1(mean_bg) + 1e-9))
+
+        pvals_adj = pvals * pval_rescale
+        # if corr_method == 'benjamini-hochberg':
+        #     _, pvals_adj, _, _ = multipletests(pvals, alpha=0.05, method='fdr_bh')
+        # elif corr_method == 'bonferroni':
+        #     pvals_adj = np.minimum(pvals * len(genes), 1.0)
+        # else:
+        #     print('unrecognized corr_method:', corr_method)
+        #     exit()
+
+        scores_sort = np.abs(scores) if rankby_abs else scores
+        partition = np.argpartition(scores_sort, -top_n)[-top_n:]
+        partial_indices = np.argsort(scores_sort[partition])[::-1]
+        global_indices = reference_indices[partition][partial_indices]
+
+        nbrhood_clusters_gex, nbrhood_clusters_tcr = None,None
+
+        for igene, ind in enumerate(global_indices):
+            gene = genes[ind]
+            if gene.lower()[:4] in ['trav','trbv']:
+                continue
+            pval_adj = pvals_adj[ind]
+            log2fold= logfoldchanges[ind]
+
+            if pval_adj < pval_threshold:
+                if nbrhood_clusters_gex is None: # lazy
+                    nbrhood_clusters_gex = clusters_gex[nbrhood_mask]
+                    nbrhood_clusters_tcr = clusters_tcr[nbrhood_mask]
+                    nbrhood_is_mait = is_mait[nbrhood_mask]
+
+                # better annotation of the enriched tcrs...
+                col = X_csc[:,ind][nbrhood_mask]
+                num_top = num_fg//4
+                if len(col.data)>num_top: # more than a quarter non-zero
+                    top_indices = col.indices[ np.argpartition(col.data, -num_top)[-num_top:] ]
+                    #bot_indices = col.indices[ np.argpartition(col.data, num_top-1)[:num_top] ]
+                    #assert np.mean(col[top_indices]) > np.mean(col[bot_indices])
+                else:
+                    top_indices = col.indices
+                #top_indices = np.nonzero(nbrhood_mask)[0][col_top_inds]
+                noncol = X_csc[:,ind][~nbrhood_mask]
+                _,mwu_pval = mannwhitneyu( col.todense(), noncol.todense() )
+                mwu_pval_adj = mwu_pval * pval_rescale
+
+                gex_cluster = Counter( nbrhood_clusters_gex[ top_indices ]).most_common(1)[0][0]
+                tcr_cluster = Counter( nbrhood_clusters_tcr[ top_indices ]).most_common(1)[0][0]
+                mait_fraction = np.sum(nbrhood_is_mait[ top_indices ] )/len(top_indices)
+
+
+                print('tcr_{}_gene: {:9.2e} {:9.2e} {:7.3f} clp {:2d} {:2d} {:8s} {:.4f} {:.4f} {:4d} {} mf: {:.3f} {} {}'\
+                      .format( prefix_tag, pval_adj, mwu_pval_adj, log2fold, gex_cluster, tcr_cluster, gene,
+                               mean_fg[ind], mean_bg[ind], num_fg, clone_display_names[ii], mait_fraction, ii, igene ))
+        sys.stdout.flush()

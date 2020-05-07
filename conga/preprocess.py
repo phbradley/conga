@@ -6,9 +6,14 @@ from sklearn.utils import sparsefuncs
 import numpy as np
 import scipy
 from anndata import AnnData
+import sys
 from sys import exit
 from . import tcr_scores
+from . import util
+from . import pmhc_scoring
 
+# silly hack
+all_sexlinked_genes = frozenset('XIST DDX3Y EIF1AY KDM5D LINC00278 NLGN4Y RPS4Y1 TTTY14 TTTY15 USP9Y UTY ZFY'.split())
 
 def get_feature_types_varname( adata ):
     ''' SPECIAL HACK for AGBT dataset
@@ -26,6 +31,23 @@ def check_if_raw_matrix_is_logged( adata ):
 
 def set_raw_matrix_is_logged_to_true( adata ):
     adata.uns[ 'raw_matrix_is_logged' ] = True
+
+
+def add_mait_info_to_adata_obs( adata, key_added = 'is_mait' ):
+    ''' Note that for mouse we are actually doing iNKT cells since those are the common ones
+    Also this is a total approximation based on the TCR alpha chain
+    '''
+    if key_added in adata.obs:
+        print('adata.obs already has mait info')
+        return
+    tcrs = retrieve_tcrs_from_adata(adata)
+    organism = 'human' if 'organism' not in adata.uns_keys() else adata.uns['organism']
+    if organism == 'human':
+        is_mait = [ util.is_human_mait_alpha_chain(x[0]) for x in tcrs ]
+    else:
+        is_mait = [ util.is_mouse_inkt_alpha_chain(x[0]) for x in tcrs ]
+    adata.obs['is_mait'] = is_mait
+
 
 def normalize_and_log_the_raw_matrix( adata, counts_per_cell_after = 1e4 ):
     '''
@@ -108,9 +130,21 @@ def setup_X_igex( adata ):
                     'TRBC1','EPHB6','SLC4A10','DAD1','ITGB1', 'KLRC1','CD45RA_TotalSeqC','CD45RO_TotalSeqC',
                     'ZNF683','KLRD1','NCR3','KIR3DL1','NCAM1','ITGAM','KLRC2','KLRC3','GNLY' ]
     all_genes = sorted( set( [x[:-1] for x in open(all_genes_file,'r')] + extra_genes + kir_genes ) )
+
+    organism = 'human'
+    if 'organism' in adata.uns_keys():
+        organism = adata.uns['organism']
+
+    assert organism in ['mouse','human']
+
+    if organism=='mouse': # this is a temporary hack
+        all_genes = [x.capitalize() for x in all_genes]
+
     normalize_and_log_the_raw_matrix(adata) # just in case
     var_names = list( adata.raw.var_names )
     good_genes = [ x for x in all_genes if x in var_names ]
+    print('found {} of {} good_genes in var_names  organism={}'.format(len(good_genes), len(all_genes), organism))
+    assert good_genes
     indices = [ var_names.index(x) for x in good_genes ]
     #print('igex_genes: {}'.format(' '.join(good_genes)))
     X_igex = adata.raw[:,indices].X.toarray()
@@ -259,6 +293,7 @@ def filter_normalize_and_hvg(
         antibody = False,
         hvg_min_disp=0.5,
         exclude_TR_genes = True,
+        exclude_sexlinked = False,
 ):
     '''Filters cells and genes to find highly variable genes'''
 
@@ -267,12 +302,15 @@ def filter_normalize_and_hvg(
     ##   - exclude "antibody" features before normalizing
     ##   - "qcheck" thingy
 
+    global all_sexlinked_genes
 
     #filters out cells with less than given number of genes expressed (200)
     #filters out genes present in less than given number of cells (3)
     #adds n_genes to obs
     sc.pp.filter_cells(adata, min_genes=min_genes)
+    assert not adata.isview
     sc.pp.filter_genes(adata, min_cells=min_cells)
+    assert not adata.isview
 
 
     #find mitochondrial genes
@@ -284,10 +322,15 @@ def filter_normalize_and_hvg(
     #filter n_genes and percent_mito based on param
     print('filtered out {} cells with more than {} genes'\
           .format( np.sum( adata.obs['n_genes'] >= n_genes ), n_genes ) )
-    adata = adata[adata.obs['n_genes'] < n_genes, :]
+    assert not adata.isview
+    adata = adata[adata.obs['n_genes'] < n_genes, :].copy()
+    assert not adata.isview
     print('filtered out {} cells with more than {} percent mito'\
           .format( np.sum( adata.obs['percent_mito'] >= percent_mito ), percent_mito ) )
-    adata = adata[adata.obs['percent_mito'] < percent_mito, :]
+    print('before:',adata)
+    adata = adata[adata.obs['percent_mito'] < percent_mito, :].copy()
+    assert not adata.isview
+    print('after:',adata)
 
     adata.raw = adata
 
@@ -299,7 +342,7 @@ def filter_normalize_and_hvg(
             assert not antibody # sanity check
             oldshape = adata.shape
             oldrawshape = adata.raw.shape
-            adata = adata[:,~mask]
+            adata = adata[:,~mask].copy()
             newshape = adata.shape
             newrawshape = adata.raw.shape
             removed_at_end = ( np.sum( mask[:newshape[1]] )==0 )
@@ -325,11 +368,15 @@ def filter_normalize_and_hvg(
         adata.var['highly_variable'][ is_tr ] = False
         assert sum( adata.var['highly_variable'][ is_tr ] )==0 # sanity check
 
+    if exclude_sexlinked:
+        is_sexlinked = [ x in all_sexlinked_genes for x in adata.var.index ]
+        print('excluding {} sexlinked genes'.format(sum(is_sexlinked)))
+        adata.var['highly_variable'][ is_sexlinked ] = False
 
     print('total of',np.sum(adata.var['highly_variable']),'variable genes',adata.shape)
     oldshape = adata.shape
     oldrawshape = adata.raw.shape
-    adata = adata[:, adata.var['highly_variable']]
+    adata = adata[:, adata.var['highly_variable']].copy()
     newshape = adata.shape
     newrawshape = adata.raw.shape
     print('after slice:', len(adata.var_names), oldshape, oldrawshape, newshape, newrawshape )
@@ -363,9 +410,13 @@ def cluster_and_tsne_and_umap(adata, louvain_resolution= None, compute_pca_gex= 
 
     for tag in ['gex','tcr']:
         adata.obsm['X_pca'] = adata.obsm['X_pca_'+tag]
-
-        sc.pp.neighbors(adata, n_neighbors=10, n_pcs=min(40, n_components))
-        sc.tl.tsne(adata)
+        if tag == 'gex': # tmp hack...
+            # raw to louvain uses 50 for pca, but only 40 for neighbors
+            sc.pp.neighbors(adata, n_neighbors=10, n_pcs=min(40,n_components)) #
+        else:
+            # analyze_sorted_generic uses 50
+            sc.pp.neighbors(adata, n_neighbors=10, n_pcs=n_components) # had a 40 in there...
+        sc.tl.tsne(adata, n_pcs=n_components)
         adata.obsm['X_tsne_'+tag] = adata.obsm['X_tsne']
         sc.tl.umap(adata)
         adata.obsm['X_umap_'+tag] = adata.obsm['X_umap']
@@ -383,9 +434,8 @@ def cluster_and_tsne_and_umap(adata, louvain_resolution= None, compute_pca_gex= 
     return adata
 
 def filter_and_scale( adata ):
-
     ## now process as before
-    adata = filter_normalize_and_hvg(adata, exclude_TR_genes= True, percent_mito=0.1)
+    adata = filter_normalize_and_hvg(adata, exclude_TR_genes= True, exclude_sexlinked=True, percent_mito=0.1)
 
     ## should consider adding cell cycle here:
     sc.pp.regress_out(adata, ['n_counts','percent_mito'])
@@ -427,8 +477,16 @@ def reduce_to_single_cell_per_clone(
 
     #
     # get the interesting genes matrix before we subset
-    # this will normalize and log the raw array if not done
+    # this will normalize and log the raw array if not done!!
     X_igex, good_genes = setup_X_igex(adata)
+
+
+    if 'pmhc_var_names' in adata.uns_keys():
+        pmhc_var_names = adata.uns['pmhc_var_names']
+        X_pmhc = pmhc_scoring.get_X_pmhc(adata, pmhc_var_names)
+        new_X_pmhc = []
+    else:
+        pmhc_var_names = None
 
     clone_ids = np.array( [ tcr2clone_id[x] for x in tcrs_with_duplicates ] )
 
@@ -456,11 +514,13 @@ def reduce_to_single_cell_per_clone(
             rep_cell_index = clone_cells[ np.argmin( avgdist ) ]
         rep_cell_indices.append(rep_cell_index)
         new_X_igex.append( np.sum( X_igex[clone_cells,:], axis=0 ) / clone_size )
+        if pmhc_var_names:
+            new_X_pmhc.append( np.sum( X_pmhc[clone_cells,:], axis=0 ) / clone_size )
+
 
     rep_cell_indices = np.array(rep_cell_indices)
     new_X_igex = np.array(new_X_igex)
     assert new_X_igex.shape == ( num_clones, len(good_genes))
-
 
     print('before subset barcodes:', adata.shape)
     adata = adata[ rep_cell_indices, : ].copy() ## seems like we need to copy here, something to do with adata 'views'
@@ -468,12 +528,85 @@ def reduce_to_single_cell_per_clone(
     adata.obs['clone_sizes'] = np.array( clone_sizes )
     adata.obsm['X_igex'] = new_X_igex
     adata.uns['X_igex_genes'] = good_genes
+    if pmhc_var_names:
+        new_X_pmhc = np.array(new_X_pmhc)
+        assert new_X_pmhc.shape == ( num_clones, len(pmhc_var_names))
+        adata.obsm['X_pmhc'] = new_X_pmhc
 
     tcrs_redo = retrieve_tcrs_from_adata(adata)
     assert tcrs_redo == tcrs # sanity check
 
-    adata = normalize_and_log_the_raw_matrix( adata ) # prob not necessary
+    adata = normalize_and_log_the_raw_matrix( adata ) # prob not necessary; already done for X_igex ?
 
     return adata
 
+
+def write_proj_info( adata, outfile ):
+    clusters_gex = adata.obs['clusters_gex']
+    clusters_tcr = adata.obs['clusters_tcr']
+    X_gex_2d = adata.obsm['X_gex_2d']
+    X_tcr_2d = adata.obsm['X_tcr_2d']
+    X_pca_tcr = adata.obsm['X_pca_tcr']
+    tcrs = retrieve_tcrs_from_adata(adata)
+
+    out = open(outfile,'w')
+    for ii in range(adata.shape[0]):
+        out.write('ii: {} X_gex_2d: {:.3f} {:.3f} X_tcr_2d: {:.3f} {:.3f} cluster_gex: {} cluster_tcr: {} tcr: {} {} pc: {} {}\n'\
+                  .format(ii, X_gex_2d[ii,0], X_gex_2d[ii,1], X_tcr_2d[ii,0], X_tcr_2d[ii,1],
+                          clusters_gex[ii], clusters_tcr[ii],
+                          ' '.join(tcrs[ii][0]), ' '.join(tcrs[ii][1]),
+                          len(X_pca_tcr[ii]), ' '.join('{:.3f}'.format(x) for x in X_pca_tcr[ii,:3])) )
+    out.close()
+
+
+
+def filter_cells_by_ribo_norm(adata):
+    ''' returns  new filtered adata
+    will normalize_and_log_the_raw_matrix if not already done
+    '''
+    from scipy.stats import gaussian_kde
+
+    normalize_and_log_the_raw_matrix(adata)
+
+    X_norm = adata.raw.X
+
+    X_norm_ribo = []
+    var_names = [x.upper() for x in adata.raw.var_names ] ## NOTE UPPER-- help for mouse
+    for ig,g in enumerate(var_names):
+        if g.startswith('RP') and len(g)>=4 and g[2] in 'SL' and g[3].isdigit():
+            X_norm_ribo.append( X_norm[:,ig].toarray() )
+
+    X_norm_ribo = np.sum(np.hstack( X_norm_ribo ), axis=1 )/len(X_norm_ribo)
+
+    dens = gaussian_kde(X_norm_ribo)
+    # look for two maxima and a minima in between
+    # or look for the closest minimum to 2.0
+    step = 0.01
+    x=2.0
+    while True:
+        y0 = dens(x)[0]
+        yl = dens(x-step)[0]
+        yr = dens(x+step)[0]
+        print('filter_cells_by_ribo_norm:: minfind:',x,y0,yl,yr)
+        if yl < yr:
+            if yl < y0:
+                x = x-step
+            else:
+                # found a local min
+                ribo_norm_threshold=x
+                break
+        else:
+            if yr < y0:
+                x = x+step
+            else:
+                ribo_norm_threshold=x
+                break
+    print('filter_cells_by_ribo_norm:: ribo_norm localmin:',ribo_norm_threshold)
+
+    mask = (X_norm_ribo>ribo_norm_threshold)
+    print('filter_cells_by_ribo_norm::', adata.shape, 'downto:', np.sum(mask))
+    sys.stdout.flush()
+    adata = adata[mask,:].copy()
+    assert np.sum(mask) == adata.shape[0]
+    return adata
 

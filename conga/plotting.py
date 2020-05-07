@@ -181,6 +181,7 @@ def make_logo_plots(
     conga_scores = adata.obsm['conga_scores'] # (num_clones,3)
     X_igex = adata.obsm['X_igex']
     X_igex_genes = list(adata.uns['X_igex_genes']) #for .index
+    organism = adata.uns['organism']
 
     tcrs = pp.retrieve_tcrs_from_adata(adata)
     tcr_scoretags = ['mhci_score', 'cdr3len_score', 'cd8_score', 'alphadist_score']
@@ -192,7 +193,6 @@ def make_logo_plots(
     num_good_clones = np.sum(good_score_mask)
     assert X_igex.shape == (num_clones, len(X_igex_genes))
 
-    organism = 'human' # tmp hack
 
     logo_genes = ['CD4','CD8A','CD8B','CCR7','SELL',
                   'GNLY','PRF1','GZMA','GZMB','GZMK','GZMH',
@@ -368,7 +368,7 @@ def make_logo_plots(
 
         vmin = math.sqrt( -1*math.log10( 1.0 ) ) # was 0.05 then 0.2
         vmax = math.sqrt( -1*math.log10( 1e-5 ) )
-        plt.scatter( xy[sort_order,:][:,0], xy[sort_order,:][:,1], s=15,
+        plt.scatter( xy[sort_order,:][:,0], xy[sort_order,:][:,1], s=2*small_markersize,
                      c=np.sqrt( colors[ sort_order ] ), vmin=vmin, vmax=vmax )
         plt.xticks([],[])
         plt.yticks([],[])
@@ -466,11 +466,25 @@ def make_logo_plots(
         width = 0.5*header_height/fig_width
         plt.axes( [left,bottom,width,height] )
         proj_tag = 'GEX TCR'.split()[icol]
-        C = get_integers_color_dict( np.max(clusters)+1)
+        num_clusters = np.max(clusters)+1
+        C = get_integers_color_dict( num_clusters)
         colors = [ C[x] for x in clusters]
         plt.scatter( xy[:,0], xy[:,1], s=small_markersize, c=colors )
         plt.xticks([],[])
         plt.yticks([],[])
+        clusters_tag = proj_tag if not ignore_tcr_cluster_colors else 'combo'
+        plt.title('{} clusters ({}2D)'.format(clusters_tag, proj_tag),fontsize=7,pad=8)
+        xmn,xmx = plt.xlim()
+        ymn,ymx = plt.ylim()
+        # show the colors
+        for i in range(num_clusters):
+            plt.text((i+1)/(num_clusters+1), 1.005, str(i), color=C[i], ha='center', va='bottom', fontsize=6,
+                     transform=plt.gca().transAxes)
+            # plt.scatter( [(i+0.5)/(num_clusters+1)], [1.0], s=small_markersize, color=C[i],
+            #              transform=plt.gca().transAxes)
+        plt.xlim((xmn,xmx))
+        plt.ylim((ymn,ymx))
+
 
 
     ## make a key for the gex logo
@@ -514,8 +528,12 @@ def make_logo_plots(
                      cmap='Reds', vmin=0, vmax=vmax )
         plt.xticks([],[])
         plt.yticks([],[])
-        _,xmx = plt.xlim()
+        xmn,xmx = plt.xlim()
         _,ymx = plt.ylim()
+        pad = 0.02*(xmx-xmn)
+        if ig==0:
+            plt.ylabel('GEX UMAP2')
+        plt.text( xmn+pad, ymx, 'raw', va='top', ha='left', fontsize=8)
         plt.text( xmx, ymx, gene, va='top', ha='right', fontsize=8)
 
         ## make another plot with the gex-nbrhood averaged scores
@@ -535,8 +553,12 @@ def make_logo_plots(
         plt.scatter( X_gex_2d[:,0], X_gex_2d[:,1], s=small_markersize, c=colors,cmap='coolwarm', vmin=-mx, vmax=mx )
         plt.xticks([],[])
         plt.yticks([],[])
-        _,xmx = plt.xlim()
+        xmn,xmx = plt.xlim()
         _,ymx = plt.ylim()
+        pad = 0.02*(xmx-xmn)
+        if ig==0:
+            plt.ylabel('GEX UMAP2')
+        plt.text( xmn+pad, ymx, 'nbrZ', va='top', ha='left', fontsize=8)
         plt.text( xmx, ymx, gene, va='top', ha='right', fontsize=8)
 
     for ii, scoretag in enumerate(tcr_scoretags):
@@ -561,9 +583,10 @@ def make_logo_plots(
         plt.yticks([],[])
         xmn,xmx = plt.xlim()
         _,ymx = plt.ylim()
-        plt.text( xmx, ymx, scoretag[:-6].replace('alphadist','ad').replace('cdr3len','len'),
+        pad = 0.02*(xmx-xmn)
+        plt.text( xmx-pad, ymx, scoretag[:-6].replace('alphadist','ad').replace('cdr3len','len'),
                   va='top', ha='right', fontsize=8)
-        plt.text( xmn, ymx, 'tcr', va='top', ha='left', fontsize=8)
+        plt.text( xmn+pad, ymx, 'tcr', va='top', ha='left', fontsize=8)
 
         # make nbr-averaged plot
 

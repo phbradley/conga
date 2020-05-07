@@ -1,6 +1,27 @@
 #from phil import *
 import math
 from os.path import exists
+import pandas as pd
+from . import preprocess as pp
+from sys import exit
+import numpy as np
+
+
+cdr3_score_FG = 'fg'
+cdr3_score_CENTER = 'cen'
+
+cdr3_score_modes = [ cdr3_score_FG, cdr3_score_CENTER ]
+
+fg_trim = 4
+center_len = 5
+
+
+aa_props_file = '/home/pbradley/gitrepos/conga/conga/data/aa_props.tsv'
+aa_props_df = pd.read_csv(aa_props_file, sep='\t')
+aa_props_df.set_index('aa', inplace=True)
+
+all_tcr_scorenames = ['alphadist', 'cd8', 'cdr3len', 'mhci'] +\
+                     [ '{}_{}'.format(x,y) for x in aa_props_df.columns for y in cdr3_score_modes ]
 
 def read_cd8_score_params():
     # setup the scoring params
@@ -127,13 +148,13 @@ def alphadist_score_tcr( tcr ):
     if va in trav_list:
         va_dist = len(trav_list)-1 -trav_list.index(va)
     else:
-        print('alphadist_score_tcr: unrecognized va:', va)
+        #print('alphadist_score_tcr: unrecognized va:', va)
         va_dist = 0.5*(len(trav_list)-1)
 
     if ja in traj_list:
         ja_dist = traj_list.index(ja)
     else:
-        print('alphadist_score_tcr: unrecognized ja:', ja)
+        #print('alphadist_score_tcr: unrecognized ja:', ja)
         ja_dist = 0.5*(len(traj_list)-1)
     return va_dist + ja_dist
 
@@ -141,3 +162,68 @@ def cdr3len_score_tcr(tcr):
     ''' double-weight the beta chain
     '''
     return len(tcr[0][2]) + 2*len(tcr[1][2])
+
+
+
+def property_score_cdr3(cdr3, score_name, score_mode):
+    ''' Currently averages the score over the number of aas scores
+    '''
+    global aa_props_df
+    global cdr3_score_CENTER
+    global cdr3_score_FG
+    global fg_trim
+    global center_len
+
+    col = aa_props_df[score_name]
+
+    if score_mode == cdr3_score_CENTER:
+        cdr3 = cdr3[1:] # trim off the first 'C', makes structurally symmetric
+        if len(cdr3)<center_len:
+            return 0.0
+        else:
+            ntrim = (len(cdr3)-center_len)//2
+            return sum(col[aa] for aa in cdr3[ntrim:ntrim+center_len])/center_len
+
+    elif score_mode == cdr3_score_FG:
+        fgloop = cdr3[fg_trim:-fg_trim]
+        if fgloop:
+            return sum( col[aa] for aa in fgloop )/len(fgloop)
+        else:
+            return 0.0
+    else:
+        print( 'property_score_cdr3:: unrecognized score_mode:', score_mode)
+        exit()
+        return 0.0
+
+def property_score_tcr(tcr, score_name, score_mode, alpha_weight=1.0, beta_weight=1.0):
+    return ( alpha_weight * property_score_cdr3(tcr[0][2], score_name, score_mode ) +
+             beta_weight  * property_score_cdr3(tcr[1][2], score_name, score_mode ) )
+
+
+def make_tcr_score_table(adata, scorenames):
+    ''' Returns an array of the tcr scores of shape: (adata.shape[0], len(scorenames))
+    '''
+    global aa_props_df
+
+    tcrs = pp.retrieve_tcrs_from_adata(adata)
+
+    cols = []
+    for name in scorenames:
+        if name == 'cdr3len':
+            cols.append( [ cdr3len_score_tcr(x) for x in tcrs ])
+        elif name == 'alphadist':
+            cols.append( [ alphadist_score_tcr(x) for x in tcrs ])
+        elif name == 'cd8':
+            cols.append( [ cd8_score_tcr(x) for x in tcrs ])
+        elif name == 'mhci':
+            cols.append( [ mhci_score_tcr(x) for x in tcrs ])
+        else:
+            score_mode = name.split('_')[-1]
+            score_name = '_'.join( name.split('_')[:-1])
+            cols.append( [ property_score_tcr(x, score_name, score_mode) for x in tcrs ] )
+    table = np.array(cols).transpose()#[:,np.newaxis]
+    #print( table.shape, (adata.shape[0], len(scorenames)) )
+    assert table.shape == (adata.shape[0], len(scorenames))
+
+    return table
+
