@@ -11,6 +11,7 @@ cdr3_score_FG = 'fg'
 cdr3_score_CENTER = 'cen'
 
 cdr3_score_modes = [ cdr3_score_FG, cdr3_score_CENTER ]
+default_cdr3_score_mode = cdr3_score_FG
 
 fg_trim = 4
 center_len = 5
@@ -20,8 +21,12 @@ aa_props_file = '/home/pbradley/gitrepos/conga/conga/data/aa_props.tsv'
 aa_props_df = pd.read_csv(aa_props_file, sep='\t')
 aa_props_df.set_index('aa', inplace=True)
 
-all_tcr_scorenames = ['alphadist', 'cd8', 'cdr3len', 'mhci'] +\
+all_tcr_scorenames = ['alphadist', 'cd8', 'cdr3len', 'mhci', 'mait', 'inkt'] +\
                      [ '{}_{}'.format(x,y) for x in aa_props_df.columns for y in cdr3_score_modes ]
+
+#tmp hacking SIMPLIFY -- dont include info on which version of the loop is used for scoring
+all_tcr_scorenames = ['alphadist', 'cd8', 'cdr3len', 'mhci', 'mait', 'inkt'] + list(aa_props_df.columns)
+
 
 def read_cd8_score_params():
     # setup the scoring params
@@ -112,6 +117,52 @@ def cd8_score_tcr( tcr ):
     atcr, btcr = tcr
     return ( cd8_score_tcr_chain( 'A', atcr[0], atcr[1], atcr[2] )[0] +
              cd8_score_tcr_chain( 'B', btcr[0], btcr[1], btcr[2] )[0] )
+
+def is_human_mait_alpha_chain(atcr):
+    return ( atcr[0].startswith('TRAV1-2') and
+             ( atcr[1].startswith('TRAJ33') or
+               atcr[1].startswith('TRAJ20') or
+               atcr[1].startswith('TRAJ12') ) and
+             len(atcr[2]) == 12 )
+
+def is_mouse_mait_alpha_chain(atcr):
+    return ( atcr[0].startswith('TRAV1*') and atcr[1].startswith('TRAJ33') and len(atcr[2]) == 12 )
+
+def is_mouse_inkt_alpha_chain(atcr):
+    return ( atcr[0].startswith('TRAV11') and atcr[1].startswith('TRAJ18') and len(atcr[2]) == 15 )
+
+def is_human_inkt_tcr(tcr):
+    # could also put some limits on cdr3s?
+    return ( tcr[0][0].startswith('TRAV10') and
+             tcr[0][1].startswith('TRAJ18') and
+             len(tcr[0][2]) in [14,15,16] and  # 15 seems to be the consensus
+             tcr[1][0].startswith('TRBV25') )
+
+
+def mait_score_tcr(tcr, organism):
+    if   organism=='human':
+        return float(is_human_mait_alpha_chain(tcr[0]))
+
+    elif organism=='mouse':
+        return float(is_mouse_mait_alpha_chain(tcr[0]))
+
+    else:
+        print('unrecognized organism:', organism)
+        exit()
+        return 0.
+
+
+def inkt_score_tcr(tcr, organism):
+    if   organism=='human':
+        return float(is_human_inkt_tcr(tcr))
+
+    elif organism=='mouse':
+        return float(is_mouse_inkt_alpha_chain(tcr[0]))
+
+    else:
+        print('unrecognized organism:', organism)
+        exit()
+        return 0.
 
 
 def read_locus_order( remove_slashes_from_gene_names= False ):
@@ -217,9 +268,18 @@ def make_tcr_score_table(adata, scorenames):
             cols.append( [ cd8_score_tcr(x) for x in tcrs ])
         elif name == 'mhci':
             cols.append( [ mhci_score_tcr(x) for x in tcrs ])
+        elif name == 'mait':
+            organism = adata.uns['organism']
+            cols.append( [ mait_score_tcr(x, organism) for x in tcrs ])
+        elif name == 'inkt':
+            organism = adata.uns['organism']
+            cols.append( [ inkt_score_tcr(x, organism) for x in tcrs ])
         else:
             score_mode = name.split('_')[-1]
             score_name = '_'.join( name.split('_')[:-1])
+            if score_mode not in cdr3_score_modes:
+                score_mode = default_cdr3_score_mode
+                score_name = name
             cols.append( [ property_score_tcr(x, score_name, score_mode) for x in tcrs ] )
     table = np.array(cols).transpose()#[:,np.newaxis]
     #print( table.shape, (adata.shape[0], len(scorenames)) )

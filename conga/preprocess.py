@@ -11,20 +11,11 @@ from sys import exit
 from . import tcr_scores
 from . import util
 from . import pmhc_scoring
+from . import plotting
 
 # silly hack
 all_sexlinked_genes = frozenset('XIST DDX3Y EIF1AY KDM5D LINC00278 NLGN4Y RPS4Y1 TTTY14 TTTY15 USP9Y UTY ZFY'.split())
 
-def get_feature_types_varname( adata ):
-    ''' SPECIAL HACK for AGBT dataset
-    Figure out the correct "feature_types" varname, e.g. feature_types-0 or feature_types-0-0
-    '''
-    for name in adata.var: # the columns of the var dataframe
-        if name.startswith('feature_types'):
-            return name
-    print('unable to find feature_types varname')
-    print(adata.var_names)
-    return None
 
 def check_if_raw_matrix_is_logged( adata ):
     return adata.uns.get( 'raw_matrix_is_logged', False )
@@ -43,9 +34,9 @@ def add_mait_info_to_adata_obs( adata, key_added = 'is_mait' ):
     tcrs = retrieve_tcrs_from_adata(adata)
     organism = 'human' if 'organism' not in adata.uns_keys() else adata.uns['organism']
     if organism == 'human':
-        is_mait = [ util.is_human_mait_alpha_chain(x[0]) for x in tcrs ]
+        is_mait = [ tcr_scores.is_human_mait_alpha_chain(x[0]) for x in tcrs ]
     else:
-        is_mait = [ util.is_mouse_inkt_alpha_chain(x[0]) for x in tcrs ]
+        is_mait = [ tcr_scores.is_mouse_inkt_alpha_chain(x[0]) for x in tcrs ]
     adata.obs['is_mait'] = is_mait
 
 
@@ -58,7 +49,7 @@ def normalize_and_log_the_raw_matrix( adata, counts_per_cell_after = 1e4 ):
 
     print('Normalize and logging matrix...')
 
-    ft_varname = get_feature_types_varname(adata)
+    ft_varname = pmhc_scoring.get_feature_types_varname(adata)
     if ft_varname:
         ngenes = sum( adata.raw.var[ft_varname] != 'Antibody Capture' )
     else:
@@ -137,8 +128,12 @@ def setup_X_igex( adata ):
 
     assert organism in ['mouse','human']
 
-    if organism=='mouse': # this is a temporary hack
+    if organism=='mouse': # this is a temporary hack -- could actually load a mapping between mouse and human genes
         all_genes = [x.capitalize() for x in all_genes]
+
+    for g in plotting.default_logo_genes[organism] + plotting.default_gex_header_genes[organism]:
+        if g not in all_genes:
+            all_genes.append(g)
 
     normalize_and_log_the_raw_matrix(adata) # just in case
     var_names = list( adata.raw.var_names )
@@ -271,10 +266,10 @@ def read_dataset(
     tcrs = [ barcode2tcr[x] for x in adata.obs.index ]
     store_tcrs_in_adata( adata, tcrs )
 
-    adata.obs['mhci_score']      = [ tcr_scores.mhci_score_tcr(x) for x in tcrs ]
-    adata.obs['cd8_score']       = [ tcr_scores.cd8_score_tcr(x) for x in tcrs ]
-    adata.obs['alphadist_score'] = [ tcr_scores.alphadist_score_tcr(x) for x in tcrs ]
-    adata.obs['cdr3len_score']   = [ tcr_scores.cdr3len_score_tcr(x) for x in tcrs ]
+    # adata.obs['mhci_score']      = [ tcr_scores.mhci_score_tcr(x) for x in tcrs ]
+    # adata.obs['cd8_score']       = [ tcr_scores.cd8_score_tcr(x) for x in tcrs ]
+    # adata.obs['alphadist_score'] = [ tcr_scores.alphadist_score_tcr(x) for x in tcrs ]
+    # adata.obs['cdr3len_score']   = [ tcr_scores.cdr3len_score_tcr(x) for x in tcrs ]
 
     return adata
 
@@ -334,7 +329,7 @@ def filter_normalize_and_hvg(
 
     adata.raw = adata
 
-    feature_types_colname = get_feature_types_varname( adata )
+    feature_types_colname = pmhc_scoring.get_feature_types_varname( adata )
     if feature_types_colname:
         mask = (adata.var[feature_types_colname]=='Antibody Capture' )
         print('num antibody features:', np.sum(mask))
@@ -384,7 +379,13 @@ def filter_normalize_and_hvg(
     return adata
 
 
-def cluster_and_tsne_and_umap(adata, louvain_resolution= None, compute_pca_gex= True):
+def cluster_and_tsne_and_umap(
+        adata,
+        louvain_resolution= None,
+        compute_pca_gex= True,
+        skip_tsne=True, # yes this is silly
+        skip_tcr=False,
+):
     '''calculates neighbors, tsne, louvain for both GEX and TCR
 
     stores in  adata:
@@ -409,6 +410,9 @@ def cluster_and_tsne_and_umap(adata, louvain_resolution= None, compute_pca_gex= 
 
 
     for tag in ['gex','tcr']:
+        if skip_tcr and tag=='tcr': # hack for analyzing GEX before reducing to clones
+            continue
+
         adata.obsm['X_pca'] = adata.obsm['X_pca_'+tag]
         if tag == 'gex': # tmp hack...
             # raw to louvain uses 50 for pca, but only 40 for neighbors
@@ -416,19 +420,18 @@ def cluster_and_tsne_and_umap(adata, louvain_resolution= None, compute_pca_gex= 
         else:
             # analyze_sorted_generic uses 50
             sc.pp.neighbors(adata, n_neighbors=10, n_pcs=n_components) # had a 40 in there...
-        sc.tl.tsne(adata, n_pcs=n_components)
-        adata.obsm['X_tsne_'+tag] = adata.obsm['X_tsne']
+        if not skip_tsne:
+            sc.tl.tsne(adata, n_pcs=n_components)
+            adata.obsm['X_tsne_'+tag] = adata.obsm['X_tsne']
         sc.tl.umap(adata)
         adata.obsm['X_umap_'+tag] = adata.obsm['X_umap']
         sc.tl.louvain(adata, key_added='louvain_'+tag, resolution=louvain_resolution)
 
+        ## set better obsm keys and data types
+        # generic names-- these will be the ones we use in other stuff
+        adata.obs['clusters_'+tag] = np.copy(adata.obs['louvain_'+tag]).astype(int)
+        adata.obsm['X_{}_2d'.format(tag)] = adata.obsm['X_umap_'+tag]
 
-    ## set better obsm keys and data types
-    adata.obs['clusters_gex'] = np.copy(adata.obs['louvain_gex']).astype(int)
-    adata.obs['clusters_tcr'] = np.copy(adata.obs['louvain_tcr']).astype(int)
-
-    adata.obsm['X_gex_2d'] = adata.obsm['X_umap_gex']
-    adata.obsm['X_tcr_2d'] = adata.obsm['X_umap_tcr']
 
 
     return adata
@@ -609,4 +612,39 @@ def filter_cells_by_ribo_norm(adata):
     adata = adata[mask,:].copy()
     assert np.sum(mask) == adata.shape[0]
     return adata
+
+def calc_nbrs( adata, nbrfrac, obsm_tag_gex = 'X_pca_gex', obsm_tag_tcr = 'X_pca_tcr' ):
+    ''' returns nbrs_gex, nbrs_tcr
+
+    nbrs exclude self and any clones in same atcr group or btcr group
+    '''
+    tcrs = retrieve_tcrs_from_adata(adata)
+
+    atcrs = sorted( set( x[0] for x in tcrs ) )
+    btcrs = sorted( set( x[1] for x in tcrs ) )
+    atcr2agroup = dict( (y,x) for x,y in enumerate(atcrs))
+    btcr2bgroup = dict( (y,x) for x,y in enumerate(btcrs))
+    agroups = np.array( [ atcr2agroup[x[0]] for x in tcrs] )
+    bgroups = np.array( [ btcr2bgroup[x[1]] for x in tcrs] )
+
+    print('compute D_gex')
+    D_gex = pairwise_distances( adata.obsm[obsm_tag_gex], metric='euclidean' )
+
+    print('compute D_tcr')
+    D_tcr = pairwise_distances( adata.obsm[obsm_tag_tcr], metric='euclidean' )
+
+    for ii,a in enumerate(agroups):
+        D_gex[ii, (agroups==a) ] = 1e3
+        D_tcr[ii, (agroups==a) ] = 1e3
+    for ii,b in enumerate(bgroups):
+        D_gex[ii, (bgroups==b) ] = 1e3
+        D_tcr[ii, (bgroups==b) ] = 1e3
+
+    num_neighbors = max(1, int(nbrfrac*len(tcrs)))
+    nbrs_gex = np.argpartition( D_gex, num_neighbors-1 )[:,:num_neighbors] # will NOT include self in there
+    nbrs_tcr = np.argpartition( D_tcr, num_neighbors-1 )[:,:num_neighbors] # will NOT include self in there
+    assert nbrs_tcr.shape == (len(tcrs), num_neighbors) and nbrs_gex.shape == nbrs_tcr.shape
+
+    return nbrs_gex, nbrs_tcr
+
 

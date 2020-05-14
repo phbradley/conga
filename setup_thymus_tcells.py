@@ -46,6 +46,9 @@ assert 'cdr3a' in adata.obs # tcr sequence (VDJ) info (plus other obs keys)
 assert X_gex_tag in adata.obsm_keys()
 print(adata)
 
+# set organism
+adata.uns['organism'] = 'human'
+
 # the X matrix in adata is already scaled and log1p'ed. But it was scaled to 100,000 counts per cell, and
 # we're used to looking at data scaled to 10,000 counts per cell. So we renormalize here:
 X2 = np.expm1( adata.X )

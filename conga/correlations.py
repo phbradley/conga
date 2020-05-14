@@ -8,6 +8,7 @@ from . import preprocess as pp
 from . import tcr_scores
 from . import util
 import sys
+import pandas as pd
 from sys import exit
 
 def compute_cluster_interactions( aclusters_in, bclusters_in, barcodes_in, barcode2tcr, outlog, max_pval = 1.0 ):
@@ -132,6 +133,7 @@ def compute_cluster_interactions( aclusters_in, bclusters_in, barcodes_in, barco
 
 
 def find_neighbor_neighbor_interactions(
+        adata,
         nbrs_gex,
         nbrs_tcr,
         agroups,
@@ -141,10 +143,13 @@ def find_neighbor_neighbor_interactions(
         correct_overlaps_for_groups=True,
         scale_pvals_by_num_clones=True
 ):
-    ''' Returns a list: [ [ pvalue, index, overlapping_indices ], ...]
+    ''' Returns a pandas dataframe with results
     of all clones with nbr-nbr overlaps having pvalues <= pval_threshold
 
     '''
+    pp.add_mait_info_to_adata_obs(adata) # for annotation of overlaps
+    is_mait = adata.obs['is_mait']
+
     num_clones = len(nbrs_gex)
 
     pval_rescale = num_clones if scale_pvals_by_num_clones else 1.0
@@ -176,21 +181,30 @@ def find_neighbor_neighbor_interactions(
         double_nbrs = [ x for x in ii_nbrs_tcr if x in ii_nbrs_gex_set ]
         assert overlap == len(double_nbrs)
 
+        overlap_corrected = overlap
         if correct_overlaps_for_groups:
-            new_overlap = min( len(set(agroups[double_nbrs])), len(set(bgroups[double_nbrs])) )
-            if new_overlap < overlap:
-                delta = overlap-new_overlap
-                nbr_pval = pval_rescale * hypergeom.sf( new_overlap-1, actual_num_clones, num_neighbors_gex-delta,
+            overlap_corrected = min( len(set(agroups[double_nbrs])), len(set(bgroups[double_nbrs])) )
+
+            if overlap_corrected < overlap:
+                delta = overlap-overlap_corrected
+                nbr_pval = pval_rescale * hypergeom.sf( overlap_corrected-1, actual_num_clones, num_neighbors_gex-delta,
                                                         num_neighbors_tcr-delta)
                 if nbr_pval > pval_threshold:
                     continue ## NOTE
 
+        results.append( dict( conga_score=nbr_pval,
+                              num_neighbors_gex=num_neighbors_gex,
+                              num_neighbors_tcr=num_neighbors_tcr,
+                              overlap=overlap,
+                              overlap_corrected=overlap_corrected,
+                              mait_fraction=np.sum(is_mait[double_nbrs])/overlap,
+                              clone_index=ii ))#double_nbrs ] )
 
-        results.append( [ nbr_pval, ii, double_nbrs ] )
-    return results
+    return pd.DataFrame(results)
 
 
 def find_neighbor_cluster_interactions(
+        adata,
         nbrs,
         clusters, # for example, or could be swapped: tcr/gex
         agroups,
@@ -200,9 +214,12 @@ def find_neighbor_cluster_interactions(
         correct_overlaps_for_groups=True,
         scale_pvals_by_num_clones=True
 ):
-    ''' Returns a list: [ [ pvalue, index, overlapping_indices ], ...]
+    ''' Returns a pandas dataframe with results
     of all clones with nbr-cluster overlaps having pvalues <= pval_threshold
     '''
+    pp.add_mait_info_to_adata_obs(adata) # for annotation of overlaps
+    is_mait = adata.obs['is_mait']
+
     num_clones = len(nbrs)
 
     pval_rescale = num_clones if scale_pvals_by_num_clones else 1.0
@@ -231,16 +248,24 @@ def find_neighbor_cluster_interactions(
         same_cluster_nbrs = ii_nbrs[ clusters[ii_nbrs] == ii_cluster ]
         assert len(same_cluster_nbrs)== overlap
 
+        overlap_corrected = overlap
         if correct_overlaps_for_groups:
-            new_overlap = min( len(set(agroups[same_cluster_nbrs])), len(set(bgroups[same_cluster_nbrs])) )
-            if new_overlap < overlap:
-                delta = overlap-new_overlap
-                new_nbr_pval = pval_rescale * hypergeom.sf( new_overlap-1, actual_num_clones, num_neighbors-delta,
+            overlap_corrected = min( len(set(agroups[same_cluster_nbrs])), len(set(bgroups[same_cluster_nbrs])) )
+            if overlap_corrected < overlap:
+                delta = overlap-overlap_corrected
+                new_nbr_pval = pval_rescale * hypergeom.sf( overlap_corrected-1, actual_num_clones, num_neighbors-delta,
                                                             ii_cluster_clustersize-delta )
 
 
-        results.append( [ nbr_pval, ii, same_cluster_nbrs ] )
-    return results
+        results.append( dict( conga_score=nbr_pval,
+                              num_neighbors=num_neighbors,
+                              cluster_size=ii_cluster_clustersize,
+                              overlap=overlap,
+                              overlap_corrected=overlap_corrected,
+                              mait_fraction=np.sum(is_mait[same_cluster_nbrs])/overlap,
+                              clone_index=ii ))#double_nbrs ] )
+
+    return pd.DataFrame(results)
 
 def run_rank_genes_on_good_cluster_pairs(
         adata,
@@ -338,32 +363,74 @@ def run_rank_genes_on_cells(
 
     return retvals
 
+def calc_good_cluster_tcr_features(
+        adata,
+        good_mask,
+        clusters_gex,
+        clusters_tcr,
+        tcr_score_names,
+        min_count=5,
+):
+    num_clones = adata.shape[0]
 
-def get_nbrhood_infostrings( adata, nbrs ):
-    ''' Returns a list of infostrings of len= adata.shape[0]
-    clusters and consensus clusters
-    mait fraction
-    '''
+    clp_counts = Counter( (x,y) for x,y,z in zip( clusters_gex, clusters_tcr, good_mask ) if z )
+    print( clp_counts.most_common())
 
-    tcrs = pp.retrieve_tcrs_from_adata(adata)
+    good_clps = [ x for x,y in clp_counts.items() if y>=min_count]
 
-    clusters_gex = adata.obs['clusters_gex']
-    clusters_tcr = adata.obs['clusters_tcr']
+    fake_nbrs_gex = []
+    seen = set()
+    for cl_gex, cl_tcr, m in zip( clusters_gex, clusters_tcr, good_mask ):
+        clp=(cl_gex, cl_tcr)
+        if m and clp in good_clps and clp not in seen:
+            seen.add(clp)
+            fake_nbrs_gex.append( np.nonzero( (clusters_gex==cl_gex) & (clusters_tcr==cl_tcr) )[0] )
+        else:
+            fake_nbrs_gex.append([])
 
-    infostrings = []
-    for ii in range(adata.shape[0]):
-        tcr_string = '{} {}'.format(' '.join(tcrs[ii][0][:3]), ' '.join(tcrs[ii][1][:3]) )
-        is_mait = util.is_human_mait_alpha_chain(tcrs[ii][0])
-        mait_count = sum( util.is_human_mait_alpha_chain(tcrs[x][0]) for x in nbrs[ii]) + is_mait
-        mait_frac = mait_count/(1+len(nbrs[ii])) ## including ii too
-        clp = ( clusters_gex[ii], clusters_tcr[ii])
-        clp_counts = Counter( zip( (clusters_gex[x] for x in nbrs[ii]), (clusters_tcr[x] for x in nbrs[ii]) ) )
-        clp_counts[clp] += 1
-        top_clp = clp_counts.most_common(1)[0][0]
-        info = 'clp {:2d} {:2d} top {:2d} {:2d} {} m: {:d} {:.3f} {}'\
-               .format( clp[0], clp[1], top_clp[0], top_clp[1], tcr_string, is_mait, mait_frac, ii)
-        infostrings.append(info)
-    return infostrings
+    pval_threshold = 1.
+    results_df = gex_nbrhood_rank_tcr_scores( adata, fake_nbrs_gex, tcr_score_names, pval_threshold,
+                                              prefix_tag = 'good_clp' )
+
+    all_tcr_features = {}
+    for row in results_df.itertuples():
+        clp = (row.gex_cluster, row.tcr_cluster)
+        assert clp in good_clps
+        all_tcr_features.setdefault(clp,[]).append( ( row.mwu_pvalue_adj, row.ttest_stat, row.score_name))
+
+    for clp in all_tcr_features:
+        # plotting code expects name then stat then pvalue
+        # but we want them sorted by significance
+        all_tcr_features[clp] = [ (x[2], x[1], x[0]) for x in sorted(all_tcr_features[clp]) ]
+
+    return all_tcr_features
+
+
+# def get_nbrhood_infostrings( adata, nbrs ):
+#     ''' Returns a list of infostrings of len= adata.shape[0]
+#     clusters and consensus clusters
+#     mait fraction
+#     '''
+
+#     tcrs = pp.retrieve_tcrs_from_adata(adata)
+
+#     clusters_gex = adata.obs['clusters_gex']
+#     clusters_tcr = adata.obs['clusters_tcr']
+
+#     infostrings = []
+#     for ii in range(adata.shape[0]):
+#         tcr_string = '{} {}'.format(' '.join(tcrs[ii][0][:3]), ' '.join(tcrs[ii][1][:3]) )
+#         is_mait = tcr_scores.is_human_mait_alpha_chain(tcrs[ii][0])
+#         mait_count = sum( tcr_scores.is_human_mait_alpha_chain(tcrs[x][0]) for x in nbrs[ii]) + is_mait
+#         mait_frac = mait_count/(1+len(nbrs[ii])) ## including ii too
+#         clp = ( clusters_gex[ii], clusters_tcr[ii])
+#         clp_counts = Counter( zip( (clusters_gex[x] for x in nbrs[ii]), (clusters_tcr[x] for x in nbrs[ii]) ) )
+#         clp_counts[clp] += 1
+#         top_clp = clp_counts.most_common(1)[0][0]
+#         info = 'clp {:2d} {:2d} top {:2d} {:2d} {} m: {:d} {:.3f} {}'\
+#                .format( clp[0], clp[1], top_clp[0], top_clp[1], tcr_string, is_mait, mait_frac, ii)
+#         infostrings.append(info)
+#     return infostrings
 
 
 
@@ -431,6 +498,8 @@ def gex_nbrhood_rank_tcr_scores(
         pval_threshold,
         prefix_tag='nbr',
         min_num_fg=3,
+        verbose=True,
+        ttest_pval_threshold_for_mwu_calc=None
 ):
     ''' pvalues are bonferroni corrected (actually just multiplied by numtests)
     '''
@@ -441,6 +510,9 @@ def gex_nbrhood_rank_tcr_scores(
     is_mait = adata.obs['is_mait']
     clusters_gex = adata.obs['clusters_gex']
     clusters_tcr = adata.obs['clusters_tcr']
+
+    if ttest_pval_threshold_for_mwu_calc is None:
+        ttest_pval_threshold_for_mwu_calc = pval_threshold*10
 
     #nbrhood_infos = get_nbrhood_infostrings(adata, nbrs_gex)
     print('making tcr score table:', tcr_score_names)
@@ -453,6 +525,9 @@ def gex_nbrhood_rank_tcr_scores(
     pval_rescale = num_nonempty_nbrhoods * len(tcr_score_names)
 
     nbrhood_mask = np.full( (num_clones,), False)
+
+    results = []
+
     for ii in range(num_clones):
         if len(nbrs_gex[ii])==0:
             continue
@@ -479,7 +554,14 @@ def gex_nbrhood_rank_tcr_scores(
 
         for ind in np.argsort(pvals):
             pval = pvals[ind]
-            if pval<=pval_threshold:
+
+            if pval>ttest_pval_threshold_for_mwu_calc:
+                continue
+
+            _,mwu_pval = mannwhitneyu( score_table[:,ind][nbrhood_mask], score_table[:,ind][~nbrhood_mask] )
+            mwu_pval_adj = mwu_pval * pval_rescale
+
+            if min(pval, mwu_pval_adj) <= pval_threshold:
                 if nbrhood_clusters_gex is None: # lazy
                     nbrhood_clusters_gex = clusters_gex[nbrhood_mask]
                     nbrhood_clusters_tcr = clusters_tcr[nbrhood_mask]
@@ -489,37 +571,50 @@ def gex_nbrhood_rank_tcr_scores(
                 score_name = tcr_score_names[ind]
                 score = scores[ind] # ie the t-statistic
 
-                num_top = num_fg//4
+                num_top = max(1,num_fg//4)
                 if score>0: # score is high
                     top_indices = np.argpartition( score_table[:,ind][nbrhood_mask], -num_top)[-num_top:]
                 else: # score is low
                     top_indices = np.argpartition( score_table[:,ind][nbrhood_mask], num_top-1)[:num_top]
 
-                _,mwu_pval = mannwhitneyu( score_table[:,ind][nbrhood_mask], score_table[:,ind][~nbrhood_mask] )
-                mwu_pval_adj = mwu_pval * pval_rescale
 
                 gex_cluster = Counter( nbrhood_clusters_gex[ top_indices ]).most_common(1)[0][0]
                 tcr_cluster = Counter( nbrhood_clusters_tcr[ top_indices ]).most_common(1)[0][0]
                 mait_fraction = np.sum(nbrhood_is_mait[ top_indices ] )/len(top_indices)
 
-                print('gex_{}_score: {:9.2e} {:9.2e} {:7.2f} clp {:2d} {:2d} {:15s} {} {} mf: {:.3f} {}'\
-                      .format( prefix_tag, pval, mwu_pval_adj, score, gex_cluster, tcr_cluster, score_name,
-                               ' '.join(tcrs[ii][0][:3]), ' '.join(tcrs[ii][1][:3]), mait_fraction, ii ))
+                if verbose:
+                    print('gex_{}_score: {:9.2e} {:9.2e} {:7.2f} clp {:2d} {:2d} {:7.3f} {:7.3f} {:15s} {} {} mf: {:.3f} {}'\
+                          .format( prefix_tag, pval, mwu_pval_adj, score, gex_cluster, tcr_cluster, mean_fg[ind],
+                                   mean_bg[ind], score_name,
+                                   ' '.join(tcrs[ii][0][:3]), ' '.join(tcrs[ii][1][:3]), mait_fraction, ii ))
+
+                results.append( dict(ttest_pvalue_adj=pval,
+                                     ttest_stat=score,
+                                     mwu_pvalue_adj=mwu_pval_adj,
+                                     gex_cluster=gex_cluster,
+                                     tcr_cluster=tcr_cluster,
+                                     score_name=score_name,
+                                     mait_fraction=mait_fraction,
+                                     clone_index=ii) )
+
         sys.stdout.flush()
         # if corr_method == 'benjamini-hochberg':
         #     _, pvals_adj, _, _ = multipletests(pvals, alpha=0.05, method='fdr_bh')
         # elif corr_method == 'bonferroni':
         #     pvals_adj = np.minimum(pvals * n_genes, 1.0)
+    return pd.DataFrame(results)
 
 
 def tcr_nbrhood_rank_genes_fast(
         adata,
         nbrs_tcr,
         pval_threshold,
-        top_n=100,
+        top_n=50,
+        verbose=True,
         prefix_tag='nbr',
         min_num_fg=3,
-        clone_display_names=None
+        clone_display_names=None,
+        ttest_pval_threshold_for_mwu_calc=None
 ):
     ''' Modeled on scanpy rank_genes_groups
     All pvals are crude bonferroni corrected for:
@@ -537,6 +632,9 @@ def tcr_nbrhood_rank_genes_fast(
 
     if clone_display_names is None:
         clone_display_names = [ '{} {}'.format(' '.join(x[0][:3]), ' '.join(x[1][:3])) for x in tcrs ]
+
+    if ttest_pval_threshold_for_mwu_calc is None:
+        ttest_pval_threshold_for_mwu_calc = pval_threshold * 10
 
     #corr_method = 'benjamini-hochberg'
 
@@ -579,6 +677,8 @@ def tcr_nbrhood_rank_genes_fast(
     bad_gene_mask = np.array([ gene_nonzero_counts[x] < min_nonzero_cells for x in range(len(genes)) ])
     n_genes_eff = np.sum(~bad_gene_mask)
     pval_rescale = num_nonempty_nbrhoods * n_genes_eff
+
+    results = []
 
     for ii in range(num_clones):
         if len(nbrs_tcr[ii])==0:
@@ -626,14 +726,22 @@ def tcr_nbrhood_rank_genes_fast(
             pval_adj = pvals_adj[ind]
             log2fold= logfoldchanges[ind]
 
-            if pval_adj < pval_threshold:
+            if pval_adj > ttest_pval_threshold_for_mwu_calc:
+                continue
+
+            col = X_csc[:,ind][nbrhood_mask]
+            noncol = X_csc[:,ind][~nbrhood_mask]
+            _,mwu_pval = mannwhitneyu( col.todense(), noncol.todense() )
+            mwu_pval_adj = mwu_pval * pval_rescale
+
+            if min(mwu_pval_adj, pval_adj) < pval_threshold:
                 if nbrhood_clusters_gex is None: # lazy
                     nbrhood_clusters_gex = clusters_gex[nbrhood_mask]
                     nbrhood_clusters_tcr = clusters_tcr[nbrhood_mask]
                     nbrhood_is_mait = is_mait[nbrhood_mask]
 
+
                 # better annotation of the enriched tcrs...
-                col = X_csc[:,ind][nbrhood_mask]
                 num_top = num_fg//4
                 if len(col.data)>num_top: # more than a quarter non-zero
                     top_indices = col.indices[ np.argpartition(col.data, -num_top)[-num_top:] ]
@@ -642,16 +750,29 @@ def tcr_nbrhood_rank_genes_fast(
                 else:
                     top_indices = col.indices
                 #top_indices = np.nonzero(nbrhood_mask)[0][col_top_inds]
-                noncol = X_csc[:,ind][~nbrhood_mask]
-                _,mwu_pval = mannwhitneyu( col.todense(), noncol.todense() )
-                mwu_pval_adj = mwu_pval * pval_rescale
 
                 gex_cluster = Counter( nbrhood_clusters_gex[ top_indices ]).most_common(1)[0][0]
                 tcr_cluster = Counter( nbrhood_clusters_tcr[ top_indices ]).most_common(1)[0][0]
                 mait_fraction = np.sum(nbrhood_is_mait[ top_indices ] )/len(top_indices)
 
 
-                print('tcr_{}_gene: {:9.2e} {:9.2e} {:7.3f} clp {:2d} {:2d} {:8s} {:.4f} {:.4f} {:4d} {} mf: {:.3f} {} {}'\
-                      .format( prefix_tag, pval_adj, mwu_pval_adj, log2fold, gex_cluster, tcr_cluster, gene,
-                               mean_fg[ind], mean_bg[ind], num_fg, clone_display_names[ii], mait_fraction, ii, igene ))
+                if verbose:
+                    print('tcr_{}_gene: {:9.2e} {:9.2e} {:7.3f} clp {:2d} {:2d} {:8s} {:.4f} {:.4f} {:4d} {} mf: {:.3f} {} {}'\
+                          .format( prefix_tag, pval_adj, mwu_pval_adj, log2fold, gex_cluster, tcr_cluster, gene,
+                                   mean_fg[ind], mean_bg[ind], num_fg, clone_display_names[ii], mait_fraction,
+                                   ii, igene ))
+                results.append( { 'ttest_pvalue_adj': pval_adj,
+                                  'mwu_pvalue_adj': mwu_pval_adj,
+                                  'log2enr': log2fold,
+                                  'gex_cluster': gex_cluster,
+                                  'tcr_cluster': tcr_cluster,
+                                  'gene': gene,
+                                  'mean_fg': mean_fg[ind],
+                                  'mean_bg': mean_bg[ind],
+                                  'num_fg': num_fg,
+                                  'clone_index': ii,
+                                  'mait_fraction': mait_fraction } )
+
         sys.stdout.flush()
+
+    return pd.DataFrame(results)

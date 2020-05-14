@@ -6,17 +6,89 @@ import sys
 from collections import Counter
 import pandas as pd
 
+def get_feature_types_varname( adata ):
+    ''' SPECIAL HACK for AGBT dataset
+    Figure out the correct "feature_types" varname, e.g. feature_types-0 or feature_types-0-0
+    '''
+    for name in adata.var: # the columns of the var dataframe
+        if name.startswith('feature_types'):
+            return name
+    print('unable to find feature_types varname')
+    print(adata.var_names)
+    return None
+
+def get_gene_ids_varname( adata ):
+    ''' Figure out the correct "gene_ids" varname, e.g. gene_ids-0 or gene_ids-0-0
+    '''
+    for name in adata.var:
+        if name.startswith('gene_ids'):
+            return name
+    print('unable to find feature_types varname')
+    print(adata.var_names)
+    return None
 
 def get_tenx_agbt_pmhc_var_names( adata ):
     raw = adata.raw
     if raw is None:
         raw = adata
-    ab_capture_mask = ( raw.var[ pp.get_feature_types_varname( adata )] == 'Antibody Capture' )
+    ab_capture_mask = ( raw.var[ get_feature_types_varname( adata )] == 'Antibody Capture' )
     not_totalseq_mask = ~raw.var_names.str.contains('TotalSeq')
     pmhc_mask = ab_capture_mask & not_totalseq_mask
 
     pmhc_var_names = list( raw.var_names[ pmhc_mask ] )
     return pmhc_var_names
+
+def get_pmhc_short_and_long_names_dicts( adata ):
+    ''' Returns dictionaries mapping from the feature names to short and long names that include HLA info
+    '''
+    raw = adata.raw
+    if raw is None:
+        raw = adata
+
+    ab_capture_mask = ( raw.var[ get_feature_types_varname( adata )] == 'Antibody Capture' )
+    not_totalseq_mask = ~raw.var_names.str.contains('TotalSeq')
+    pmhc_mask = ab_capture_mask & not_totalseq_mask
+
+    pmhc_gene_ids = list( raw.var[ get_gene_ids_varname(adata) ][ pmhc_mask ])
+
+    pmhc_feature_names = list( raw.var_names[ pmhc_mask ] )
+
+    pmhc_short_names = {}
+    pmhc_long_names = {}
+
+    for f, g in zip( pmhc_feature_names, pmhc_gene_ids ):
+        long_name = g[:]
+        if long_name.startswith('NR('):
+            long_name = long_name[3:].replace(')','')
+        assert long_name[0] in 'AB'
+        hla,pep = long_name.split('_')[:2]
+        short_name = '{}_{}{}'.format( hla[:3], pep[:4], len(pep))
+
+        pmhc_short_names[f] = short_name
+        pmhc_long_names[f]  = long_name
+
+    return pmhc_short_names, pmhc_long_names
+
+
+def shorten_pmhc_var_names(adata):
+    pmhc_short_names ,_ = get_pmhc_short_and_long_names_dicts(adata)
+
+    for ad in [adata, adata.raw]:
+        if ad is None:
+            continue
+
+        names = list(ad.var.index)
+        changed=False
+
+        for ii in range(len(names)):
+            if names[ii] in pmhc_short_names:
+                changed=True
+                print('change var_name from {} to {}'.format( names[ii], pmhc_short_names[names[ii]] ))
+                names[ii] = pmhc_short_names[names[ii]]
+        if changed:
+            ad.var.index = names
+
+
 
 def get_X_pmhc( adata, pmhc_var_names ):
     ''' Returns:  X_pmhc
@@ -183,7 +255,6 @@ def compute_pmhc_versus_nbrs(
         nbrs,
         agroups,
         bgroups,
-        prefix_tag,
         min_log1p_delta=2.0,
         min_actual_delta=3,
         min_positive_clones=3
@@ -196,6 +267,7 @@ def compute_pmhc_versus_nbrs(
     X_pmhc_sorted = -1 * np.sort( -1 * X_pmhc, axis=1 ) # in decreasing order
     X_pmhc_argsorted = np.argsort( -1 * X_pmhc, axis=1 ) # ditto
 
+    results = []
     for ip, pmhc in enumerate(pmhc_var_names):
         top_pmhc_index = X_pmhc_argsorted[:,0]
         log1p_delta = X_pmhc_sorted[:,0] - X_pmhc_sorted[:,1]
@@ -230,11 +302,18 @@ def compute_pmhc_versus_nbrs(
         min_exp = min(0.5, expected_total_nbrs/2.)
         log2ratio = np.log2(float(max(min_exp,total_nbrs))/expected_total_nbrs)
 
-        print('pmhc_{}_nbrs {:7d} {:3d} l2r {:7.3f} totP {:9.1e} Npos {:3d} {}'\
-              .format(prefix_tag, total_nbrs, max_nbrs, log2ratio, total_pval,
-                      num_positive_clones, pmhc ))
+        results.append( {'total_nbrs': total_nbrs,
+                         'max_nbrs': max_nbrs,
+                         'log2_enrich': log2ratio,
+                         'pvalue': total_pval,
+                         'num_positive_clones': num_positive_clones,
+                         'pmhc': pmhc } )
+        # print('pmhc_{}_nbrs {:7d} {:3d} l2r {:7.3f} totP {:9.1e} Npos {:3d} {}'\
+        #       .format(prefix_tag, total_nbrs, max_nbrs, log2ratio, total_pval,
+        #               num_positive_clones, pmhc ))
 
-
+    results_df = pd.DataFrame(results)
+    return results_df
 
 def calc_clone_pmhc_pvals(adata, min_log1p_delta=2.0, min_actual_delta=3 ):
     ''' This needs to be called before we subset to a single cell per clone
@@ -285,7 +364,8 @@ def calc_clone_pmhc_pvals(adata, min_log1p_delta=2.0, min_actual_delta=3 ):
             avglog1p_delta = X_pmhc_clone_avg[pmhc_var_names.index(pmhc)] - X_pmhc_clone_avg_sorted[1]
 
             if pval<1 or avglog1p_delta>= min_log1p_delta:
-                results.append( {'adjusted_pvalue': pval,
+                results.append( {'clone_index':c,
+                                 'adjusted_pvalue': pval,
                                  'pmhc_positive_fraction': float(count)/clone_size,
                                  'avglog1p_delta': avglog1p_delta,
                                  'num_pmhc_positive_in_clone': count,
