@@ -3,6 +3,7 @@ import math
 from os.path import exists
 import pandas as pd
 from . import preprocess as pp
+from . import mhci_scoring
 from sys import exit
 import numpy as np
 
@@ -25,8 +26,10 @@ all_tcr_scorenames = ['alphadist', 'cd8', 'cdr3len', 'mhci', 'mait', 'inkt'] +\
                      [ '{}_{}'.format(x,y) for x in aa_props_df.columns for y in cdr3_score_modes ]
 
 #tmp hacking SIMPLIFY -- dont include info on which version of the loop is used for scoring
-all_tcr_scorenames = ['alphadist', 'cd8', 'cdr3len', 'mhci', 'mait', 'inkt'] + list(aa_props_df.columns)
+all_tcr_scorenames = ['alphadist', 'cd8', 'cdr3len', 'mhci2', 'mait', 'inkt'] + list(aa_props_df.columns)
 
+amino_acids = ['A', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'K', 'L', \
+               'M', 'N', 'P', 'Q', 'R', 'S', 'T', 'V', 'W', 'Y']
 
 def read_cd8_score_params():
     # setup the scoring params
@@ -268,6 +271,8 @@ def make_tcr_score_table(adata, scorenames):
             cols.append( [ cd8_score_tcr(x) for x in tcrs ])
         elif name == 'mhci':
             cols.append( [ mhci_score_tcr(x) for x in tcrs ])
+        elif name == 'mhci2':
+            cols.append( mhci_scoring.make_mhci_score_table_column(tcrs, aa_props_df))
         elif name == 'mait':
             organism = adata.uns['organism']
             cols.append( [ mait_score_tcr(x, organism) for x in tcrs ])

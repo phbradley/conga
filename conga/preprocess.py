@@ -613,24 +613,33 @@ def filter_cells_by_ribo_norm(adata):
     assert np.sum(mask) == adata.shape[0]
     return adata
 
-def calc_nbrs( adata, nbrfrac, obsm_tag_gex = 'X_pca_gex', obsm_tag_tcr = 'X_pca_tcr' ):
-    ''' returns nbrs_gex, nbrs_tcr
 
-    nbrs exclude self and any clones in same atcr group or btcr group
-    '''
+def setup_tcr_groups( adata ):
     tcrs = retrieve_tcrs_from_adata(adata)
 
     atcrs = sorted( set( x[0] for x in tcrs ) )
     btcrs = sorted( set( x[1] for x in tcrs ) )
+
     atcr2agroup = dict( (y,x) for x,y in enumerate(atcrs))
     btcr2bgroup = dict( (y,x) for x,y in enumerate(btcrs))
+
     agroups = np.array( [ atcr2agroup[x[0]] for x in tcrs] )
     bgroups = np.array( [ btcr2bgroup[x[1]] for x in tcrs] )
 
-    print('compute D_gex')
+    return agroups, bgroups
+
+
+def calc_nbrs( adata, nbr_fracs, obsm_tag_gex = 'X_pca_gex', obsm_tag_tcr = 'X_pca_tcr' ):
+    ''' returns dict mapping from nbr_frac to [nbrs_gex, nbrs_tcr]
+
+    nbrs exclude self and any clones in same atcr group or btcr group
+    '''
+    agroups, bgroups = setup_tcr_groups(adata)
+
+    print('compute D_gex', adata.shape[0])
     D_gex = pairwise_distances( adata.obsm[obsm_tag_gex], metric='euclidean' )
 
-    print('compute D_tcr')
+    print('compute D_tcr', adata.shape[0])
     D_tcr = pairwise_distances( adata.obsm[obsm_tag_tcr], metric='euclidean' )
 
     for ii,a in enumerate(agroups):
@@ -640,11 +649,16 @@ def calc_nbrs( adata, nbrfrac, obsm_tag_gex = 'X_pca_gex', obsm_tag_tcr = 'X_pca
         D_gex[ii, (bgroups==b) ] = 1e3
         D_tcr[ii, (bgroups==b) ] = 1e3
 
-    num_neighbors = max(1, int(nbrfrac*len(tcrs)))
-    nbrs_gex = np.argpartition( D_gex, num_neighbors-1 )[:,:num_neighbors] # will NOT include self in there
-    nbrs_tcr = np.argpartition( D_tcr, num_neighbors-1 )[:,:num_neighbors] # will NOT include self in there
-    assert nbrs_tcr.shape == (len(tcrs), num_neighbors) and nbrs_gex.shape == nbrs_tcr.shape
+    all_nbrs = {}
 
-    return nbrs_gex, nbrs_tcr
+    for nbr_frac in nbr_fracs:
+        num_neighbors = max(1, int(nbr_frac*adata.shape[0]))
+        print('argpartitions:', nbr_frac, adata.shape[0])
+        nbrs_gex = np.argpartition( D_gex, num_neighbors-1 )[:,:num_neighbors] # will NOT include self in there
+        nbrs_tcr = np.argpartition( D_tcr, num_neighbors-1 )[:,:num_neighbors] # will NOT include self in there
+        assert nbrs_tcr.shape == (adata.shape[0], num_neighbors) and nbrs_gex.shape == nbrs_tcr.shape
+        all_nbrs[nbr_frac] = [nbrs_gex, nbrs_tcr]
+
+    return all_nbrs
 
 

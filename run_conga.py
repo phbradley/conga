@@ -40,7 +40,7 @@ parser.add_argument('--skip_tcr_scores_in_gex_header', action='store_true')
 parser.add_argument('--tenx_agbt', action='store_true')
 parser.add_argument('--include_alphadist_in_tcr_feature_logos', action='store_true')
 parser.add_argument('--gex_header_tcr_score_names', type=str, nargs='*',
-                    default= ['mhci', 'cdr3len', 'cd8', 'alphadist'])
+                    default= ['mhci2', 'cdr3len', 'cd8', 'alphadist'])
 parser.add_argument('--gex_nbrhood_tcr_score_names', type=str, nargs='*',
                     default=conga.tcr_scores.all_tcr_scorenames )
 
@@ -137,6 +137,7 @@ else:
         assert args.organism
         adata.uns['organism'] = args.organism
 
+
 if args.exclude_gex_clusters:
     xl = args.exclude_gex_clusters
     clusters_gex = adata.obs['clusters_gex']
@@ -152,6 +153,8 @@ if args.exclude_gex_clusters:
     if args.checkpoint:
         adata.write_h5ad(args.outfile_prefix+'_checkpoint1.h5ad')
 
+################################################ DONE WITH INITIAL SETUP #########################################
+
 if args.write_proj_info:
     outfile = args.outfile_prefix+'_2d_proj_info.txt'
     pp.write_proj_info( adata, outfile )
@@ -161,42 +164,14 @@ conga.util.setup_tcr_cluster_names(adata) #stores in adata.uns
 clusters_gex = adata.obs['clusters_gex']
 clusters_tcr = adata.obs['clusters_tcr']
 
-tcrs = pp.retrieve_tcrs_from_adata(adata)
-barcode2tcr = { x:y for x,y in zip( adata.obs_names, tcrs )}
-num_clones = len(tcrs)
+num_clones = adata.shape[0]
 
-cc.compute_cluster_interactions( clusters_gex, clusters_tcr, adata.obs_names, barcode2tcr, outlog )
+#barcode2tcr = { x:y for x,y in zip( adata.obs_names, tcrs )}
+#cc.compute_cluster_interactions( clusters_gex, clusters_tcr, adata.obs_names, barcode2tcr, outlog )
 
-atcrs = sorted( set( x[0] for x in tcrs ) )
-btcrs = sorted( set( x[1] for x in tcrs ) )
-atcr2agroup = dict( (y,x) for x,y in enumerate(atcrs))
-btcr2bgroup = dict( (y,x) for x,y in enumerate(btcrs))
-agroups = np.array( [ atcr2agroup[x[0]] for x in tcrs] )
-bgroups = np.array( [ btcr2bgroup[x[1]] for x in tcrs] )
+agroups, bgroups = pp.setup_tcr_groups(adata)
 
-print('compute D_gex')
-D_gex = pairwise_distances( adata.obsm['X_pca_gex'], metric='euclidean' )
-
-print('compute D_tcr')
-D_tcr = pairwise_distances( adata.obsm['X_pca_tcr'], metric='euclidean' )
-
-for ii,a in enumerate(agroups):
-    D_gex[ii, (agroups==a) ] = 1e3
-    D_tcr[ii, (agroups==a) ] = 1e3
-for ii,b in enumerate(bgroups):
-    D_gex[ii, (bgroups==b) ] = 1e3
-    D_tcr[ii, (bgroups==b) ] = 1e3
-
-print('compute nbrs') # this could be more memory efficient if we didn't store all the nbr arrays
-all_nbrs = {}
-for nbr_frac in args.nbr_fracs:
-    num_neighbors = max(1, int(nbr_frac*num_clones))
-    nbrs_gex = np.argpartition( D_gex, num_neighbors-1 )[:,:num_neighbors] # will NOT include self in there
-    nbrs_tcr = np.argpartition( D_tcr, num_neighbors-1 )[:,:num_neighbors] # will NOT include self in there
-    assert nbrs_tcr.shape == (num_clones, num_neighbors) and nbrs_gex.shape == nbrs_tcr.shape
-    all_nbrs[nbr_frac] = [nbrs_gex, nbrs_tcr]
-
-
+all_nbrs = pp.calc_nbrs( adata, args.nbr_fracs ) # dict from nbr_frac to [nbrs_gex, nbrs_tcr]
 
 bad_conga_score = -1*np.log10(num_clones)
 conga_scores = np.full( (num_clones,3), bad_conga_score)
@@ -214,7 +189,7 @@ if args.find_nbrhood_overlaps:
         results_df['overlap_type'] = 'nbr_nbr'
         all_results.append(results_df)
         for r in results_df.itertuples():
-            conga_scores[ii,0] = max(conga_scores[ii,0], -1*np.log10(r.conga_score) )
+            conga_scores[r.clone_index,0] = max(conga_scores[r.clone_index,0], -1*np.log10(r.conga_score) )
 
         print('find_neighbor_cluster_interactions:')
         results_df = cc.find_neighbor_cluster_interactions(
@@ -223,7 +198,7 @@ if args.find_nbrhood_overlaps:
         results_df['overlap_type'] = 'cluster_nbr'
         all_results.append(results_df)
         for r in results_df.itertuples():
-            conga_scores[ii,1] = max(conga_scores[ii,1], -1*np.log10(r.conga_score) )
+            conga_scores[r.clone_index,1] = max(conga_scores[r.clone_index,1], -1*np.log10(r.conga_score) )
 
         print('find_neighbor_cluster_interactions:')
         results_df = cc.find_neighbor_cluster_interactions(
@@ -232,7 +207,7 @@ if args.find_nbrhood_overlaps:
         results_df['overlap_type'] = 'nbr_cluster'
         all_results.append(results_df)
         for r in results_df.itertuples():
-            conga_scores[ii,2] = max(conga_scores[ii,2], -1*np.log10(r.conga_score) )
+            conga_scores[r.clone_index,2] = max(conga_scores[r.clone_index,2], -1*np.log10(r.conga_score) )
 
     results_df = pd.concat(all_results)
     indices = results_df['clone_index']
@@ -258,14 +233,6 @@ if args.find_pmhc_nbrhood_overlaps:
     tsvfile = args.outfile_prefix+'_pmhc_versus_nbrs.tsv'
     print('making:', tsvfile)
     pd.concat(pmhc_nbrhood_overlap_results).to_csv(tsvfile, index=False, sep='\t')
-
-# # compute nbrs for other analyses, using largest of nbr_fracs
-# nbr_frac = max(args.nbr_fracs)
-# num_neighbors = max(1, int(nbr_frac* num_clones))
-# nbrs_gex = np.argpartition( D_gex, num_neighbors-1 )[:,:num_neighbors] # will NOT include self in there
-# nbrs_tcr = np.argpartition( D_tcr, num_neighbors-1 )[:,:num_neighbors] # will NOT include self in there
-# assert nbrs_tcr.shape == (num_clones, num_neighbors) and nbrs_gex.shape == nbrs_tcr.shape
-
 
 adata.obsm['conga_scores'] = conga_scores
 
@@ -305,13 +272,11 @@ if args.find_tcr_nbrhood_genes:
                                         pngfile, exclude_strings=exclude_strings)
 
 
-    ####cc.tcr_nbrhood_rank_genes( adata, nbrs_tcr, pval_threshold, rank_method=args.tcr_nbrhood_rank_genes_method)
-
 if args.find_tcr_cluster_genes:
     # make some fake nbrs
     fake_nbrs_tcr = []
     seen = set()
-    for ii, cl in enumerate(clusters_tcr):
+    for cl in clusters_tcr:
         if cl in seen:
             fake_nbrs_tcr.append([])
         else:
@@ -328,6 +293,8 @@ if args.find_tcr_cluster_genes:
     tcr_cluster_genes_results = results_df
 
 if args.find_tcr_segment_genes:
+    tcrs = pp.retrieve_tcrs_from_adata(adata)
+
     for iab,ab in enumerate('AB'):
         for iseg,seg in enumerate('VJ'):
             genes = [ x[iab][iseg] for x in tcrs ]
@@ -337,13 +304,13 @@ if args.find_tcr_segment_genes:
             fake_nbrs_tcr = []
             clone_display_names = []
             seen = set()
-            for ii, g in enumerate(genes):
+            for g in genes:
                 if g in seen:
                     fake_nbrs_tcr.append([])
                     clone_display_names.append('')
                 else:
                     seen.add(g)
-                    fake_nbrs_tcr.append(np.nonzero( genes==g )[0] ) # this will include ii but don't think thats a prob
+                    fake_nbrs_tcr.append(np.nonzero( genes==g )[0] ) # this will include self but dont think thats a prob
                     clone_display_names.append(g)
 
             pval_threshold = 1.
@@ -380,7 +347,7 @@ if args.find_gex_cluster_scores:
     # make some fake nbrs
     fake_nbrs_gex = []
     seen = set()
-    for ii, cl in enumerate(clusters_gex):
+    for cl in clusters_gex:
         if cl in seen:
             fake_nbrs_gex.append([])
         else:

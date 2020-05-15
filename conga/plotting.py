@@ -208,7 +208,7 @@ def make_logo_plots(
         make_gex_header=True,
         make_gex_header_raw=True,
         make_gex_header_nbrZ=True,
-        gex_header_tcr_score_names = ['mhci', 'cdr3len', 'cd8', 'alphadist'],
+        gex_header_tcr_score_names = ['mhci2', 'cdr3len', 'cd8', 'alphadist'],
 ):
     ''' need:
     * gex/tcr clusters: (obsm)
