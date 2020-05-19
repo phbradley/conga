@@ -22,11 +22,11 @@ aa_props_file = '/home/pbradley/gitrepos/conga/conga/data/aa_props.tsv'
 aa_props_df = pd.read_csv(aa_props_file, sep='\t')
 aa_props_df.set_index('aa', inplace=True)
 
-all_tcr_scorenames = ['alphadist', 'cd8', 'cdr3len', 'mhci', 'mait', 'inkt'] +\
-                     [ '{}_{}'.format(x,y) for x in aa_props_df.columns for y in cdr3_score_modes ]
+# all_tcr_scorenames = ['alphadist', 'cd8', 'cdr3len', 'mhci', 'mait', 'inkt'] +\
+#                      [ '{}_{}'.format(x,y) for x in aa_props_df.columns for y in cdr3_score_modes ]
 
 #tmp hacking SIMPLIFY -- dont include info on which version of the loop is used for scoring
-all_tcr_scorenames = ['alphadist', 'cd8', 'cdr3len', 'mhci2', 'mait', 'inkt'] + list(aa_props_df.columns)
+all_tcr_scorenames = ['alphadist', 'cd8', 'cdr3len', 'mhci2', 'mait', 'inkt', 'nndists_tcr'] + list(aa_props_df.columns)
 
 amino_acids = ['A', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'K', 'L', \
                'M', 'N', 'P', 'Q', 'R', 'S', 'T', 'V', 'W', 'Y']
@@ -279,6 +279,8 @@ def make_tcr_score_table(adata, scorenames):
         elif name == 'inkt':
             organism = adata.uns['organism']
             cols.append( [ inkt_score_tcr(x, organism) for x in tcrs ])
+        elif name == 'nndists_tcr':
+            cols.append( np.array(adata.obs['nndists_tcr']) )
         else:
             score_mode = name.split('_')[-1]
             score_name = '_'.join( name.split('_')[:-1])

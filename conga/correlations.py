@@ -323,45 +323,45 @@ def run_rank_genes_on_good_cluster_pairs(
     # return retvals
 
 
-def run_rank_genes_on_cells(
-        adata,
-        mask,
-        key_added='rank_genes_on_cells',
-        pos_tag='pos',
-        #rank_method='t-test',
-        rank_method='wilcoxon',
-        rg_tag = 'test',
-        neg_tag='neg',
-        min_pos=3,
-        max_pval_for_output=10,
-        n_genes=100
-):
-    ''' Returns list of the top n_genes [rank(0-indexed), gene, log2fold, pval_adj, score ]
-    '''
-    assert mask.shape[0] == adata.shape[0]
-    if np.sum(mask) < min_pos:
-        return []
+# def run_rank_genes_on_cells(
+#         adata,
+#         mask,
+#         key_added='rank_genes_on_cells',
+#         pos_tag='pos',
+#         #rank_method='t-test',
+#         rank_method='wilcoxon',
+#         rg_tag = 'test',
+#         neg_tag='neg',
+#         min_pos=3,
+#         max_pval_for_output=10,
+#         n_genes=100
+# ):
+#     ''' Returns list of the top n_genes [rank(0-indexed), gene, log2fold, pval_adj, score ]
+#     '''
+#     assert mask.shape[0] == adata.shape[0]
+#     if np.sum(mask) < min_pos:
+#         return []
 
-    if not pp.check_if_raw_matrix_is_logged(adata):
-        print('ERROR need to log the raw matrix before calling run_rank_genes_on_cells')
-        exit()
+#     if not pp.check_if_raw_matrix_is_logged(adata):
+#         print('ERROR need to log the raw matrix before calling run_rank_genes_on_cells')
+#         exit()
 
-    vals = [ pos_tag if a else neg_tag for a in mask ]
+#     vals = [ pos_tag if a else neg_tag for a in mask ]
 
-    adata.obs[rg_tag] = vals
+#     adata.obs[rg_tag] = vals
 
-    sc.tl.rank_genes_groups(adata, groupby=rg_tag, method=rank_method, groups=[pos_tag], reference=neg_tag,
-                            key_added=key_added, n_genes=n_genes)
+#     sc.tl.rank_genes_groups(adata, groupby=rg_tag, method=rank_method, groups=[pos_tag], reference=neg_tag,
+#                             key_added=key_added, n_genes=n_genes)
 
-    retvals = []
+#     retvals = []
 
-    for igene,gene in enumerate( adata.uns[key_added]['names'][pos_tag] ):
-        log2fold = adata.uns[key_added]['logfoldchanges'][pos_tag][igene]
-        pval_adj = adata.uns[key_added]['pvals_adj'][pos_tag][igene]
-        score = adata.uns[key_added]['scores'][pos_tag][igene]
-        retvals.append( [ igene, gene, log2fold, pval_adj, score ] )
+#     for igene,gene in enumerate( adata.uns[key_added]['names'][pos_tag] ):
+#         log2fold = adata.uns[key_added]['logfoldchanges'][pos_tag][igene]
+#         pval_adj = adata.uns[key_added]['pvals_adj'][pos_tag][igene]
+#         score = adata.uns[key_added]['scores'][pos_tag][igene]
+#         retvals.append( [ igene, gene, log2fold, pval_adj, score ] )
 
-    return retvals
+#     return retvals
 
 def calc_good_cluster_tcr_features(
         adata,
@@ -648,7 +648,8 @@ def tcr_nbrhood_rank_genes_fast(
     #tcrs = pp.retrieve_tcrs_from_adata(adata)
     #nbrhood_infos = get_nbrhood_infostrings(adata, nbrs_tcr)
 
-    genes = adata.raw.var_names
+    genes = list(adata.raw.var_names)
+    num_real_genes = len(genes)
     X = adata.raw.X
     assert issparse(X)
     assert X.shape[1] == len(genes)
@@ -657,14 +658,22 @@ def tcr_nbrhood_rank_genes_fast(
     X_csc = adata.raw.X.tocsc()
 
     print('square X')
-    X2 = X.multiply(X)
+    X_sq = X.multiply(X)
     print('done squaring X')
 
     mean = X.mean(axis=0)
-    mean_sq = X2.mean(axis=0)
+    mean_sq = X_sq.mean(axis=0)
     print('done taking big means')
 
-    reference_indices = np.arange(X.shape[1], dtype=int)
+    ## add some extra fake genes
+    genes2 = ['clone_sizes', 'nndists_gex_rank']
+    X2 = np.vstack( [np.log1p(np.array(adata.obs['clone_sizes'])),
+                     np.log1p(np.argsort(-1*np.array(adata.obs['nndists_gex'])))] ).transpose()
+    assert X2.shape == (num_clones,2)
+    X2_sq = X2*X2
+    mean2 = X2.mean(axis=0)
+    mean2_sq = X2_sq.mean(axis=0)
+
     # need this?
     mean = mean.A1
     mean_sq = mean_sq.A1
@@ -674,11 +683,15 @@ def tcr_nbrhood_rank_genes_fast(
     # len(genes) is probably too hard since lots of the genes are all zeros
     min_nonzero_cells = 3
     gene_nonzero_counts = Counter( X.nonzero()[1] )
-    bad_gene_mask = np.array([ gene_nonzero_counts[x] < min_nonzero_cells for x in range(len(genes)) ])
+    bad_gene_mask = np.array([ gene_nonzero_counts[x] < min_nonzero_cells for x in range(len(genes)) ]+
+                             [False]*len(genes2))
     n_genes_eff = np.sum(~bad_gene_mask)
     pval_rescale = num_nonempty_nbrhoods * n_genes_eff
 
     results = []
+
+    genes.extend(genes2) # since we are hstacking the vars, etc
+    reference_indices = np.arange(len(genes), dtype=int)
 
     for ii in range(num_clones):
         if len(nbrs_tcr[ii])==0:
@@ -687,13 +700,17 @@ def tcr_nbrhood_rank_genes_fast(
         nbrhood_mask[ nbrs_tcr[ii] ] = True
         nbrhood_mask[ ii ] = True
 
-        mean_fg, var_fg, mean_bg, var_bg = get_split_mean_var(X, X2, nbrhood_mask, mean, mean_sq)
+        mean_fg, var_fg, mean_bg, var_bg = get_split_mean_var(X, X_sq, nbrhood_mask, mean, mean_sq)
+        mean2_fg, var2_fg, mean2_bg, var2_bg = get_split_mean_var(X2, X2_sq, nbrhood_mask, mean2, mean2_sq)
+
         num_fg = np.sum(nbrhood_mask)
         if num_fg < min_num_fg:
             continue
+        mean_fg = np.hstack([mean_fg, mean2_fg])
+        mean_bg = np.hstack([mean_bg, mean2_bg]) # note that we dont do the variances...
         scores, pvals = stats.ttest_ind_from_stats(
-            mean1=mean_fg, std1=np.sqrt(var_fg), nobs1=num_fg,
-            mean2=mean_bg, std2=np.sqrt(var_bg), nobs2=num_clones-num_fg,
+            mean1=mean_fg, std1=np.sqrt(np.hstack([var_fg, var2_fg])), nobs1=num_fg,
+            mean2=mean_bg, std2=np.sqrt(np.hstack([var_bg, var2_fg])), nobs2=num_clones-num_fg,
             equal_var=False  # Welch's
         )
 
@@ -729,9 +746,15 @@ def tcr_nbrhood_rank_genes_fast(
             if pval_adj > ttest_pval_threshold_for_mwu_calc:
                 continue
 
-            col = X_csc[:,ind][nbrhood_mask]
-            noncol = X_csc[:,ind][~nbrhood_mask]
-            _,mwu_pval = mannwhitneyu( col.todense(), noncol.todense() )
+            is_real_gene = ind < num_real_genes
+            if is_real_gene:
+                col = X_csc[:,ind][nbrhood_mask]
+                noncol = X_csc[:,ind][~nbrhood_mask]
+                _,mwu_pval = mannwhitneyu( col.todense(), noncol.todense() )
+            else:
+                col = X2[:,ind-num_real_genes][nbrhood_mask]
+                noncol = X2[:,ind-num_real_genes][~nbrhood_mask]
+                _,mwu_pval = mannwhitneyu(col, noncol)
             mwu_pval_adj = mwu_pval * pval_rescale
 
             if min(mwu_pval_adj, pval_adj) < pval_threshold:
@@ -743,12 +766,16 @@ def tcr_nbrhood_rank_genes_fast(
 
                 # better annotation of the enriched tcrs...
                 num_top = num_fg//4
-                if len(col.data)>num_top: # more than a quarter non-zero
-                    top_indices = col.indices[ np.argpartition(col.data, -num_top)[-num_top:] ]
-                    #bot_indices = col.indices[ np.argpartition(col.data, num_top-1)[:num_top] ]
-                    #assert np.mean(col[top_indices]) > np.mean(col[bot_indices])
+                if is_real_gene: # col is sparse...
+                    if len(col.data)>num_top: # more than a quarter non-zero
+                        top_indices = col.indices[ np.argpartition(col.data, -num_top)[-num_top:] ]
+                        #bot_indices = col.indices[ np.argpartition(col.data, num_top-1)[:num_top] ]
+                        #assert np.mean(col[top_indices]) > np.mean(col[bot_indices])
+                    else:
+                        top_indices = col.indices
                 else:
-                    top_indices = col.indices
+                    top_indices = np.argpartition(col, -num_top)[-num_top:]
+
                 #top_indices = np.nonzero(nbrhood_mask)[0][col_top_inds]
 
                 gex_cluster = Counter( nbrhood_clusters_gex[ top_indices ]).most_common(1)[0][0]

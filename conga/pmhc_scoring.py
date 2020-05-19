@@ -298,16 +298,22 @@ def compute_pmhc_versus_nbrs(
 
         total_pval = calc_pmhc_nbrs_total_pval( pmhc_mask, nbrs, agroups, bgroups )
 
-        chisq = (total_nbrs-expected_total_nbrs)**2 / expected_total_nbrs
-        min_exp = min(0.5, expected_total_nbrs/2.)
-        log2ratio = np.log2(float(max(min_exp,total_nbrs))/expected_total_nbrs)
+        if total_nbrs==0:
+            if expected_total_nbrs <1.0:
+                log2ratio = 0.0
+            else:
+                # give a pseudocount of 0.5
+                log2ratio = np.log2(0.5/expected_total_nbrs)
+        else:
+            log2ratio = np.log2(float(total_nbrs)/expected_total_nbrs)
 
-        results.append( {'total_nbrs': total_nbrs,
-                         'max_nbrs': max_nbrs,
-                         'log2_enrich': log2ratio,
-                         'pvalue': total_pval,
-                         'num_positive_clones': num_positive_clones,
-                         'pmhc': pmhc } )
+        results.append( dict(total_nbrs=total_nbrs,
+                             expected_total_nbrs=expected_total_nbrs,
+                             max_nbrs=max_nbrs,
+                             log2_enrich=log2ratio,
+                             pvalue=total_pval,
+                             num_positive_clones=num_positive_clones,
+                             pmhc=pmhc ) )
         # print('pmhc_{}_nbrs {:7d} {:3d} l2r {:7.3f} totP {:9.1e} Npos {:3d} {}'\
         #       .format(prefix_tag, total_nbrs, max_nbrs, log2ratio, total_pval,
         #               num_positive_clones, pmhc ))

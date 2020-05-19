@@ -25,6 +25,7 @@ parser.add_argument('--make_avgfull_logos', action='store_true')
 parser.add_argument('--make_clone_plots', action='store_true')
 parser.add_argument('--write_proj_info', action='store_true')
 parser.add_argument('--filter_ribo_norm_low_cells', action='store_true')
+
 parser.add_argument('--calc_clone_pmhc_pvals', action='store_true')
 parser.add_argument('--find_nbrhood_overlaps', action='store_true')
 parser.add_argument('--find_pmhc_nbrhood_overlaps', action='store_true') # only if pmhc info is present
@@ -33,6 +34,7 @@ parser.add_argument('--find_tcr_cluster_genes', action='store_true')
 parser.add_argument('--find_tcr_segment_genes', action='store_true')
 parser.add_argument('--find_gex_nbrhood_scores', action='store_true')
 parser.add_argument('--find_gex_cluster_scores', action='store_true')
+
 parser.add_argument('--skip_gex_header', action='store_true')
 parser.add_argument('--skip_gex_header_raw', action='store_true')
 parser.add_argument('--skip_gex_header_nbrZ', action='store_true')
@@ -40,7 +42,7 @@ parser.add_argument('--skip_tcr_scores_in_gex_header', action='store_true')
 parser.add_argument('--tenx_agbt', action='store_true')
 parser.add_argument('--include_alphadist_in_tcr_feature_logos', action='store_true')
 parser.add_argument('--gex_header_tcr_score_names', type=str, nargs='*',
-                    default= ['mhci2', 'cdr3len', 'cd8', 'alphadist'])
+                    default= ['mhci2', 'cdr3len', 'cd8', 'nndists_tcr'])
 parser.add_argument('--gex_nbrhood_tcr_score_names', type=str, nargs='*',
                     default=conga.tcr_scores.all_tcr_scorenames )
 
@@ -68,9 +70,11 @@ import pandas as pd
 from collections import Counter
 from os.path import exists
 import sys
+import scipy.stats
 
 logfile = args.outfile_prefix+'_log.txt'
 outlog = open(logfile, 'w')
+outlog.write('sys.argv: {}\n'.format(' '.join(sys.argv)))
 
 if args.from_checkpoint1 is None:
 
@@ -109,14 +113,15 @@ if args.from_checkpoint1 is None:
 
     adata = pp.filter_and_scale( adata )
 
+    if args.filter_ribo_norm_low_cells:
+        adata = pp.filter_cells_by_ribo_norm( adata )
+
     if args.calc_clone_pmhc_pvals: # do this before condensing to a single clone per cell
+        # note that we are doing this after filtering out the ribo-low cells
         results_df = conga.pmhc_scoring.calc_clone_pmhc_pvals(adata)
         tsvfile = args.outfile_prefix+'_clone_pvals.tsv'
         print('making:', tsvfile)
-        results_df.to_csv(tsvfile, sep='\t')
-
-    if args.filter_ribo_norm_low_cells:
-        adata = pp.filter_cells_by_ribo_norm( adata )
+        results_df.to_csv(tsvfile, sep='\t', index=False)
 
     if args.make_clone_plots:
         pngfile = args.outfile_prefix+'_clone_plots.png'
@@ -171,7 +176,14 @@ num_clones = adata.shape[0]
 
 agroups, bgroups = pp.setup_tcr_groups(adata)
 
-all_nbrs = pp.calc_nbrs( adata, args.nbr_fracs ) # dict from nbr_frac to [nbrs_gex, nbrs_tcr]
+# all_nbrs is dict from nbr_frac to [nbrs_gex, nbrs_tcr]
+# for nndist calculations, use a smallish nbr_frac, but not too small:
+nbr_frac_for_nndists = min( x for x in args.nbr_fracs if x*num_clones>=10 or x==max(args.nbr_fracs) )
+outlog.write(f'nbr_frac_for_nndists: {nbr_frac_for_nndists}\n')
+all_nbrs, nndists_gex, nndists_tcr = pp.calc_nbrs( adata, args.nbr_fracs, also_calc_nndists=True,
+                                                   nbr_frac_for_nndists=nbr_frac_for_nndists )
+adata.obs['nndists_gex'] = nndists_gex
+adata.obs['nndists_tcr'] = nndists_tcr
 
 bad_conga_score = -1*np.log10(num_clones)
 conga_scores = np.full( (num_clones,3), bad_conga_score)
@@ -180,6 +192,18 @@ if args.find_nbrhood_overlaps:
     all_results = []
     for nbr_frac in args.nbr_fracs:
         nbrs_gex, nbrs_tcr = all_nbrs[nbr_frac]
+
+        # look at the in-degree distribution
+        expected_indegree = nbrs_gex.shape[1]
+        gex_counts = Counter(nbrs_gex.flatten())
+        gex_indegree_bias = np.array( [ gex_counts[x]/expected_indegree for x in range(num_clones) ] )
+        print(f'gex_indegree_bias: nbr_frac= {nbr_frac:.4f}', scipy.stats.describe(gex_indegree_bias))
+        tcr_counts = Counter(nbrs_tcr.flatten())
+        tcr_indegree_bias = np.array( [ tcr_counts[x]/expected_indegree for x in range(num_clones) ] )
+        print('tcr_indegree_bias: nbr_frac= {nbr_frac:.4f}', scipy.stats.describe(tcr_indegree_bias))
+        # any correlation?
+        print('indegree_bias_correlation:', scipy.stats.linregress(gex_indegree_bias, tcr_indegree_bias))
+
 
         pval_threshold = 1. # since they are being scaled by num_clones
         print('find_neighbor_neighbor_interactions:')
@@ -224,8 +248,7 @@ if args.find_pmhc_nbrhood_overlaps:
     for nbr_frac in args.nbr_fracs:
         nbrs_gex, nbrs_tcr = all_nbrs[nbr_frac]
         for tag, nbrs in [['gex', nbrs_gex], ['tcr', nbrs_tcr]]:
-            results_df = conga.pmhc_scoring.compute_pmhc_versus_nbrs(
-                adata, nbrs, agroups, bgroups, '{}_{}'.format(tag, nbr_frac))
+            results_df = conga.pmhc_scoring.compute_pmhc_versus_nbrs(adata, nbrs, agroups, bgroups )
             results_df['nbr_tag'] = tag
             results_df['nbr_frac'] = nbr_frac
             pmhc_nbrhood_overlap_results.append( results_df )

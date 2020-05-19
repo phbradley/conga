@@ -61,5 +61,20 @@ def make_mhci_score_table_column(tcrs, aa_props_df):
     scores += intercept
     return scores
 
+def get_mhci_raw_score_terms_and_coefs(tcrs, aa_props_df):
+    ''' Just for diagnostics/visualization
+    '''
+    cols = []
+    features = []
+    coefs = []
+    for row in mhci_model_df.itertuples():
+        col = np.array( [ get_feature(x, row.Index, aa_props_df) for x in tcrs] )
+        cols.append(  (col - row.mean)/np.sqrt(row.var) )
+        coefs.append(row.coef)
+        features.append(row.Index)
+
+    return np.array(cols).transpose(), features, coefs
+
+
 
 

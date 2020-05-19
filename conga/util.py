@@ -7,7 +7,7 @@ from collections import Counter
 from . import preprocess as pp
 
 PYTHON2_EXE = '/home/pbradley/anaconda2/bin/python2.7'
-TCRDIST_REPO = '/home/pbradley/csdat/tcr-dist/'
+TCRDIST_REPO = '/home/pbradley/gitrepos/tcr-dist/'
 
 def get_mean_var_scanpy(X):
     ''' this is based on---ie stolen from---scanpy's _get_mean_var function

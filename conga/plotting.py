@@ -18,6 +18,11 @@ from matplotlib.collections import LineCollection
 from scipy.cluster import hierarchy
 from scipy.spatial import distance
 
+# this is not crucial: we could add a check for it
+from adjustText import adjust_text
+
+
+
 default_logo_genes = {
     'human': ['CD4','CD8A','CD8B','CCR7','SELL',
               'GNLY','PRF1','GZMA','GZMB','GZMK','GZMH',
@@ -29,8 +34,8 @@ default_logo_genes = {
 
 
 default_gex_header_genes = {
-    'human': ['CD4','CD8A','CD8B','SELL','GNLY','GZMA','CCL5','ZNF683','IKZF2','PDCD1','KLRB1'],
-    'mouse': ['Cd4', 'Cd8a', 'Cd8b1', 'Sell', 'Itgal', 'Gzma', 'Ccl5', 'Il2rb', 'Ikzf2', 'Pdcd1', 'Zbtb16']
+    'human': ['clone_sizes','CD4','CD8A','CD8B','SELL','GNLY','GZMA','CCL5','ZNF683','IKZF2','PDCD1','KLRB1'],
+    'mouse': ['clone_sizes','Cd4', 'Cd8a', 'Cd8b1', 'Sell', 'Itgal', 'Gzma', 'Ccl5', 'Il2rb', 'Ikzf2', 'Pdcd1', 'Zbtb16']
 }
 
 
@@ -208,12 +213,12 @@ def make_logo_plots(
         make_gex_header=True,
         make_gex_header_raw=True,
         make_gex_header_nbrZ=True,
-        gex_header_tcr_score_names = ['mhci2', 'cdr3len', 'cd8', 'alphadist'],
+        gex_header_tcr_score_names = ['mhci2', 'cdr3len', 'cd8', 'nndists_tcr'], # was alphadist
 ):
     ''' need:
     * gex/tcr clusters: (obsm)
     * clones files for cluster-pairs with enough "good" clones
-    * clone sizes (obs: clone_size)
+    * clone sizes (obs: clone_sizes)
     * tcrs (obs)
     * 2d projections: gex and tcr (obsm: X_gex_2d, X_tcr_2d)
     * conga scores (aka all_max_nbr_chisq): (obsm: conga_scores)
@@ -247,6 +252,8 @@ def make_logo_plots(
     X_igex = adata.obsm['X_igex']
     X_igex_genes = list(adata.uns['X_igex_genes']) #for .index
     organism = adata.uns['organism']
+    # nndists_gex = np.array(adata.obs['nndists_gex']) # for choosing a representative clonotype
+    # nndists_tcr = np.array(adata.obs['nndists_tcr']) # to label
 
     tcrs = pp.retrieve_tcrs_from_adata(adata)
     ################################################################# no more unpacking below here...
@@ -268,6 +275,15 @@ def make_logo_plots(
         assert header2_tcr_scores.shape == ( adata.shape[0], len(gex_header_tcr_score_names))
     else:
         header2_tcr_scores = None
+
+    if 'clone_sizes' in header2_genes:
+        X_igex = np.hstack( [X_igex, np.log(np.array(clone_sizes)[:,np.newaxis]) ] )
+        X_igex_genes.append('clone_sizes')
+        assert X_igex.shape == (num_clones, len(X_igex_genes))
+    if 'nndists_gex' in header2_genes:
+        X_igex = np.hstack( [X_igex, np.array(adata.obs['nndists_gex'])[:,np.newaxis] ] )
+        X_igex_genes.append('nndists_gex')
+        assert X_igex.shape == (num_clones, len(X_igex_genes))
 
     gene_width = 6
 
@@ -399,15 +415,18 @@ def make_logo_plots(
     header_height = (fig_width-2*margin)/6.
 
     num_header2_rows = int(make_gex_header_nbrZ)+int(make_gex_header_raw)
+    gex_logo_key_width = 2 # in header2 cols
+
     if make_gex_header:
-        num_header2_tcr_score_cols = len(gex_header_tcr_score_names)//num_header2_rows
+        num_header2_tcr_score_cols = max(gex_logo_key_width,
+                                         (gex_logo_key_width+len(gex_header_tcr_score_names))//num_header2_rows)
         gap_between_gex_and_tcr_panels = logo_height/10. if num_header2_tcr_score_cols else 0
         header2_height = (fig_width-2*margin-gap_between_gex_and_tcr_panels)/\
                          (len(header2_genes) + num_header2_tcr_score_cols)
 
     else:
         header2_height = 0.
-    fig_height = 3*margin + header_height + num_header2_rows * header2_height + len(clps)*logo_height
+    fig_height = 2*margin + header_height + num_header2_rows * header2_height + len(clps)*logo_height
 
     # frac_scale is in units of pts^2, and sqrt(frac_scale) is the MAX width in points of the marker
     # there are 72 points per inch
@@ -496,8 +515,10 @@ def make_logo_plots(
         ## first a plot colored by the clusters
         if icol==0 or icol==1 and ignore_tcr_cluster_colors:
             clusters = clusters_gex
+            cluster_names = clusters_gex_names
         else:
             clusters = clusters_tcr
+            cluster_names = clusters_tcr_names
         bottom = (fig_height-margin-header_height)/fig_height
         height = header_height/fig_height
         left = (margin+3*icol*header_height)/fig_width # make these plots square, so height=width
@@ -516,6 +537,25 @@ def make_logo_plots(
         if icol==0:
             plt.text(0.01,0.01,'{} clones'.format(len(all_xy)), ha='left', va='bottom', fontsize=8,
                      transform=plt.gca().transAxes)
+
+        ## add cluster labels to the plot, try drawing at centroid location
+        texts = []
+        #nndists = nndists_gex if proj_tag == 'GEX' else nndists_tcr
+        for c in set(clusters):
+            cmask = (clusters==c)
+            centroid =np.mean(xy[cmask], axis=0)
+            #inds = np.nonzero(cmask)[0]
+            #center = inds[ np.argmin(nndists[cmask]) ]
+            #print('cluster center', proj_tag, center, nndists[center], '=?=', np.min(nndists[cmask]) )
+            # texts.append( plt.text( xy[center,0], xy[center,1], cluster_names[c], color=C[c], fontsize=10,
+            #                         bbox=dict(facecolor='white', alpha=0.5, edgecolor='white', pad=1)))
+            fontsize = 10 if len(cluster_names[c])<=2 else 8
+            texts.append( plt.text( centroid[0], centroid[1], cluster_names[c], color='k', fontsize=fontsize,
+                                    bbox=dict(facecolor='white', alpha=0.5, edgecolor='white', pad=1)))
+        #print('start adjusting')
+        #iterations = adjust_text(texts, xy[:,0], xy[:,1], lim=1000, precision=1e-4, expand_points=(1.5,1.5))
+        #print('DONE adjusting', iterations)
+
         # xmn,xmx = plt.xlim()
         # ymn,ymx = plt.ylim()
 
@@ -674,7 +714,8 @@ def make_logo_plots(
                     plt.ylabel('GEX UMAP2', fontsize=6, labelpad=1)
                     if not make_gex_header_nbrZ:
                         plt.xlabel('GEX UMAP1', fontsize=6, labelpad=1)
-                plt.text( xmn+pad, ymx, 'raw', va='top', ha='left', fontsize=8)
+                if make_gex_header_nbrZ:
+                    plt.text( xmn+pad, ymx, 'raw', va='top', ha='left', fontsize=8)
                 plt.text( xmx, ymx, gene, va='top', ha='right', fontsize=8)
 
             if make_gex_header_nbrZ: ## make another plot with the gex-nbrhood averaged scores
@@ -706,12 +747,12 @@ def make_logo_plots(
 
         if gex_header_tcr_score_names:
             for ii, scoretag in enumerate(gex_header_tcr_score_names):
-                irow=ii//num_header2_rows
-                icol=ii%num_header2_rows
+                irow=ii//num_header2_tcr_score_cols
+                icol=ii%num_header2_tcr_score_cols
                 ## make another plot with the gex-nbrhood averaged TCR scores
                 bottom = (fig_height-margin-header_height-(irow+1)*header2_height)/fig_height
                 height = header2_height/fig_height
-                left = (fig_width-margin-(icol+1)*header2_height)/fig_width # make these plots square, so height=width
+                left = (fig_width-margin-(num_header2_tcr_score_cols-icol)*header2_height)/fig_width
                 width = header2_height/fig_width
                 plt.axes( [left,bottom,width,height] )
                 vals = header2_tcr_scores[:,ii]
@@ -729,15 +770,40 @@ def make_logo_plots(
                 xmn,xmx = plt.xlim()
                 _,ymx = plt.ylim()
                 pad = 0.02*(xmx-xmn)
-                plt.text( xmx-pad, ymx, scoretag[:-6].replace('alphadist','ad').replace('cdr3len','len'),
+                plt.text( xmx-pad, ymx,
+                          scoretag.replace('alphadist','ad').replace('nndists_tcr','NNd').replace('cdr3len','len'),
                           va='top', ha='right', fontsize=8)
                 plt.text( xmn+pad, ymx, 'tcr', va='top', ha='left', fontsize=8)
 
 
     if len(clps)>1:
+
+        if True: ## make a key for the gex logo
+            bottom = (fig_height-margin-header_height-num_header2_rows*header2_height)/fig_height
+            height = header2_height/fig_height
+            left = (fig_width-margin-2*header2_height)/fig_width # make these plots square, so height=width
+            width = 2*header2_height/fig_width
+            plt.axes( [left,bottom,width,height] )
+            yshift = math.sqrt(3)/2 # 30 60 90 triangle
+            xy = []
+            for r in range(3):
+                xoff = 0 if r==1 else 0.5
+                yoff = yshift * ( 1-r )
+                ng = gene_width if r==1 else gene_width-1
+                for ii in range(ng):
+                    xy.append( [xoff+ii, yoff] )
+
+            for gene,(x,y) in zip( logo_genes, xy ):
+                plt.text(x,y,gene,fontsize=8,ha='center',va='center',rotation=30)
+            plt.xlim( [-0.5, gene_width-0.5] )
+            plt.ylim( [-yshift-0.5, yshift+0.5 ] )
+            plt.xticks([],[])
+            plt.yticks([],[])
+            #plt.title('key for GEX logo',fontsize=8,va='top',pad=1)
+
         # make a dendrogram along the LHS
-        bottom = (2*margin)/fig_height # there's an extra margin-width at the bottom
-        height = (fig_height-3*margin-header_height-num_header2_rows*header2_height)/fig_height
+        bottom = margin/fig_height # there's an extra margin-width at the bottom
+        height = (fig_height-2*margin-header_height-num_header2_rows*header2_height)/fig_height
         left = (margin)/fig_width
         width = dendro_width/fig_width
         ax = plt.axes( [left,bottom,width,height] )
@@ -748,7 +814,6 @@ def make_logo_plots(
                                method=tree_method, optimal_ordering=tree_optimal_ordering )
 
         R = hierarchy.dendrogram( Z, orientation='left', ax=ax, link_color_func= lambda x:'k' )
-        print(R)
         def get_leafnum_from_y(y):
             " 5.0 15.0 25.0 --> 0 1 2 "
             return int((y-4.99)/10)
@@ -781,10 +846,9 @@ def make_logo_plots(
 
         plt.xlim((1.03,0.0))
         plt.axis('off')
-        plt.text(0.0,0.0, 'Clusters (size>{:d})'.format(min_cluster_size),
+        plt.text(0.0,0.0, 'Clusters (size>{:d})'.format(min_cluster_size-1),
                  ha='left', va='top', transform=plt.gca().transAxes)
         leaves = R['leaves'][:] #list( hierarchy.leaves_list( Z ) )
-        print('leaves:', leaves, clps)
         leaves.reverse() # since we are drawing them downward, but the leaf-order increases upward
     elif clps:
         leaves = [0]
@@ -824,7 +888,7 @@ def make_logo_plots(
             plt.text(-0.1,0,name,va='center',ha='right',fontsize=short_name_fontsize)
         else:
             plt.text(-0.1,0,name,va='center',ha='right',fontsize=long_name_fontsize,
-                     bbox=dict(facecolor='white', alpha=0.5))
+                     bbox=dict(facecolor='white', alpha=0.5, edgecolor='white', pad=1))
 
         if not ignore_tcr_cluster_colors:
             name = clusters_tcr_names[clp[1]]
@@ -967,11 +1031,11 @@ def make_logo_plots(
         plt.yticks([],[])
         if last_row:
             plt.text(0.5,-0.05, 'GEX logo', ha='center', va='top', transform=plt.gca().transAxes)
-            msg = 'GEX logo genes: row1= {} row2= {} row3= {}'\
-                .format(','.join(logo_genes[:gene_width-1]),
-                        ','.join(logo_genes[gene_width-1:2*gene_width-1]),
-                        ','.join(logo_genes[2*gene_width-1:]) )
-            plt.text(1.0,-0.5, msg, ha='right', va='top', transform=plt.gca().transAxes, fontsize=7)
+            # msg = 'GEX logo genes: row1= {} row2= {} row3= {}'\
+            #     .format(','.join(logo_genes[:gene_width-1]),
+            #             ','.join(logo_genes[gene_width-1:2*gene_width-1]),
+            #             ','.join(logo_genes[2*gene_width-1:]) )
+            # plt.text(1.0,-0.5, msg, ha='right', va='top', transform=plt.gca().transAxes, fontsize=7)
 
 
 
@@ -1317,3 +1381,101 @@ def make_clone_plots(adata, num_clones_to_plot, pngfile):
 
 
 
+def make_tcr_genes_panel_plots(
+        adata,
+        xy, # the landscape
+        nbrs, # for averaging
+        results_df,
+        pngfile,
+        #sort_key='mwu_pvalue_adj',
+        max_panels_per_cluster_pair=3,
+        max_pvalue=0.05,
+        nrows=6,
+        ncols=4,
+):
+    '''
+    '''
+    assert nbrs.shape[0] == adata.shape[0]
+    num_neighbors = nbrs.shape[1] # this will not work for ragged nbr arrays (but we could change it to work)
+
+    # first let's figure out how many panels we could have
+    # sort the results by pvalue
+    df = results_df.sort_values('mwu_pvalue_adj')# makes a copy
+
+    df_has_gene = 'gene' in df.columns
+
+    clp_counts = Counter()
+    seen = set()
+    inds=[]
+    for row in df.itertuples():
+        if row.mwu_pvalue_adj > max_pvalue:
+            break
+        feature = row.gene if df_has_gene else row.score_name
+        if feature in seen:
+            continue
+        clp = (row.gex_cluster, row.tcr_cluster)
+        if clp_counts[clp] >= max_panels_per_cluster_pair:
+            continue
+        seen.add(feature)
+        clp_counts[clp] += 1
+        inds.append(row.Index)
+    if not inds:
+        print('no results to plot!')
+        return
+
+    if len(inds) < nrows*ncols:
+        # make fewer panels
+        nrows = max(1, int(np.sqrt(len(inds))))
+        ncols = (len(inds)-1)//nrows + 1
+
+    df = df.loc[inds[:nrows*ncols],:]
+
+    # try to get the raw values
+    feature_to_raw_values = {}
+
+    if df_has_gene:
+        var_names = list(adata.raw.var_names)
+        features = set(df['gene'])
+        for f in features:
+            print(f)
+            if f in var_names:
+                feature_to_raw_values[f] = adata.raw.X[:, var_names.index(f)].toarray()[:,0]
+                #print(f,feature_to_raw_values[f].shape)
+            elif f in adata.obs:
+                feature_to_raw_values[f] = np.array(adata.obs[f])
+                if f=='clone_sizes':
+                    feature_to_raw_values[f] = np.log1p(feature_to_raw_values[f])
+            else:
+                print('ERROR unrecognized feature:', f)
+                exit()
+    else:
+        features = sorted(set(df['score_name']))
+        feature_score_table = tcr_scores.make_tcr_score_table(adata, features)
+        for ii,f in enumerate(features):
+            print(f)
+            feature_to_raw_values[f] = feature_score_table[:,ii]
+
+
+    plt.figure(figsize=(ncols*3,nrows*3))
+    plotno=0
+    for row in df.itertuples():
+        plotno+=1
+        plt.subplot(nrows, ncols, plotno)
+
+        # how to get the raw score value?
+        if df_has_gene:
+            feature = row.gene
+        else:
+            feature = row.score_name
+
+        scores = feature_to_raw_values[feature]
+
+        nbr_averaged_scores = ( scores + scores[ nbrs ].sum(axis=1) )/(num_neighbors+1)
+
+        plt.scatter(xy[:,0], xy[:,1], c=nbr_averaged_scores, cmap='coolwarm', s=15)
+        plt.title('{} {},{} {:.1e}'.format(feature, row.gex_cluster, row.tcr_cluster, row.mwu_pvalue_adj))
+        plt.xticks([],[])
+        plt.yticks([],[])
+
+    plt.tight_layout()
+    plt.savefig(pngfile)

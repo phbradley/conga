@@ -119,7 +119,9 @@ def setup_X_igex( adata ):
                     'ZNF683','KLRD1','NCR3','KIR3DL1','NCAM1','ITGAM','KLRC2','KLRC3', #'MME',
                     'GNLY','IFNG', 'GZMH','GZMA','CCR6', 'TRAV1-2','KLRB1','ZBTB16', 'GATA3',
                     'TRBC1','EPHB6','SLC4A10','DAD1','ITGB1', 'KLRC1','CD45RA_TotalSeqC','CD45RO_TotalSeqC',
-                    'ZNF683','KLRD1','NCR3','KIR3DL1','NCAM1','ITGAM','KLRC2','KLRC3','GNLY' ]
+                    'ZNF683','KLRD1','NCR3','KIR3DL1','NCAM1','ITGAM','KLRC2','KLRC3','GNLY',
+                    'CCR7_TotalSeqC','CD3_TotalSeqC','IgG1_TotalSeqC','PD-1_TotalSeqC','CD5' ]
+
     all_genes = sorted( set( [x[:-1] for x in open(all_genes_file,'r')] + extra_genes + kir_genes ) )
 
     organism = 'human'
@@ -629,11 +631,35 @@ def setup_tcr_groups( adata ):
     return agroups, bgroups
 
 
-def calc_nbrs( adata, nbr_fracs, obsm_tag_gex = 'X_pca_gex', obsm_tag_tcr = 'X_pca_tcr' ):
+def _calc_nndists( D, nbrs ):
+    num_clones, num_nbrs = nbrs.shape
+    assert D.shape ==(num_clones, num_clones)
+    sample_range = np.arange(num_clones)[:, np.newaxis]
+    nbrs_sorted = nbrs[sample_range, np.argsort(D[sample_range, nbrs])]
+    D_nbrs_sorted = D[sample_range, nbrs_sorted]
+    print('sorted?', D_nbrs_sorted[0])
+    wts = np.linspace(1.0, 1.0/num_nbrs, num_nbrs)
+    wts /= np.sum(wts)
+    nndists = np.sum( D_nbrs_sorted * wts[np.newaxis,:], axis=1)
+    assert nndists.shape==(num_clones,)
+    return nndists
+
+
+def calc_nbrs(
+        adata,
+        nbr_fracs,
+        obsm_tag_gex = 'X_pca_gex',
+        obsm_tag_tcr = 'X_pca_tcr',
+        also_calc_nndists = False,
+        nbr_frac_for_nndists = None
+):
     ''' returns dict mapping from nbr_frac to [nbrs_gex, nbrs_tcr]
 
     nbrs exclude self and any clones in same atcr group or btcr group
     '''
+    if also_calc_nndists:
+        assert nbr_frac_for_nndists in nbr_fracs
+
     agroups, bgroups = setup_tcr_groups(adata)
 
     print('compute D_gex', adata.shape[0])
@@ -659,6 +685,15 @@ def calc_nbrs( adata, nbr_fracs, obsm_tag_gex = 'X_pca_gex', obsm_tag_tcr = 'X_p
         assert nbrs_tcr.shape == (adata.shape[0], num_neighbors) and nbrs_gex.shape == nbrs_tcr.shape
         all_nbrs[nbr_frac] = [nbrs_gex, nbrs_tcr]
 
-    return all_nbrs
+        if also_calc_nndists and nbr_frac == nbr_frac_for_nndists:
+            print('calculate nndists:', nbr_frac)
+            nndists_gex = _calc_nndists( D_gex, nbrs_gex )
+            nndists_tcr = _calc_nndists( D_tcr, nbrs_tcr )
+            print('DONE calculating nndists:', nbr_frac)
+
+    if also_calc_nndists:
+        return all_nbrs, nndists_gex, nndists_tcr
+    else:
+        return all_nbrs
 
 
