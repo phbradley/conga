@@ -20,7 +20,8 @@ mhci_model_df = mhci_model_df[mask]
 
 def get_cdr3_aa_prop_length_fraction( cdr3, props ):
     if not cdr3:
-        return 0.0
+        return 0.0 # probably should return mean(props) actually. But that would require refitting the score coefs
+        # and a CDR3 of length 8 or less is actually pretty short...
     else:
         return sum( props[x] for x in cdr3 ) / float(len(cdr3))
 
@@ -29,12 +30,12 @@ def get_feature(tcr, ftag, aa_props_df):
     ''' taken from make_table2.py but note that tcr cdr3s here are not trimmed to [4:-4] yet
     '''
     trim_start, trim_stop = 4,-4
-    if '_AB' in ftag:
+    if ftag.endswith('_AB'):
         cdr3s = [ tcr[0][2][trim_start:trim_stop], tcr[1][2][trim_start:trim_stop] ]
-    elif '_A' in ftag:
+    elif ftag.endswith('_A'):
         cdr3s = [ tcr[0][2][trim_start:trim_stop] ]
     else:
-        assert '_B' in ftag
+        assert ftag.endswith('_B')
         cdr3s = [ tcr[1][2][trim_start:trim_stop] ]
 
     ftag = '_'.join( ftag.split('_')[:-1] )

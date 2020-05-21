@@ -90,9 +90,11 @@ def shorten_pmhc_var_names(adata):
 
 
 
-def get_X_pmhc( adata, pmhc_var_names ):
+def _get_X_pmhc( adata, pmhc_var_names ):
     ''' Returns:  X_pmhc
     Does not log the raw array so do this beforehand if you need it logged
+
+    Not for use after conga adata has been setup; at that point use adata.obsm['X_pmhc']
     '''
 
     raw = adata.raw
@@ -262,7 +264,7 @@ def compute_pmhc_versus_nbrs(
     pmhc_var_names = adata.uns['pmhc_var_names']
     num_clones = adata.shape[0]
 
-    X_pmhc = get_X_pmhc(adata, pmhc_var_names)
+    X_pmhc = adata.obsm['X_pmhc']
 
     X_pmhc_sorted = -1 * np.sort( -1 * X_pmhc, axis=1 ) # in decreasing order
     X_pmhc_argsorted = np.argsort( -1 * X_pmhc, axis=1 ) # ditto
@@ -350,13 +352,14 @@ def calc_clone_pmhc_pvals(adata, min_log1p_delta=2.0, min_actual_delta=3 ):
 
     results = []
 
+    print('calc_clone_pmhc_pvals: num_clones=', len(unique_tcrs))
 
     for c, tcr in enumerate(unique_tcrs):
         #clone_cells = np.array( [ x for x,y in enumerate(clone_ids) if y==c] )
         clone_mask = (clone_ids==c)
         clone_size = np.sum( clone_mask )
         X_pmhc_clone = X_pmhc[clone_mask,:]
-        X_pmhc_clone_avg = X_pmhc_clone.sum( axis=0 )/clone_size
+        X_pmhc_clone_avg = np.sum(X_pmhc_clone, axis=0 )/clone_size
         X_pmhc_clone_avg_sorted = -1 * np.sort( -1 * X_pmhc_clone_avg )
         pmhc_counts = Counter( top_pmhcs[ clone_mask ] )
         for pmhc, count in pmhc_counts.items():

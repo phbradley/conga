@@ -14,7 +14,7 @@ parser.add_argument('--organism', choices=['mouse', 'human'])
 parser.add_argument('--nbr_fracs', type=float, nargs='*', default=[0.01,0.1] )
 parser.add_argument('--exclude_gex_clusters', type=int, nargs='*')
 parser.add_argument('--min_cluster_size', type=int, default=5)
-parser.add_argument('--min_cluster_size_repsize', type=int, default=5000)
+parser.add_argument('--min_cluster_size_fraction', type=float, default=0.001)
 parser.add_argument('--outfile_prefix', required=True)
 parser.add_argument('--bad_barcodes_file')
 parser.add_argument('--checkpoint', action='store_true')
@@ -233,14 +233,15 @@ if args.find_nbrhood_overlaps:
         for r in results_df.itertuples():
             conga_scores[r.clone_index,2] = max(conga_scores[r.clone_index,2], -1*np.log10(r.conga_score) )
 
-    results_df = pd.concat(all_results)
-    indices = results_df['clone_index']
-    results_df['gex_cluster'] = list(clusters_gex[indices])
-    results_df['tcr_cluster'] = list(clusters_tcr[indices])
-    for tag in 'va ja cdr3a vb jb cdr3b'.split():
-        results_df[tag] = list(adata.obs[tag][indices])
-    tsvfile = args.outfile_prefix+'_graph_graph_overlaps.tsv'
-    results_df.to_csv(tsvfile, sep='\t', index=False)
+    results_df = pd.concat(all_results, ignore_index=True)
+    if results_df.shape[0]:
+        indices = results_df['clone_index']
+        results_df['gex_cluster'] = list(clusters_gex[indices])
+        results_df['tcr_cluster'] = list(clusters_tcr[indices])
+        for tag in 'va ja cdr3a vb jb cdr3b'.split():
+            results_df[tag] = list(adata.obs[tag][indices])
+        tsvfile = args.outfile_prefix+'_graph_graph_overlaps.tsv'
+        results_df.to_csv(tsvfile, sep='\t', index=False)
 
 
 if args.find_pmhc_nbrhood_overlaps:
@@ -266,10 +267,8 @@ outlog.write('num_good: {}\n'.format(np.sum(good_mask)))
 
 adata.obs['good_score_mask'] = good_mask
 
-if num_clones <= args.min_cluster_size_repsize:
-    min_cluster_size = args.min_cluster_size
-else:
-    min_cluster_size = int( 0.5 + args.min_cluster_size * float(num_clones)/args.min_cluster_size_repsize )
+# take the LARGER of the two min_cluster_size thresholds
+min_cluster_size = max( args.min_cluster_size, int( 0.5 + args.min_cluster_size_fraction * num_clones) )
 
 
 # if args.checkpoint:
@@ -284,15 +283,20 @@ if args.find_tcr_nbrhood_genes:
 
     tsvfile = args.outfile_prefix+'_tcr_nbrhood_genes.tsv'
     print('making:', tsvfile)
-    results_df = pd.concat(results)
+    results_df = pd.concat(results, ignore_index=True)
     results_df.to_csv(tsvfile, index=False, sep='\t')
     tcr_nbrhood_genes_results = results_df
     if results_df.shape[0]:
         pngfile = args.outfile_prefix+'_tcr_nbrhood_genes.png'
         print('making:', pngfile)
         exclude_strings = ['5830405F06Rik'] # bad mouse gene, actually a tcr v gene
-        pl.plot_ranked_strings_on_cells(adata, results_df, 'X_tcr_2d', 'clone_index', 'mwu_pvalue_adj', 1.0, 'gene',
+        pl.plot_ranked_strings_on_cells(adata, results_df, 'X_tcr_2d', 'clone_index', 'mwu_pvalue_adj', 1.0, 'feature',
                                         pngfile, exclude_strings=exclude_strings)
+
+        pngfile = args.outfile_prefix+'_tcr_nbrhood_gene_panels.png'
+        print('making:', pngfile)
+        #exclude_strings = ['5830405F06Rik'] # bad mouse gene, actually a tcr v gene
+        pl.make_feature_panel_plots(adata, 'tcr', all_nbrs, results_df, pngfile)
 
 
 if args.find_tcr_cluster_genes:
@@ -351,7 +355,7 @@ if args.find_gex_nbrhood_scores:
         results.append( cc.gex_nbrhood_rank_tcr_scores(
             adata, nbrs_gex, args.gex_nbrhood_tcr_score_names, pval_threshold ))
         results[-1]['nbr_frac'] = nbr_frac
-    results_df = pd.concat(results)
+    results_df = pd.concat(results, ignore_index=True)
 
     tsvfile = args.outfile_prefix+'_gex_nbrhood_scores.tsv'
     print('making:', tsvfile)
@@ -363,7 +367,11 @@ if args.find_gex_nbrhood_scores:
         print('making:', pngfile)
 
         pl.plot_ranked_strings_on_cells(adata, results_df, 'X_gex_2d', 'clone_index', 'mwu_pvalue_adj', 1.0,
-                                        'score_name', pngfile, direction_column='ttest_stat')
+                                        'feature', pngfile, direction_column='ttest_stat')
+
+        pngfile = args.outfile_prefix+'_gex_nbrhood_score_panels.png'
+        print('making:', pngfile)
+        pl.make_feature_panel_plots(adata, 'gex', all_nbrs, results_df, pngfile)
 
 
 if args.find_gex_cluster_scores:
@@ -395,12 +403,12 @@ if args.find_nbrhood_overlaps and args.find_tcr_nbrhood_genes and args.find_gex_
     print('making:', pngfile)
 
     if args.find_tcr_cluster_genes:
-        tcr_genes_results = pd.concat( [tcr_nbrhood_genes_results, tcr_cluster_genes_results ] )
+        tcr_genes_results = pd.concat( [tcr_nbrhood_genes_results, tcr_cluster_genes_results ], ignore_index=True )
     else:
         tcr_genes_results = tcr_nbrhood_genes_results
 
     if args.find_gex_cluster_scores:
-        gex_scores_results = pd.concat( [gex_nbrhood_scores_results, gex_cluster_scores_results] )
+        gex_scores_results = pd.concat( [gex_nbrhood_scores_results, gex_cluster_scores_results], ignore_index=True )
     else:
         gex_scores_results = gex_nbrhood_scores_results
 

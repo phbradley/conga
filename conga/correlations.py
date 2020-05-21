@@ -396,7 +396,7 @@ def calc_good_cluster_tcr_features(
     for row in results_df.itertuples():
         clp = (row.gex_cluster, row.tcr_cluster)
         assert clp in good_clps
-        all_tcr_features.setdefault(clp,[]).append( ( row.mwu_pvalue_adj, row.ttest_stat, row.score_name))
+        all_tcr_features.setdefault(clp,[]).append( ( row.mwu_pvalue_adj, row.ttest_stat, row.feature))
 
     for clp in all_tcr_features:
         # plotting code expects name then stat then pvalue
@@ -593,7 +593,10 @@ def gex_nbrhood_rank_tcr_scores(
                                      mwu_pvalue_adj=mwu_pval_adj,
                                      gex_cluster=gex_cluster,
                                      tcr_cluster=tcr_cluster,
-                                     score_name=score_name,
+                                     num_fg=num_fg,
+                                     mean_fg=mean_fg[ind],
+                                     mean_bg=mean_bg[ind],
+                                     feature=score_name,
                                      mait_fraction=mait_fraction,
                                      clone_index=ii) )
 
@@ -666,10 +669,14 @@ def tcr_nbrhood_rank_genes_fast(
     print('done taking big means')
 
     ## add some extra fake genes
-    genes2 = ['clone_sizes', 'nndists_gex_rank']
-    X2 = np.vstack( [np.log1p(np.array(adata.obs['clone_sizes'])),
-                     np.log1p(np.argsort(-1*np.array(adata.obs['nndists_gex'])))] ).transpose()
-    assert X2.shape == (num_clones,2)
+    if len(set(adata.obs['clone_sizes']))==1: # only one clone_size
+        genes2 = ['nndists_gex_rank']
+        X2 = np.log1p(np.argsort(-1*np.array(adata.obs['nndists_gex'])))[:,np.newaxis]
+    else:
+        genes2 = ['clone_sizes', 'nndists_gex_rank']
+        X2 = np.vstack( [np.log1p(np.array(adata.obs['clone_sizes'])),
+                         np.log1p(np.argsort(-1*np.array(adata.obs['nndists_gex'])))] ).transpose()
+    assert X2.shape == (num_clones,len(genes2))
     X2_sq = X2*X2
     mean2 = X2.mean(axis=0)
     mean2_sq = X2_sq.mean(axis=0)
@@ -788,17 +795,17 @@ def tcr_nbrhood_rank_genes_fast(
                           .format( prefix_tag, pval_adj, mwu_pval_adj, log2fold, gex_cluster, tcr_cluster, gene,
                                    mean_fg[ind], mean_bg[ind], num_fg, clone_display_names[ii], mait_fraction,
                                    ii, igene ))
-                results.append( { 'ttest_pvalue_adj': pval_adj,
-                                  'mwu_pvalue_adj': mwu_pval_adj,
-                                  'log2enr': log2fold,
-                                  'gex_cluster': gex_cluster,
-                                  'tcr_cluster': tcr_cluster,
-                                  'gene': gene,
-                                  'mean_fg': mean_fg[ind],
-                                  'mean_bg': mean_bg[ind],
-                                  'num_fg': num_fg,
-                                  'clone_index': ii,
-                                  'mait_fraction': mait_fraction } )
+                results.append( dict(ttest_pvalue_adj=pval_adj,
+                                     mwu_pvalue_adj=mwu_pval_adj,
+                                     log2enr=log2fold,
+                                     gex_cluster=gex_cluster,
+                                     tcr_cluster=tcr_cluster,
+                                     feature=gene,
+                                     mean_fg=mean_fg[ind],
+                                     mean_bg=mean_bg[ind],
+                                     num_fg=num_fg,
+                                     clone_index=ii,
+                                     mait_fraction=mait_fraction ) )
 
         sys.stdout.flush()
 

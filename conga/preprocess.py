@@ -488,7 +488,7 @@ def reduce_to_single_cell_per_clone(
 
     if 'pmhc_var_names' in adata.uns_keys():
         pmhc_var_names = adata.uns['pmhc_var_names']
-        X_pmhc = pmhc_scoring.get_X_pmhc(adata, pmhc_var_names)
+        X_pmhc = pmhc_scoring._get_X_pmhc(adata, pmhc_var_names)
         new_X_pmhc = []
     else:
         pmhc_var_names = None
@@ -521,7 +521,6 @@ def reduce_to_single_cell_per_clone(
         new_X_igex.append( np.sum( X_igex[clone_cells,:], axis=0 ) / clone_size )
         if pmhc_var_names:
             new_X_pmhc.append( np.sum( X_pmhc[clone_cells,:], axis=0 ) / clone_size )
-
 
     rep_cell_indices = np.array(rep_cell_indices)
     new_X_igex = np.array(new_X_igex)

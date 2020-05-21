@@ -19,13 +19,13 @@ from scipy.cluster import hierarchy
 from scipy.spatial import distance
 
 # this is not crucial: we could add a check for it
-from adjustText import adjust_text
+#from adjustText import adjust_text
 
 
 
 default_logo_genes = {
     'human': ['CD4','CD8A','CD8B','CCR7','SELL',
-              'GNLY','PRF1','GZMA','GZMB','GZMK','GZMH',
+              'GNLY','PRF1','GZMA','IL7R','IKZF2','KLRD1',
               'CCL5','ZNF683','KLRB1','NKG7','HLA-DRB1' ],
     'mouse': ['Cd4', 'Cd8a', 'Cd8b1', 'Ccr7', 'Sell',
               'Itgal', 'Prf1', 'Gzma', 'Il2rb', 'Gzmk', 'Ifng',
@@ -214,6 +214,7 @@ def make_logo_plots(
         make_gex_header_raw=True,
         make_gex_header_nbrZ=True,
         gex_header_tcr_score_names = ['mhci2', 'cdr3len', 'cd8', 'nndists_tcr'], # was alphadist
+        include_full_tcr_cluster_names_in_logo_lines=False,
 ):
     ''' need:
     * gex/tcr clusters: (obsm)
@@ -537,6 +538,8 @@ def make_logo_plots(
         if icol==0:
             plt.text(0.01,0.01,'{} clones'.format(len(all_xy)), ha='left', va='bottom', fontsize=8,
                      transform=plt.gca().transAxes)
+            plt.text(0.99,0.01,'{} cells'.format(sum(clone_sizes)), ha='right', va='bottom', fontsize=8,
+                     transform=plt.gca().transAxes)
 
         ## add cluster labels to the plot, try drawing at centroid location
         texts = []
@@ -792,9 +795,11 @@ def make_logo_plots(
                 ng = gene_width if r==1 else gene_width-1
                 for ii in range(ng):
                     xy.append( [xoff+ii, yoff] )
-
+            xy = np.array(xy)
+            color = plt.get_cmap('Reds')(0.2)
+            plt.scatter(xy[:,0], xy[:,1], c=color, s=350, zorder=1)
             for gene,(x,y) in zip( logo_genes, xy ):
-                plt.text(x,y,gene,fontsize=8,ha='center',va='center',rotation=30)
+                plt.text(x,y,gene,fontsize=8,ha='center',va='center',rotation=30, zorder=2)
             plt.xlim( [-0.5, gene_width-0.5] )
             plt.ylim( [-yshift-0.5, yshift+0.5 ] )
             plt.xticks([],[])
@@ -846,7 +851,7 @@ def make_logo_plots(
 
         plt.xlim((1.03,0.0))
         plt.axis('off')
-        plt.text(0.0,0.0, 'Clusters (size>{:d})'.format(min_cluster_size-1),
+        plt.text(0.0,0.0, 'Biclusters (size>{:d})'.format(min_cluster_size-1),
                  ha='left', va='top', transform=plt.gca().transAxes)
         leaves = R['leaves'][:] #list( hierarchy.leaves_list( Z ) )
         leaves.reverse() # since we are drawing them downward, but the leaf-order increases upward
@@ -891,13 +896,15 @@ def make_logo_plots(
                      bbox=dict(facecolor='white', alpha=0.5, edgecolor='white', pad=1))
 
         if not ignore_tcr_cluster_colors:
-            name = clusters_tcr_names[clp[1]]
-            if len(name)<=2:
-                plt.text( 0.1, 0, name, va='center', ha='left', fontsize=short_name_fontsize)
+            if include_full_tcr_cluster_names_in_logo_lines:
+                name = clusters_tcr_names[clp[1]]
+                if len(name)<=2:
+                    plt.text( 0.1, 0, name, va='center', ha='left', fontsize=short_name_fontsize)
+                else:
+                    plt.text( 0.1, 0, name, va='center', ha='left', fontsize=long_name_fontsize,
+                              bbox=dict(facecolor='white', alpha=0.5, edgecolor='white', pad=1))
             else:
-                plt.text( 0.1, 0, name, va='center', ha='left', fontsize=long_name_fontsize,
-                          bbox=dict(facecolor='white', alpha=0.5, edgecolor='white', pad=1))
-            #plt.text( 0.1,0,str(clp[1]),va='center',ha='left')
+                plt.text( 0.1,0,str(clp[1]),va='center',ha='left', fontsize=short_name_fontsize)
         plt.text(-1,1,'{}'.format(num_nodes),va='top',ha='left',fontsize=8)
         plt.text( 1,1,'{}'.format(num_cells),va='top',ha='right',fontsize=8)
         # if agbt:
@@ -1306,7 +1313,7 @@ def make_summary_figure(
         if xy_tag == 'tcr':
             exclude_strings = ['5830405F06Rik'] # bad mouse gene, actually a tcr v gene
             plot_ranked_strings_on_cells(adata, tcr_genes_results, 'X_tcr_2d', 'clone_index',
-                                         'mwu_pvalue_adj', pval_threshold_for_tcr_genes_results, 'gene',
+                                         'mwu_pvalue_adj', pval_threshold_for_tcr_genes_results, 'feature',
                                          exclude_strings=exclude_strings, ax=axs[irow,2] )
             plt.sca(axs[irow,2])
             plt.title("Differential gene expression in TCR nbrhoods")
@@ -1314,7 +1321,7 @@ def make_summary_figure(
             plt.ylabel('')
         else:
             plot_ranked_strings_on_cells(adata, gex_scores_results, 'X_gex_2d', 'clone_index',
-                                         'mwu_pvalue_adj', pval_threshold_for_gex_scores_results, 'score_name',
+                                         'mwu_pvalue_adj', pval_threshold_for_gex_scores_results, 'feature',
                                          direction_column='ttest_stat',
                                          ax=axs[irow,2])
             plt.title('TCR sequence feature bias in GEX nbrhoods')
@@ -1381,28 +1388,25 @@ def make_clone_plots(adata, num_clones_to_plot, pngfile):
 
 
 
-def make_tcr_genes_panel_plots(
+def make_feature_panel_plots(
         adata,
-        xy, # the landscape
-        nbrs, # for averaging
+        xy_tag,
+        all_nbrs,
         results_df,
         pngfile,
-        #sort_key='mwu_pvalue_adj',
         max_panels_per_cluster_pair=3,
         max_pvalue=0.05,
         nrows=6,
         ncols=4,
+        use_nbr_frac=None
 ):
     '''
     '''
-    assert nbrs.shape[0] == adata.shape[0]
-    num_neighbors = nbrs.shape[1] # this will not work for ragged nbr arrays (but we could change it to work)
+    xy = adata.obsm['X_{}_2d'.format(xy_tag)]
 
     # first let's figure out how many panels we could have
     # sort the results by pvalue
     df = results_df.sort_values('mwu_pvalue_adj')# makes a copy
-
-    df_has_gene = 'gene' in df.columns
 
     clp_counts = Counter()
     seen = set()
@@ -1410,7 +1414,7 @@ def make_tcr_genes_panel_plots(
     for row in df.itertuples():
         if row.mwu_pvalue_adj > max_pvalue:
             break
-        feature = row.gene if df_has_gene else row.score_name
+        feature = row.feature
         if feature in seen:
             continue
         clp = (row.gex_cluster, row.tcr_cluster)
@@ -1429,31 +1433,24 @@ def make_tcr_genes_panel_plots(
         ncols = (len(inds)-1)//nrows + 1
 
     df = df.loc[inds[:nrows*ncols],:]
+    assert df.shape[0] <= nrows*ncols
 
     # try to get the raw values
     feature_to_raw_values = {}
 
-    if df_has_gene:
-        var_names = list(adata.raw.var_names)
-        features = set(df['gene'])
-        for f in features:
-            print(f)
-            if f in var_names:
-                feature_to_raw_values[f] = adata.raw.X[:, var_names.index(f)].toarray()[:,0]
-                #print(f,feature_to_raw_values[f].shape)
-            elif f in adata.obs:
-                feature_to_raw_values[f] = np.array(adata.obs[f])
-                if f=='clone_sizes':
-                    feature_to_raw_values[f] = np.log1p(feature_to_raw_values[f])
-            else:
-                print('ERROR unrecognized feature:', f)
-                exit()
-    else:
-        features = sorted(set(df['score_name']))
-        feature_score_table = tcr_scores.make_tcr_score_table(adata, features)
-        for ii,f in enumerate(features):
-            print(f)
-            feature_to_raw_values[f] = feature_score_table[:,ii]
+    var_names = list(adata.raw.var_names)
+    features = set(df['feature'])
+    for f in features:
+        print(f)
+        if f in var_names:
+            feature_to_raw_values[f] = adata.raw.X[:, var_names.index(f)].toarray()[:,0]
+        elif f in adata.obs:
+            feature_to_raw_values[f] = np.array(adata.obs[f])
+            if f=='clone_sizes':
+                feature_to_raw_values[f] = np.log1p(feature_to_raw_values[f])
+        else:
+            feature_score_table = tcr_scores.make_tcr_score_table(adata, [f])
+            feature_to_raw_values[f] = feature_score_table[:,0]
 
 
     plt.figure(figsize=(ncols*3,nrows*3))
@@ -1462,20 +1459,27 @@ def make_tcr_genes_panel_plots(
         plotno+=1
         plt.subplot(nrows, ncols, plotno)
 
-        # how to get the raw score value?
-        if df_has_gene:
-            feature = row.gene
-        else:
-            feature = row.score_name
+        feature = row.feature
 
         scores = feature_to_raw_values[feature]
+
+        if use_nbr_frac is None:
+            nbrs = all_nbrs[row.nbr_frac][0] if xy_tag=='gex' else all_nbrs[row.nbr_frac][1]
+        else:
+            nbrs = all_nbrs[use_nbr_frac][0] if xy_tag=='gex' else all_nbrs[use_nbr_frac][1]
+        assert nbrs.shape[0] == adata.shape[0]
+        num_neighbors = nbrs.shape[1] # this will not work for ragged nbr arrays (but we could change it to work)
 
         nbr_averaged_scores = ( scores + scores[ nbrs ].sum(axis=1) )/(num_neighbors+1)
 
         plt.scatter(xy[:,0], xy[:,1], c=nbr_averaged_scores, cmap='coolwarm', s=15)
-        plt.title('{} {},{} {:.1e}'.format(feature, row.gex_cluster, row.tcr_cluster, row.mwu_pvalue_adj))
+        plt.title('{} ({},{}) {:.1e}'.format(feature, row.gex_cluster, row.tcr_cluster, row.mwu_pvalue_adj))
         plt.xticks([],[])
         plt.yticks([],[])
+        if (plotno-1)//ncols == nrows-1:
+            plt.xlabel('{} UMAP1'.format(xy_tag.upper()))
+        if plotno%ncols == 1:
+            plt.ylabel('{} UMAP2'.format(xy_tag.upper()))
 
     plt.tight_layout()
     plt.savefig(pngfile)

@@ -233,7 +233,7 @@ def property_score_cdr3(cdr3, score_name, score_mode):
     if score_mode == cdr3_score_CENTER:
         cdr3 = cdr3[1:] # trim off the first 'C', makes structurally symmetric
         if len(cdr3)<center_len:
-            return 0.0
+            return np.mean(col)
         else:
             ntrim = (len(cdr3)-center_len)//2
             return sum(col[aa] for aa in cdr3[ntrim:ntrim+center_len])/center_len
@@ -243,7 +243,7 @@ def property_score_cdr3(cdr3, score_name, score_mode):
         if fgloop:
             return sum( col[aa] for aa in fgloop )/len(fgloop)
         else:
-            return 0.0
+            return np.mean(col) # was returning 0 here; prob should use aa-frequency-weighted average...
     else:
         print( 'property_score_cdr3:: unrecognized score_mode:', score_mode)
         exit()
