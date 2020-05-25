@@ -72,12 +72,3 @@ def make_clones_file( tcrs, outfilename, subject = 'UNK', epitope = 'UNK_E' ):
     out.close()
 
 
-def get_vfam(vgene):
-    assert vgene.startswith('TR') and vgene[3]=='V'
-    pos = 4
-    while pos<len(vgene) and vgene[pos].isdigit():
-        pos += 1
-    vno = int(vgene[4:pos])
-    return '{}V{:d}'.format(vgene[2], vno)
-
-

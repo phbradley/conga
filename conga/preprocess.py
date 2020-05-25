@@ -1,6 +1,7 @@
 import scanpy as sc
 import pandas as pd
 from os.path import exists
+from collections import Counter
 from sklearn.metrics import pairwise_distances
 from sklearn.utils import sparsefuncs
 import numpy as np
@@ -693,6 +694,14 @@ def calc_nbrs(
     else:
         return all_nbrs
 
+
+def get_vfam(vgene):
+    assert vgene.startswith('TR') and vgene[3]=='V'
+    pos = 4
+    while pos<len(vgene) and vgene[pos].isdigit():
+        pos += 1
+    vno = int(vgene[4:pos])
+    return '{}V{:d}'.format(vgene[2], vno)
 
 
 def setup_tcr_cluster_names(adata):
