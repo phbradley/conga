@@ -1,6 +1,20 @@
+import sys
+import os
+sys.path.append( os.path.dirname( os.path.dirname( os.path.abspath(__file__) ) ) )
+from collections import Counter
+from os.path import exists
 import argparse
 import conga
 import time
+import conga.preprocess as pp
+import conga.correlations as cc
+import conga.plotting as pl
+import scanpy as sc
+import scanpy.neighbors
+from sklearn.metrics import pairwise_distances
+import numpy as np
+import pandas as pd
+import scipy.stats
 
 start_time = time.time()
 parser = argparse.ArgumentParser()
@@ -58,21 +72,6 @@ if args.find_pmhc_nbrhood_overlaps or args.calc_clone_pmhc_pvals:
 if args.calc_clone_pmhc_pvals or args.bad_barcodes_file or args.filter_ribo_norm_low_cells:
     assert not args.from_checkpoint1
 
-## more imports-- slow, so after initial arg parse #######################33
-import conga.preprocess as pp
-import conga
-import conga.correlations as cc
-import conga.plotting as pl
-import scanpy as sc
-import scanpy.neighbors
-from sklearn.metrics import pairwise_distances
-import numpy as np
-import pandas as pd
-#from sys import exit
-from collections import Counter
-from os.path import exists
-import sys
-import scipy.stats
 
 logfile = args.outfile_prefix+'_log.txt'
 outlog = open(logfile, 'w')
@@ -174,7 +173,7 @@ if args.write_proj_info:
     outfile = args.outfile_prefix+'_2d_proj_info.txt'
     pp.write_proj_info( adata, outfile )
 
-conga.util.setup_tcr_cluster_names(adata) #stores in adata.uns
+pp.setup_tcr_cluster_names(adata) #stores in adata.uns
 
 clusters_gex = adata.obs['clusters_gex']
 clusters_tcr = adata.obs['clusters_tcr']

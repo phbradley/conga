@@ -12,126 +12,6 @@ import sys
 import pandas as pd
 from sys import exit
 
-def compute_cluster_interactions( aclusters_in, bclusters_in, barcodes_in, barcode2tcr, outlog, max_pval = 1.0 ):
-
-    ''' Compute the cluster-cluster intxn (positive) with the lowest hypergeometric pval, and report.
-    Then eliminate one of the two interacting clusters: first try taking the one with the fewest cells
-    outside the pairwise interaction... Then iterate.
-
-    pval includes a rescaling factor = num_a_clusters * num_b_clusters, max_pval applies to this rescaled pval
-    '''
-
-
-    # condense a/b tcr groups within cluster-cluster intxns
-    # confusing: the a/b here is alpha vs beta not aclusters vs bclusters (ie gex vs tcr)
-    tcrs_list = [ barcode2tcr[x] for x in barcodes_in ]
-    atcrs = sorted( set( x[0] for x in tcrs_list ) )
-    btcrs = sorted( set( x[1] for x in tcrs_list ) )
-    atcr2agroup = dict( (y,x) for x,y in enumerate(atcrs))
-    btcr2bgroup = dict( (y,x) for x,y in enumerate(btcrs))
-    groups1 = np.array( [ atcr2agroup[x[0]] for x in tcrs_list ] ) # alpha tcr groups
-    groups2 = np.array( [ btcr2bgroup[x[1]] for x in tcrs_list ] ) # beta tcr groups
-
-    aclusters = np.copy( aclusters_in )
-    bclusters = np.copy( bclusters_in )
-    barcodes = np.copy( barcodes_in )
-
-    pval_rescale = ( np.max(aclusters)+1 ) * ( np.max(bclusters)+1 )
-
-    #all_mait_fractions = {} # going to be a dictionary from clusters and cluster pairs to mait fractions
-    while True:
-        if aclusters.shape[0] == 0:
-            break
-        num_a = np.max(aclusters)+1
-        num_b = np.max(bclusters)+1
-
-        overlaps1 = {}
-        overlaps2 = {}
-
-        for ii in range(len(barcodes)):
-            cl = (aclusters[ii],bclusters[ii])
-            if cl not in overlaps1:
-                overlaps1[cl] = set()
-                overlaps2[cl] = set()
-            overlaps1[cl].add( groups1[ii] )
-            overlaps2[cl].add( groups2[ii] )
-
-        abcounts = np.zeros( (num_a,num_b), dtype=int )
-        for i in range(num_a):
-            for j in range(num_b):
-                if (i,j) in overlaps1:
-                    abcounts[i,j] = min( len(overlaps1[(i,j)]), len(overlaps2[(i,j)] ) )
-
-        acounts = np.sum( abcounts, axis=1 )
-        bcounts = np.sum( abcounts, axis=0 )
-        assert acounts.shape[0] == num_a
-        assert bcounts.shape[0] == num_b
-
-
-        pvals = np.ones( ( num_a, num_b ) )
-
-        total = np.sum( acounts ) # or bcounts
-
-        for a in range(num_a):
-            for b in range(num_b):
-                overlap = abcounts[a,b]
-                expected = acounts[a] * bcounts[b] / float(total)
-
-                if overlap>expected and overlap>1: # otherwise just stays at 1.0
-                    pvals[a,b] = hypergeom.sf( overlap-1, total, acounts[a], bcounts[b] )
-
-        # if not all_mait_fractions:
-        #     for a in range(num_a):
-        #         a_mask = (aclusters==a)
-        #         all_mait_fractions[ (a,num_b) ] \
-        #             = sum( is_mait( barcode2tcr[x][0] ) for x in barcodes[a_mask] ) / float(max(1,np.sum(a_mask)))
-        #         for b in range(num_b):
-        #             ab_mask = a_mask & ( bclusters==b )
-        #             all_mait_fractions[ (a,b) ] \
-        #                 = sum( is_mait( barcode2tcr[x][0] ) for x in barcodes[ab_mask] ) / float(max(1,np.sum(ab_mask)))
-        #     for b in range(num_b):
-        #         b_mask = (bclusters==b)
-        #         all_mait_fractions[ (num_a,b) ] \
-        #             = sum( is_mait( barcode2tcr[x][0] ) for x in barcodes[b_mask] ) / float(max(1,np.sum(b_mask)))
-
-
-        # most significant interaction:
-        a,b = np.unravel_index( np.argmin( pvals ), pvals.shape )
-        overlap = abcounts[a,b]
-        if not overlap:
-            break
-        overlap_barcodes = barcodes[ ( aclusters==a ) & ( bclusters==b ) ]
-        # mait_frac = sum( is_mait( barcode2tcr[x][0] ) for x in overlap_barcodes ) / float(overlap)
-        # a_mait_frac = sum( is_mait( barcode2tcr[x][0] ) for x in barcodes[ aclusters==a ] ) / float(acounts[a])
-        # b_mait_frac = sum( is_mait( barcode2tcr[x][0] ) for x in barcodes[ bclusters==b ] ) / float(bcounts[b])
-        expected = acounts[a] * bcounts[b] / float(total)
-        pval = pval_rescale * pvals[a,b]
-
-        if pval > max_pval:
-            break
-
-        outlog.write('clusclus2_intxn: {:2d} {:2d} {:8.1e} {:3d} {:6.1f} {:4d} {:4d} {:2d} {:2d} {:5d} ex {}\n'\
-                     .format( a,b,pval,overlap,expected,acounts[a],bcounts[b],
-                              len(set(aclusters)),len(set(bclusters)),len(barcodes),
-                              len(overlap_barcodes)-overlap ))
-        # print('clusclus2_intxn: {:2d} {:2d} {:8.1e} {:3d} {:6.1f} {:4d} {:4d} {:2d} {:2d} {:5d} {:5.3f} {:5.3f} {:5.3f} ex {}'\
-        #       .format( a,b,pval,overlap,expected,acounts[a],bcounts[b],
-        #                len(set(aclusters)),len(set(bclusters)),len(barcodes),
-        #                all_mait_fractions[(a,b)], all_mait_fractions[(a,num_b)], all_mait_fractions[(num_a,b)],
-        #                len(overlap_barcodes)-overlap ))
-
-        # now iterate
-        if acounts[a] <= bcounts[b]:
-            mask = aclusters!=a
-        else:
-            mask = bclusters!=b
-        aclusters = aclusters[ mask ]
-        bclusters = bclusters[ mask ]
-        barcodes = barcodes[ mask ]
-        groups1 = groups1[ mask ]
-        groups2 = groups2[ mask ]
-    return
-
 
 def find_neighbor_neighbor_interactions(
         adata,
@@ -309,60 +189,6 @@ def run_rank_genes_on_good_cluster_pairs(
     sc.tl.rank_genes_groups( adata, groupby=rg_tag, method=rank_method, groups=pos_tags, reference='rest',
                              key_added = key_added )
 
-    # retvals = []
-
-    # for igene,gene in enumerate( adata.uns['rank_genes_groups']['names'][pos_tag] ):
-    #     log2fold = adata.uns['rank_genes_groups']['logfoldchanges'][pos_tag][igene]
-    #     pval_adj = adata.uns['rank_genes_groups']['pvals_adj'][pos_tag][igene]
-    #     score = adata.uns['rank_genes_groups']['scores'][pos_tag][igene]
-    #     if pval_adj <= max_pval_for_output:
-    #         print('cellslog2fold: {:3d} {:.2f} pval_adj: {:9.1e} score: {:.1f} {} {} {}'\
-    #               .format( igene, log2fold, pval_adj, score, gene, numpos, pos_tag ) )
-    #     retvals.append( [ igene, gene, log2fold, pval_adj, score ] )
-
-    # sys.stdout.flush()
-    # return retvals
-
-
-# def run_rank_genes_on_cells(
-#         adata,
-#         mask,
-#         key_added='rank_genes_on_cells',
-#         pos_tag='pos',
-#         #rank_method='t-test',
-#         rank_method='wilcoxon',
-#         rg_tag = 'test',
-#         neg_tag='neg',
-#         min_pos=3,
-#         max_pval_for_output=10,
-#         n_genes=100
-# ):
-#     ''' Returns list of the top n_genes [rank(0-indexed), gene, log2fold, pval_adj, score ]
-#     '''
-#     assert mask.shape[0] == adata.shape[0]
-#     if np.sum(mask) < min_pos:
-#         return []
-
-#     if not pp.check_if_raw_matrix_is_logged(adata):
-#         print('ERROR need to log the raw matrix before calling run_rank_genes_on_cells')
-#         exit()
-
-#     vals = [ pos_tag if a else neg_tag for a in mask ]
-
-#     adata.obs[rg_tag] = vals
-
-#     sc.tl.rank_genes_groups(adata, groupby=rg_tag, method=rank_method, groups=[pos_tag], reference=neg_tag,
-#                             key_added=key_added, n_genes=n_genes)
-
-#     retvals = []
-
-#     for igene,gene in enumerate( adata.uns[key_added]['names'][pos_tag] ):
-#         log2fold = adata.uns[key_added]['logfoldchanges'][pos_tag][igene]
-#         pval_adj = adata.uns[key_added]['pvals_adj'][pos_tag][igene]
-#         score = adata.uns[key_added]['scores'][pos_tag][igene]
-#         retvals.append( [ igene, gene, log2fold, pval_adj, score ] )
-
-#     return retvals
 
 def calc_good_cluster_tcr_features(
         adata,
@@ -407,71 +233,8 @@ def calc_good_cluster_tcr_features(
     return all_tcr_features
 
 
-# def get_nbrhood_infostrings( adata, nbrs ):
-#     ''' Returns a list of infostrings of len= adata.shape[0]
-#     clusters and consensus clusters
-#     mait fraction
-#     '''
-
-#     tcrs = pp.retrieve_tcrs_from_adata(adata)
-
-#     clusters_gex = adata.obs['clusters_gex']
-#     clusters_tcr = adata.obs['clusters_tcr']
-
-#     infostrings = []
-#     for ii in range(adata.shape[0]):
-#         tcr_string = '{} {}'.format(' '.join(tcrs[ii][0][:3]), ' '.join(tcrs[ii][1][:3]) )
-#         is_mait = tcr_scoring.is_human_mait_alpha_chain(tcrs[ii][0])
-#         mait_count = sum( tcr_scoring.is_human_mait_alpha_chain(tcrs[x][0]) for x in nbrs[ii]) + is_mait
-#         mait_frac = mait_count/(1+len(nbrs[ii])) ## including ii too
-#         clp = ( clusters_gex[ii], clusters_tcr[ii])
-#         clp_counts = Counter( zip( (clusters_gex[x] for x in nbrs[ii]), (clusters_tcr[x] for x in nbrs[ii]) ) )
-#         clp_counts[clp] += 1
-#         top_clp = clp_counts.most_common(1)[0][0]
-#         info = 'clp {:2d} {:2d} top {:2d} {:2d} {} m: {:d} {:.3f} {}'\
-#                .format( clp[0], clp[1], top_clp[0], top_clp[1], tcr_string, is_mait, mait_frac, ii)
-#         infostrings.append(info)
-#     return infostrings
 
 
-
-# def tcr_nbrhood_rank_genes( adata, nbrs_tcr, pval_threshold, rank_method=None):
-#     assert False # not using this anymore?
-#     if rank_method is None:
-#         rank_method = 'wilcoxon'
-
-#     num_clones = adata.shape[0]
-#     tcrs = pp.retrieve_tcrs_from_adata(adata)
-
-#     for ii in range(num_clones):
-#         nbrhood_mask = np.full( (num_clones,), False)
-#         nbrhood_mask[ nbrs_tcr[ii] ] = True
-#         nbrhood_mask[ ii ] = True
-
-#         print('run_rank_genes_on_cells:', ii, num_clones)
-#         results = run_rank_genes_on_cells(adata, nbrhood_mask, rank_method=rank_method )
-#         for igene, gene, log2fold, pval_adj, score in results:
-#             if pval_adj < pval_threshold and gene.lower()[:4] not in ['trav','trbv']:
-#                 print('tcr_nbrhood_rank_genes: {:4d} {:2d} {:9.2e} {:7.3f} {} {} {}'\
-#                       .format( ii, igene, pval_adj, log2fold, gene, ' '.join(tcrs[ii][0][:3]),
-#                                ' '.join(tcrs[ii][1][:3]) ) )
-#         sys.stdout.flush()
-
-# def get_split_mean_var( X, mask, mean, mean_sq ):
-#     # use: var = (mean_sq - mean**2)
-#     #
-#     N = mask.shape[0]
-#     assert X.shape[0] == N
-#     fg_wt = np.sum(mask) / N
-#     bg_wt = 1. - fg_wt
-#     fg_X = X[mask]
-#     fg_mean = fg_X.mean(axis=0)
-#     fg_mean_sq = np.multiply(fg_X, fg_X).mean(axis=0)
-#     bg_mean = (mean - fg_wt*fg_mean)/bg_wt
-#     bg_mean_sq = (mean_sq - fg_wt*fg_mean_sq)/bg_wt
-#     fg_var = (fg_mean_sq - fg_mean**2)
-#     bg_var = (bg_mean_sq - bg_mean**2)
-#     return fg_mean, fg_var, bg_mean, bg_var
 def get_split_mean_var( X, X_sq, mask, mean, mean_sq ):
     # use: var = (mean_sq - mean**2)
     #
@@ -515,7 +278,6 @@ def gex_nbrhood_rank_tcr_scores(
     if ttest_pval_threshold_for_mwu_calc is None:
         ttest_pval_threshold_for_mwu_calc = pval_threshold*10
 
-    #nbrhood_infos = get_nbrhood_infostrings(adata, nbrs_gex)
     print('making tcr score table:', tcr_score_names)
     score_table = tcr_scoring.make_tcr_score_table(adata, tcr_score_names)
     score_table_sq = np.multiply(score_table, score_table)
@@ -545,8 +307,8 @@ def gex_nbrhood_rank_tcr_scores(
             equal_var=False  # Welch's
         )
 
-        scores[np.isnan(scores)] = 0  # I think it's only nan when means are the same and vars are 0
-        pvals[np.isnan(pvals)] = 1  # This also has to happen for Benjamini Hochberg
+        scores[np.isnan(scores)] = 0
+        pvals[np.isnan(pvals)] = 1
 
         # crude bonferroni
         pvals *= pval_rescale
@@ -602,10 +364,6 @@ def gex_nbrhood_rank_tcr_scores(
                                      clone_index=ii) )
 
         sys.stdout.flush()
-        # if corr_method == 'benjamini-hochberg':
-        #     _, pvals_adj, _, _ = multipletests(pvals, alpha=0.05, method='fdr_bh')
-        # elif corr_method == 'bonferroni':
-        #     pvals_adj = np.minimum(pvals * n_genes, 1.0)
     return pd.DataFrame(results)
 
 
@@ -632,7 +390,7 @@ def tcr_nbrhood_rank_genes_fast(
     tcrs = pp.retrieve_tcrs_from_adata(adata)
     pp.add_mait_info_to_adata_obs(adata)
     is_mait = adata.obs['is_mait']
-    ## done unpacking
+    ## done unpacking ###############################
 
     if clone_display_names is None:
         clone_display_names = [ '{} {}'.format(' '.join(x[0][:3]), ' '.join(x[1][:3])) for x in tcrs ]
@@ -640,17 +398,11 @@ def tcr_nbrhood_rank_genes_fast(
     if ttest_pval_threshold_for_mwu_calc is None:
         ttest_pval_threshold_for_mwu_calc = pval_threshold * 10
 
-    #corr_method = 'benjamini-hochberg'
-
-    #from scipy import stats
-    from statsmodels.stats.multitest import multipletests
     assert pp.check_if_raw_matrix_is_logged(adata)
 
     rankby_abs = False
 
     num_clones = adata.shape[0]
-    #tcrs = pp.retrieve_tcrs_from_adata(adata)
-    #nbrhood_infos = get_nbrhood_infostrings(adata, nbrs_tcr)
 
     genes = list(adata.raw.var_names)
     num_real_genes = len(genes)
@@ -729,13 +481,6 @@ def tcr_nbrhood_rank_genes_fast(
         logfoldchanges = np.log2((np.expm1(mean_fg) + 1e-9) / (np.expm1(mean_bg) + 1e-9))
 
         pvals_adj = pvals * pval_rescale
-        # if corr_method == 'benjamini-hochberg':
-        #     _, pvals_adj, _, _ = multipletests(pvals, alpha=0.05, method='fdr_bh')
-        # elif corr_method == 'bonferroni':
-        #     pvals_adj = np.minimum(pvals * len(genes), 1.0)
-        # else:
-        #     print('unrecognized corr_method:', corr_method)
-        #     exit()
 
         scores_sort = np.abs(scores) if rankby_abs else scores
         partition = np.argpartition(scores_sort, -top_n)[-top_n:]
@@ -842,4 +587,107 @@ def compute_distance_correlations( adata, verbose=False ):
 
     results = np.array(results)
     return results[:,0], results[:,1]
+
+
+def compute_cluster_interactions( aclusters_in, bclusters_in, barcodes_in, barcode2tcr, outlog, max_pval = 1.0 ):
+
+    ''' Compute the cluster-cluster intxn (positive) with the lowest hypergeometric pval, and report.
+    Then eliminate one of the two interacting clusters: first try taking the one with the fewest cells
+    outside the pairwise interaction... Then iterate.
+
+    pval includes a rescaling factor = num_a_clusters * num_b_clusters, max_pval applies to this rescaled pval
+
+    This code is not currently being used in the conga pipeline but might be useful someday
+
+    '''
+
+
+    # condense a/b tcr groups within cluster-cluster intxns
+    # confusing: the a/b here is alpha vs beta not aclusters vs bclusters (ie gex vs tcr)
+    tcrs_list = [ barcode2tcr[x] for x in barcodes_in ]
+    atcrs = sorted( set( x[0] for x in tcrs_list ) )
+    btcrs = sorted( set( x[1] for x in tcrs_list ) )
+    atcr2agroup = dict( (y,x) for x,y in enumerate(atcrs))
+    btcr2bgroup = dict( (y,x) for x,y in enumerate(btcrs))
+    groups1 = np.array( [ atcr2agroup[x[0]] for x in tcrs_list ] ) # alpha tcr groups
+    groups2 = np.array( [ btcr2bgroup[x[1]] for x in tcrs_list ] ) # beta tcr groups
+
+    aclusters = np.copy( aclusters_in )
+    bclusters = np.copy( bclusters_in )
+    barcodes = np.copy( barcodes_in )
+
+    pval_rescale = ( np.max(aclusters)+1 ) * ( np.max(bclusters)+1 )
+
+    while True:
+        if aclusters.shape[0] == 0:
+            break
+        num_a = np.max(aclusters)+1
+        num_b = np.max(bclusters)+1
+
+        overlaps1 = {}
+        overlaps2 = {}
+
+        for ii in range(len(barcodes)):
+            cl = (aclusters[ii],bclusters[ii])
+            if cl not in overlaps1:
+                overlaps1[cl] = set()
+                overlaps2[cl] = set()
+            overlaps1[cl].add( groups1[ii] )
+            overlaps2[cl].add( groups2[ii] )
+
+        abcounts = np.zeros( (num_a,num_b), dtype=int )
+        for i in range(num_a):
+            for j in range(num_b):
+                if (i,j) in overlaps1:
+                    abcounts[i,j] = min( len(overlaps1[(i,j)]), len(overlaps2[(i,j)] ) )
+
+        acounts = np.sum( abcounts, axis=1 )
+        bcounts = np.sum( abcounts, axis=0 )
+        assert acounts.shape[0] == num_a
+        assert bcounts.shape[0] == num_b
+
+
+        pvals = np.ones( ( num_a, num_b ) )
+
+        total = np.sum( acounts ) # or bcounts
+
+        for a in range(num_a):
+            for b in range(num_b):
+                overlap = abcounts[a,b]
+                expected = acounts[a] * bcounts[b] / float(total)
+
+                if overlap>expected and overlap>1: # otherwise just stays at 1.0
+                    pvals[a,b] = hypergeom.sf( overlap-1, total, acounts[a], bcounts[b] )
+
+
+        # most significant interaction:
+        a,b = np.unravel_index( np.argmin( pvals ), pvals.shape )
+        overlap = abcounts[a,b]
+        if not overlap:
+            break
+        overlap_barcodes = barcodes[ ( aclusters==a ) & ( bclusters==b ) ]
+        expected = acounts[a] * bcounts[b] / float(total)
+        pval = pval_rescale * pvals[a,b]
+
+        if pval > max_pval:
+            break
+
+        outlog.write('clusclus2_intxn: {:2d} {:2d} {:8.1e} {:3d} {:6.1f} {:4d} {:4d} {:2d} {:2d} {:5d} ex {}\n'\
+                     .format( a,b,pval,overlap,expected,acounts[a],bcounts[b],
+                              len(set(aclusters)),len(set(bclusters)),len(barcodes),
+                              len(overlap_barcodes)-overlap ))
+
+        # now iterate
+        if acounts[a] <= bcounts[b]:
+            mask = aclusters!=a
+        else:
+            mask = bclusters!=b
+        aclusters = aclusters[ mask ]
+        bclusters = bclusters[ mask ]
+        barcodes = barcodes[ mask ]
+        groups1 = groups1[ mask ]
+        groups2 = groups2[ mask ]
+    return
+
+
 

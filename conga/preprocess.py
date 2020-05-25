@@ -694,3 +694,44 @@ def calc_nbrs(
         return all_nbrs
 
 
+
+def setup_tcr_cluster_names(adata):
+
+    organism = adata.uns['organism']
+
+    #clusters_gex = adata.obs['clusters_gex']
+    clusters_tcr = adata.obs['clusters_tcr']
+
+    tcrs = retrieve_tcrs_from_adata(adata)
+
+    num_clusters = np.max(clusters_tcr)+1
+    names = []
+    for c in range(num_clusters):
+        cluster_size = np.sum(clusters_tcr==c)
+        ctcrs = [ x for x,y in zip(tcrs,clusters_tcr) if y==c]
+        counts = Counter( [ get_vfam(x[0][0]) for x in ctcrs]) +Counter([get_vfam(x[1][0]) for x in ctcrs])
+        print( c, cluster_size, counts.most_common(3))
+        top_vfam, top_count = counts.most_common(1)[0]
+        eps=1e-3
+        if top_count+eps >= 0.75*cluster_size:
+            names.append('{}_{}'.format(c, top_vfam))
+        elif top_count+eps >= 0.5*cluster_size:
+            names.append('{}_{}'.format(c, top_vfam.lower()))
+        else:
+            if organism=='human': # special hack
+                c2 = counts['AV14']+counts['AV38']
+                c3 = counts['AV14']+counts['AV38']+counts['AV19']
+                if c2 >= 0.75*cluster_size:
+                    names.append('{}_AV14+'.format(c, top_vfam))
+                elif c3 >= 0.75*cluster_size:
+                    names.append('{}_AV14++'.format(c, top_vfam))
+                elif c2 >= 0.5*cluster_size:
+                    names.append('{}_av14+'.format(c, top_vfam))
+                elif c3 >= 0.5*cluster_size:
+                    names.append('{}_av14++'.format(c, top_vfam))
+                else:
+                    names.append(str(c))
+            else:
+                names.append(str(c))
+    print('setup_tcr_cluster_names:', names)
+    adata.uns['clusters_tcr_names'] = names

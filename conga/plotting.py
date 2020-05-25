@@ -18,9 +18,6 @@ from matplotlib.collections import LineCollection
 from scipy.cluster import hierarchy
 from scipy.spatial import distance
 
-# this is not crucial: we could add a check for it
-#from adjustText import adjust_text
-
 
 
 default_logo_genes = {
@@ -150,8 +147,6 @@ def make_single_rank_genes_logo( ranks, svgfile,
 def _parse_clusterpair_rank_genes( adata, uns_tag = 'rank_genes_good_cluster_pairs' ):
     ''' returns all_ranks dict mapping from cluspair to list [ (gene, l2r, pval), ... ]
     '''
-
-    rgtag = 'rank_genes_good_cluster_pairs'
 
     names = pd.DataFrame(adata.uns[uns_tag]['names'])
 
@@ -350,33 +345,6 @@ def make_logo_plots(
     ## parse the X_igex matrix
     all_scores = {} # map from clp to [ num_clusters_tcr, fracs, means]
 
-    # perc_for_rescaling = 75.
-    # means_rescale = []
-    # mean_expn_for_dark_red = 3.5
-    # for g in logo_genes:
-    #     if g not in X_igex_genes:
-    #         print('X_igex is missing logo_gene:', g, X_igex_genes)
-    #         means_rescale.append(1)
-    #     else:
-    #         if True:# new way
-    #             nbrhood_avgd_vals = gex_nbrhood_X_igex[:, X_igex_genes.index(g)]
-    #             maxval = np.max(nbrhood_avgd_vals)
-    #             print('max_nbrhood_avgd: {:10s} {:7.3f}'.format(g,maxval))
-    #             maxval = max(0.75, min(2.5, maxval))
-    #             means_rescale.append( 2.0/maxval)
-    #         else:
-    #             vals = X_igex[:, X_igex_genes.index(g) ]
-    #             vals = vals[ vals>1e-6 ] # non-zero values
-    #             if len(vals)==0:
-    #                 means_rescale.append(1.0)
-    #             else:
-    #                 #np.sort(vals)
-    #                 percs = np.percentile(vals, [75,85,95,100, perc_for_rescaling])
-    #                 print('logo_gene_percs: {:10s} {}'.format(g, ' '.join('{:.2f}'.format(x) for x in percs)))
-    #                 val = np.percentile(vals, perc_for_rescaling)
-    #                 val = max(1.5, min(mean_expn_for_dark_red, val))
-    #                 means_rescale.append( mean_expn_for_dark_red/val)
-    #                 print('means_rescale: {:10s} {:7.3f}'.format(g, means_rescale[-1]))
 
     logo_gene_indices = [ X_igex_genes.index(x) if x in X_igex_genes else None for x in logo_genes ]
 
@@ -522,25 +490,12 @@ def make_logo_plots(
                      transform=plt.gca().transAxes)
 
         ## add cluster labels to the plot, try drawing at centroid location
-        texts = []
-        #nndists = nndists_gex if proj_tag == 'GEX' else nndists_tcr
         for c in set(clusters):
             cmask = (clusters==c)
             centroid =np.mean(xy[cmask], axis=0)
-            #inds = np.nonzero(cmask)[0]
-            #center = inds[ np.argmin(nndists[cmask]) ]
-            #print('cluster center', proj_tag, center, nndists[center], '=?=', np.min(nndists[cmask]) )
-            # texts.append( plt.text( xy[center,0], xy[center,1], cluster_names[c], color=C[c], fontsize=10,
-            #                         bbox=dict(facecolor='white', alpha=0.5, edgecolor='white', pad=1)))
             fontsize = 10 if len(cluster_names[c])<=2 else 8
-            texts.append( plt.text( centroid[0], centroid[1], cluster_names[c], color='k', fontsize=fontsize,
-                                    bbox=dict(facecolor='white', alpha=0.5, edgecolor='white', pad=1)))
-        #print('start adjusting')
-        #iterations = adjust_text(texts, xy[:,0], xy[:,1], lim=1000, precision=1e-4, expand_points=(1.5,1.5))
-        #print('DONE adjusting', iterations)
-
-        # xmn,xmx = plt.xlim()
-        # ymn,ymx = plt.ylim()
+            plt.text( centroid[0], centroid[1], cluster_names[c], color='k', fontsize=fontsize,
+                      bbox=dict(facecolor='white', alpha=0.5, edgecolor='white', pad=1))
 
         #########################################3
         ## now a plot colored by conga score
