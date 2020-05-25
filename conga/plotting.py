@@ -9,7 +9,7 @@ import math
 from . import preprocess as pp
 from . import svg_basic
 from . import util
-from . import tcr_scores
+from . import tcr_scoring
 import os
 from os.path import exists
 from collections import Counter
@@ -282,7 +282,7 @@ def make_logo_plots(
     else:
         header2_genes = gex_header_genes[:]
     if gex_header_tcr_score_names:
-        header2_tcr_scores = tcr_scores.make_tcr_score_table(adata, gex_header_tcr_score_names)
+        header2_tcr_scores = tcr_scoring.make_tcr_score_table(adata, gex_header_tcr_score_names)
         assert header2_tcr_scores.shape == ( adata.shape[0], len(gex_header_tcr_score_names))
     else:
         header2_tcr_scores = None
@@ -1406,7 +1406,7 @@ def make_feature_panel_plots(
             if f=='clone_sizes':
                 feature_to_raw_values[f] = np.log1p(feature_to_raw_values[f])
         else:
-            feature_score_table = tcr_scores.make_tcr_score_table(adata, [f])
+            feature_score_table = tcr_scoring.make_tcr_score_table(adata, [f])
             feature_to_raw_values[f] = feature_score_table[:,0]
 
 

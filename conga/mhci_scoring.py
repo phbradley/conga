@@ -1,13 +1,8 @@
-#from . import tcr_scores
-#from .tcr_scores import aa_props_df
 import numpy as np
 import pandas as pd
 
 amino_acids = ['A', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'K', 'L', \
                'M', 'N', 'P', 'Q', 'R', 'S', 'T', 'V', 'W', 'Y']
-
-#aa_props_feature_set = frozenset(tcr_scores.aa_props_df.columns)
-
 
 mhci_model_file ='/home/pbradley/gitrepos/conga/conga/data/logreg_hobit_donor1_v4.tsv_0_model.tsv'
 mhci_model_df = pd.read_csv(mhci_model_file, sep='\t')

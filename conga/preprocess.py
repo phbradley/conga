@@ -8,7 +8,7 @@ import scipy
 from anndata import AnnData
 import sys
 from sys import exit
-from . import tcr_scores
+from . import tcr_scoring
 from . import util
 from . import pmhc_scoring
 from . import plotting
@@ -35,9 +35,9 @@ def add_mait_info_to_adata_obs( adata, key_added = 'is_mait' ):
     tcrs = retrieve_tcrs_from_adata(adata)
     organism = 'human' if 'organism' not in adata.uns_keys() else adata.uns['organism']
     if organism == 'human':
-        is_mait = [ tcr_scores.is_human_mait_alpha_chain(x[0]) for x in tcrs ]
+        is_mait = [ tcr_scoring.is_human_mait_alpha_chain(x[0]) for x in tcrs ]
     else:
-        is_mait = [ tcr_scores.is_mouse_inkt_alpha_chain(x[0]) for x in tcrs ]
+        is_mait = [ tcr_scoring.is_mouse_inkt_alpha_chain(x[0]) for x in tcrs ]
     adata.obs['is_mait'] = is_mait
 
 
@@ -268,11 +268,6 @@ def read_dataset(
 
     tcrs = [ barcode2tcr[x] for x in adata.obs.index ]
     store_tcrs_in_adata( adata, tcrs )
-
-    # adata.obs['mhci_score']      = [ tcr_scores.mhci_score_tcr(x) for x in tcrs ]
-    # adata.obs['cd8_score']       = [ tcr_scores.cd8_score_tcr(x) for x in tcrs ]
-    # adata.obs['alphadist_score'] = [ tcr_scores.alphadist_score_tcr(x) for x in tcrs ]
-    # adata.obs['cdr3len_score']   = [ tcr_scores.cdr3len_score_tcr(x) for x in tcrs ]
 
     return adata
 

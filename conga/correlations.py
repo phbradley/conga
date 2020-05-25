@@ -6,7 +6,7 @@ from scipy.sparse import issparse
 from collections import Counter
 import scanpy as sc
 from . import preprocess as pp
-from . import tcr_scores
+from . import tcr_scoring
 from . import util
 import sys
 import pandas as pd
@@ -421,8 +421,8 @@ def calc_good_cluster_tcr_features(
 #     infostrings = []
 #     for ii in range(adata.shape[0]):
 #         tcr_string = '{} {}'.format(' '.join(tcrs[ii][0][:3]), ' '.join(tcrs[ii][1][:3]) )
-#         is_mait = tcr_scores.is_human_mait_alpha_chain(tcrs[ii][0])
-#         mait_count = sum( tcr_scores.is_human_mait_alpha_chain(tcrs[x][0]) for x in nbrs[ii]) + is_mait
+#         is_mait = tcr_scoring.is_human_mait_alpha_chain(tcrs[ii][0])
+#         mait_count = sum( tcr_scoring.is_human_mait_alpha_chain(tcrs[x][0]) for x in nbrs[ii]) + is_mait
 #         mait_frac = mait_count/(1+len(nbrs[ii])) ## including ii too
 #         clp = ( clusters_gex[ii], clusters_tcr[ii])
 #         clp_counts = Counter( zip( (clusters_gex[x] for x in nbrs[ii]), (clusters_tcr[x] for x in nbrs[ii]) ) )
@@ -517,7 +517,7 @@ def gex_nbrhood_rank_tcr_scores(
 
     #nbrhood_infos = get_nbrhood_infostrings(adata, nbrs_gex)
     print('making tcr score table:', tcr_score_names)
-    score_table = tcr_scores.make_tcr_score_table(adata, tcr_score_names)
+    score_table = tcr_scoring.make_tcr_score_table(adata, tcr_score_names)
     score_table_sq = np.multiply(score_table, score_table)
     mean = score_table.mean(axis=0)
     mean_sq = score_table_sq.mean(axis=0)

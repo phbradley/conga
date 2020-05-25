@@ -2,7 +2,6 @@ import argparse
 import conga
 import time
 
-#import conga.tcr_scores as tcr_scores
 start_time = time.time()
 parser = argparse.ArgumentParser()
 
@@ -46,7 +45,7 @@ parser.add_argument('--show_pmhc_info_in_logos', action='store_true')
 parser.add_argument('--gex_header_tcr_score_names', type=str, nargs='*',
                     default= ['mhci2', 'cdr3len', 'cd8', 'nndists_tcr'])
 parser.add_argument('--gex_nbrhood_tcr_score_names', type=str, nargs='*',
-                    default=conga.tcr_scores.all_tcr_scorenames )
+                    default=conga.tcr_scoring.all_tcr_scorenames )
 parser.add_argument('--shuffle_tcr_kpcs', action='store_true') # shuffle the TCR kpcs to test for FDR
 
 args = parser.parse_args()
