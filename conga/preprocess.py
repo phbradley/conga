@@ -16,6 +16,7 @@ from . import plotting
 # silly hack
 all_sexlinked_genes = frozenset('XIST DDX3Y EIF1AY KDM5D LINC00278 NLGN4Y RPS4Y1 TTTY14 TTTY15 USP9Y UTY ZFY'.split())
 
+FUNNY_MOUSE_V_GENE = '5830405F06Rik' # actually seems to be a tcr v gene transcript or correlate with one
 
 def check_if_raw_matrix_is_logged( adata ):
     return adata.uns.get( 'raw_matrix_is_logged', False )
@@ -354,26 +355,28 @@ def filter_normalize_and_hvg(
 
     #find and filter by highly variable genes
     sc.pp.highly_variable_genes(adata, min_mean=hvg_min_mean, max_mean=hvg_max_mean, min_disp=hvg_min_disp)
+    hvg_mask = np.array(adata.var['highly_variable'])
 
     # exclude TCR genes
     if exclude_TR_genes:
         is_tr = []
         for gene in adata.var.index:
             is_tr.append( gene.lower().startswith('trav') or gene.lower().startswith('trbv') or \
-                            gene.lower().startswith('traj') or gene.lower().startswith('trbj') )
-        print('excluding {} TR genes'.format(sum(is_tr)))
-        adata.var['highly_variable'][ is_tr ] = False
-        assert sum( adata.var['highly_variable'][ is_tr ] )==0 # sanity check
+                          gene.lower().startswith('traj') or gene.lower().startswith('trbj') or \
+                          gene == FUNNY_MOUSE_V_GENE )
+        print('excluding {} TR genes ({} variable)'.format(sum(is_tr), sum(hvg_mask[is_tr])))
+        hvg_mask[is_tr] = False
+        assert sum( hvg_mask[is_tr] )==0 # sanity check
 
     if exclude_sexlinked:
         is_sexlinked = [ x in all_sexlinked_genes for x in adata.var.index ]
         print('excluding {} sexlinked genes'.format(sum(is_sexlinked)))
-        adata.var['highly_variable'][ is_sexlinked ] = False
+        hvg_mask[is_sexlinked] = False
 
-    print('total of',np.sum(adata.var['highly_variable']),'variable genes',adata.shape)
+    print('total of', np.sum(hvg_mask), 'variable genes', adata.shape)
     oldshape = adata.shape
     oldrawshape = adata.raw.shape
-    adata = adata[:, adata.var['highly_variable']].copy()
+    adata = adata[:, hvg_mask].copy()
     newshape = adata.shape
     newrawshape = adata.raw.shape
     print('after slice:', len(adata.var_names), oldshape, oldrawshape, newshape, newrawshape )

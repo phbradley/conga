@@ -1,6 +1,7 @@
 import numpy as np
 from scipy import stats
-from scipy.stats import hypergeom, mannwhitneyu
+from sklearn.metrics import pairwise_distances
+from scipy.stats import hypergeom, mannwhitneyu, linregress
 from scipy.sparse import issparse
 from collections import Counter
 import scanpy as sc
@@ -810,3 +811,35 @@ def tcr_nbrhood_rank_genes_fast(
         sys.stdout.flush()
 
     return pd.DataFrame(results)
+
+def compute_distance_correlations( adata, verbose=False ):
+    ''' return pvalues, rvalues  (each 1 1d numpy array of shape (num_clones,))
+    '''
+    clusters_gex = adata.obs['clusters_gex']
+    clusters_tcr = adata.obs['clusters_tcr']
+
+    agroups, bgroups = pp.setup_tcr_groups(adata)
+
+    print('compute D_gex', adata.shape[0])
+    D_gex = pairwise_distances( adata.obsm['X_pca_gex'], metric='euclidean' )
+
+    print('compute D_tcr', adata.shape[0])
+    D_tcr = pairwise_distances( adata.obsm['X_pca_tcr'], metric='euclidean' )
+
+    pval_rescale = adata.shape[0]
+    print('compute distance correlations' )
+    results = []
+    for ii, (agroup, bgroup)  in enumerate( zip( agroups, bgroups ) ):
+        if verbose and ii%1000==0:
+            print(ii)
+        mask = (agroups != agroup)&(bgroups != bgroup)
+        reg = linregress( D_gex[ii, mask], D_tcr[ii, mask])
+        pval, rval = reg.pvalue, reg.rvalue
+        pval *= pval_rescale
+        results.append( [ pval, rval ] )
+        if verbose and pval < 1:
+            print(f'distcorr: {pval:9.2e} {rval:7.3f} {clusters_gex[ii]:2d} {clusters_tcr[ii]:2d} {ii:4d}')
+
+    results = np.array(results)
+    return results[:,0], results[:,1]
+

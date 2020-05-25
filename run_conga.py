@@ -34,6 +34,7 @@ parser.add_argument('--find_tcr_cluster_genes', action='store_true')
 parser.add_argument('--find_tcr_segment_genes', action='store_true')
 parser.add_argument('--find_gex_nbrhood_scores', action='store_true')
 parser.add_argument('--find_gex_cluster_scores', action='store_true')
+parser.add_argument('--find_distance_correlations', action='store_true')
 
 parser.add_argument('--skip_gex_header', action='store_true')
 parser.add_argument('--skip_gex_header_raw', action='store_true')
@@ -41,10 +42,12 @@ parser.add_argument('--skip_gex_header_nbrZ', action='store_true')
 parser.add_argument('--skip_tcr_scores_in_gex_header', action='store_true')
 parser.add_argument('--tenx_agbt', action='store_true')
 parser.add_argument('--include_alphadist_in_tcr_feature_logos', action='store_true')
+parser.add_argument('--show_pmhc_info_in_logos', action='store_true')
 parser.add_argument('--gex_header_tcr_score_names', type=str, nargs='*',
                     default= ['mhci2', 'cdr3len', 'cd8', 'nndists_tcr'])
 parser.add_argument('--gex_nbrhood_tcr_score_names', type=str, nargs='*',
                     default=conga.tcr_scores.all_tcr_scorenames )
+parser.add_argument('--shuffle_tcr_kpcs', action='store_true') # shuffle the TCR kpcs to test for FDR
 
 args = parser.parse_args()
 
@@ -130,6 +133,13 @@ if args.from_checkpoint1 is None:
     adata = pp.reduce_to_single_cell_per_clone( adata )
     assert 'X_igex' in adata.obsm_keys()
 
+    if args.shuffle_tcr_kpcs:
+        X_pca_tcr = adata.obsm['X_pca_tcr']
+        assert X_pca_tcr.shape[0] == adata.shape[0]
+        reorder = np.random.permutation(X_pca_tcr.shape[0])
+        adata.obsm['X_pca_tcr'] = X_pca_tcr[reorder,:]
+        outlog.write('randomly permuting X_pca_tcr {}\n'.format(X_pca_tcr.shape))
+
     adata = pp.cluster_and_tsne_and_umap( adata )
 
     if args.checkpoint:
@@ -160,6 +170,7 @@ if args.exclude_gex_clusters:
 
 ################################################ DONE WITH INITIAL SETUP #########################################
 
+
 if args.write_proj_info:
     outfile = args.outfile_prefix+'_2d_proj_info.txt'
     pp.write_proj_info( adata, outfile )
@@ -188,6 +199,8 @@ adata.obs['nndists_tcr'] = nndists_tcr
 bad_conga_score = -1*np.log10(num_clones)
 conga_scores = np.full( (num_clones,3), bad_conga_score)
 
+
+
 if args.find_nbrhood_overlaps:
     all_results = []
     for nbr_frac in args.nbr_fracs:
@@ -209,29 +222,32 @@ if args.find_nbrhood_overlaps:
         print('find_neighbor_neighbor_interactions:')
         results_df = cc.find_neighbor_neighbor_interactions(
             adata, nbrs_gex, nbrs_tcr, agroups, bgroups, pval_threshold)
-        results_df['nbr_frac'] = nbr_frac
-        results_df['overlap_type'] = 'nbr_nbr'
-        all_results.append(results_df)
-        for r in results_df.itertuples():
-            conga_scores[r.clone_index,0] = max(conga_scores[r.clone_index,0], -1*np.log10(r.conga_score) )
+        if not results_df.empty:
+            results_df['nbr_frac'] = nbr_frac
+            results_df['overlap_type'] = 'nbr_nbr'
+            all_results.append(results_df)
+            for r in results_df.itertuples():
+                conga_scores[r.clone_index,0] = max(conga_scores[r.clone_index,0], -1*np.log10(r.conga_score) )
 
         print('find_neighbor_cluster_interactions:')
         results_df = cc.find_neighbor_cluster_interactions(
             adata, nbrs_tcr, clusters_gex, agroups, bgroups, pval_threshold)
-        results_df['nbr_frac'] = nbr_frac
-        results_df['overlap_type'] = 'cluster_nbr'
-        all_results.append(results_df)
-        for r in results_df.itertuples():
-            conga_scores[r.clone_index,1] = max(conga_scores[r.clone_index,1], -1*np.log10(r.conga_score) )
+        if results_df.shape[0]:
+            results_df['nbr_frac'] = nbr_frac
+            results_df['overlap_type'] = 'cluster_nbr'
+            all_results.append(results_df)
+            for r in results_df.itertuples():
+                conga_scores[r.clone_index,1] = max(conga_scores[r.clone_index,1], -1*np.log10(r.conga_score) )
 
         print('find_neighbor_cluster_interactions:')
         results_df = cc.find_neighbor_cluster_interactions(
             adata, nbrs_gex, clusters_tcr, agroups, bgroups, pval_threshold)
-        results_df['nbr_frac'] = nbr_frac
-        results_df['overlap_type'] = 'nbr_cluster'
-        all_results.append(results_df)
-        for r in results_df.itertuples():
-            conga_scores[r.clone_index,2] = max(conga_scores[r.clone_index,2], -1*np.log10(r.conga_score) )
+        if results_df.shape[0]:
+            results_df['nbr_frac'] = nbr_frac
+            results_df['overlap_type'] = 'nbr_cluster'
+            all_results.append(results_df)
+            for r in results_df.itertuples():
+                conga_scores[r.clone_index,2] = max(conga_scores[r.clone_index,2], -1*np.log10(r.conga_score) )
 
     results_df = pd.concat(all_results, ignore_index=True)
     if results_df.shape[0]:
@@ -243,6 +259,17 @@ if args.find_nbrhood_overlaps:
         tsvfile = args.outfile_prefix+'_graph_graph_overlaps.tsv'
         results_df.to_csv(tsvfile, sep='\t', index=False)
 
+if args.find_distance_correlations:
+    pvalues, rvalues = cc.compute_distance_correlations(adata)
+    results = []
+    for ii, (pval, rval) in enumerate(zip(rvalues, pvalues)):
+        if pval<1:
+            results.append( dict( clone_index=ii, pvalue_adj=pval, rvalue=rval, gex_cluster=clusters_gex[ii],
+                                  tcr_cluster=clusters_tcr[ii]))
+    if results:
+        results_df = pd.DataFrame(results)
+        outfile = args.outfile_prefix+'_distance_correlations.tsv'
+        results_df.to_csv(outfile, sep='\t', index=False)
 
 if args.find_pmhc_nbrhood_overlaps:
     pmhc_nbrhood_overlap_results = []
@@ -289,7 +316,7 @@ if args.find_tcr_nbrhood_genes:
     if results_df.shape[0]:
         pngfile = args.outfile_prefix+'_tcr_nbrhood_genes.png'
         print('making:', pngfile)
-        exclude_strings = ['5830405F06Rik'] # bad mouse gene, actually a tcr v gene
+        exclude_strings = [pp.FUNNY_MOUSE_V_GENE] # bad mouse gene, actually a tcr v gene
         pl.plot_ranked_strings_on_cells(adata, results_df, 'X_tcr_2d', 'clone_index', 'mwu_pvalue_adj', 1.0, 'feature',
                                         pngfile, exclude_strings=exclude_strings)
 
@@ -312,12 +339,15 @@ if args.find_tcr_cluster_genes:
     pval_threshold = 1.
 
     results_df = cc.tcr_nbrhood_rank_genes_fast( adata, fake_nbrs_tcr, pval_threshold, prefix_tag='clust')
-    results_df['clone_index'] = -1
-    tsvfile = args.outfile_prefix+'_tcr_cluster_genes.tsv'
-    print('making:', tsvfile)
-    results_df.to_csv(tsvfile, index=False, sep='\t')
-    results_df['nbr_frac'] = 0.0
-    tcr_cluster_genes_results = results_df
+    if results_df.shape[0]:
+        results_df['clone_index'] = -1
+        tsvfile = args.outfile_prefix+'_tcr_cluster_genes.tsv'
+        print('making:', tsvfile)
+        results_df.to_csv(tsvfile, index=False, sep='\t')
+        results_df['nbr_frac'] = 0.0
+        tcr_cluster_genes_results = results_df
+    else:
+        tcr_cluster_genes_results = None
 
 if args.find_tcr_segment_genes:
     tcrs = pp.retrieve_tcrs_from_adata(adata)
@@ -388,26 +418,28 @@ if args.find_gex_cluster_scores:
     pval_threshold = 1.
     results_df = cc.gex_nbrhood_rank_tcr_scores( adata, fake_nbrs_gex, args.gex_nbrhood_tcr_score_names, pval_threshold,
                                                  prefix_tag = 'clust' )
+    if results_df.shape[0]:
+        results_df['clone_index'] = -1 # the clone_index values are not meaningful
+        tsvfile = args.outfile_prefix+'_gex_cluster_scores.tsv'
+        print('making:', tsvfile)
+        results_df.to_csv(tsvfile, index=False, sep='\t')
+        results_df['nbr_frac'] = 0.0
 
-    results_df['clone_index'] = -1 # the clone_index values are not meaningful
-    tsvfile = args.outfile_prefix+'_gex_cluster_scores.tsv'
-    print('making:', tsvfile)
-    results_df.to_csv(tsvfile, index=False, sep='\t')
-    results_df['nbr_frac'] = 0.0
-
-    gex_cluster_scores_results = results_df
+        gex_cluster_scores_results = results_df
+    else:
+        gex_cluster_scores_results = None
 
 
 if args.find_nbrhood_overlaps and args.find_tcr_nbrhood_genes and args.find_gex_nbrhood_scores:
     pngfile = args.outfile_prefix+'_summary.png'
     print('making:', pngfile)
 
-    if args.find_tcr_cluster_genes:
+    if args.find_tcr_cluster_genes and tcr_cluster_genes_results is not None:
         tcr_genes_results = pd.concat( [tcr_nbrhood_genes_results, tcr_cluster_genes_results ], ignore_index=True )
     else:
         tcr_genes_results = tcr_nbrhood_genes_results
 
-    if args.find_gex_cluster_scores:
+    if args.find_gex_cluster_scores and gex_cluster_scores_results is not None:
         gex_scores_results = pd.concat( [gex_nbrhood_scores_results, gex_cluster_scores_results], ignore_index=True )
     else:
         gex_scores_results = gex_nbrhood_scores_results
@@ -453,6 +485,7 @@ if num_good_cluster_pairs:
                         make_gex_header_nbrZ = not args.skip_gex_header_nbrZ,
                         include_alphadist_in_tcr_feature_logos=args.include_alphadist_in_tcr_feature_logos,
                         rank_genes_uns_tag = rank_genes_uns_tag,
+                        show_pmhc_info_in_logos = args.show_pmhc_info_in_logos,
                         gex_header_tcr_score_names = gex_header_tcr_score_names )
     #rank_genes_uns_tag = rank_genes_filt_uns_tag )
 
