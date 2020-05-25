@@ -635,7 +635,6 @@ def _calc_nndists( D, nbrs ):
     sample_range = np.arange(num_clones)[:, np.newaxis]
     nbrs_sorted = nbrs[sample_range, np.argsort(D[sample_range, nbrs])]
     D_nbrs_sorted = D[sample_range, nbrs_sorted]
-    print('sorted?', D_nbrs_sorted[0])
     wts = np.linspace(1.0, 1.0/num_nbrs, num_nbrs)
     wts /= np.sum(wts)
     nndists = np.sum( D_nbrs_sorted * wts[np.newaxis,:], axis=1)

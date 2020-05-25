@@ -211,7 +211,7 @@ if args.find_nbrhood_overlaps:
         print(f'gex_indegree_bias: nbr_frac= {nbr_frac:.4f}', scipy.stats.describe(gex_indegree_bias))
         tcr_counts = Counter(nbrs_tcr.flatten())
         tcr_indegree_bias = np.array( [ tcr_counts[x]/expected_indegree for x in range(num_clones) ] )
-        print('tcr_indegree_bias: nbr_frac= {nbr_frac:.4f}', scipy.stats.describe(tcr_indegree_bias))
+        print(f'tcr_indegree_bias: nbr_frac= {nbr_frac:.4f}', scipy.stats.describe(tcr_indegree_bias))
         # any correlation?
         print('indegree_bias_correlation:', scipy.stats.linregress(gex_indegree_bias, tcr_indegree_bias))
 

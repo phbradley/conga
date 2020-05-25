@@ -200,6 +200,11 @@ def calc_good_cluster_tcr_features(
 ):
     num_clones = adata.shape[0]
 
+    # there seems to be a problem with np.nonzero on a pandas series, which is what these might be if
+    # taken from adata.obs
+    clusters_gex = np.array(clusters_gex)
+    clusters_tcr = np.array(clusters_tcr)
+
     clp_counts = Counter( (x,y) for x,y,z in zip( clusters_gex, clusters_tcr, good_mask ) if z )
     print( clp_counts.most_common())
 
