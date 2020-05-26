@@ -426,7 +426,11 @@ def cluster_and_tsne_and_umap(
             adata.obsm['X_tsne_'+tag] = adata.obsm['X_tsne']
         sc.tl.umap(adata)
         adata.obsm['X_umap_'+tag] = adata.obsm['X_umap']
-        sc.tl.louvain(adata, key_added='louvain_'+tag, resolution=louvain_resolution)
+        resolution = 1.0 if louvain_resolution is None else louvain_resolution
+        try:
+            sc.tl.louvain(adata, resolution=resolution, key_added='louvain_'+tag)
+        except:
+            sc.tl.leiden(adata, resolution=resolution, key_added='louvain_'+tag)
 
         ## set better obsm keys and data types
         # generic names-- these will be the ones we use in other stuff
