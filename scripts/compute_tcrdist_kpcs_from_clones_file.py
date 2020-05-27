@@ -5,8 +5,11 @@ import os
 from os.path import exists
 import numpy as np
 from sklearn.decomposition import KernelPCA
+
 sys.path.append( os.path.dirname( os.path.dirname( os.path.abspath(__file__) ) ) ) # so we can import conga
 import conga
+from conga.tcrdist.tcr_distances import TcrDistCalculator
+import pandas as pd
 
 
 def compute_tcrdist_kpcs_from_clones_file(
@@ -16,39 +19,20 @@ def compute_tcrdist_kpcs_from_clones_file(
 ):
     assert organism in ['mouse', 'human']
 
-    python2 = conga.util.PYTHON2_EXE
-    script = conga.util.TCRDIST_REPO+'compute_distances.py'
-    if not exists(script):
-        print('cant find the tcr-dist script:', script)
-        print('please install tcr-dist repo from github and set the location in conga/conga/util.py at the top')
-        if not exists(python2):
-            print('also the python2 executable, too')
-        sys.exit(1)
+    tcrdist_calculator = TcrDistCalculator(organism)
 
-    cmd = '{} {} --organism {} --dist_chains AB --clones_file {}'\
-        .format( python2, script, organism, clones_file )
-    conga.util.run_command(cmd) # I think this just calls system right now
+    df = pd.read_csv(clones_file, sep='\t')
 
-    distfile = clones_file[:-4]+'_AB.dist'
-    if not exists(distfile):
-        print('computing the distances with tcr-dist failed!')
-        print('the command was:', cmd)
-        sys.exit(1)
+    # in conga we usually also have cdr3_nucseq but we don't need it for tcrdist
+    tcrs = [ ( ( l.va_gene, l.ja_gene, l.cdr3a ), ( l.vb_gene, l.jb_gene, l.cdr3b ) ) for l in df.itertuples() ]
+    ids = [ l.clone_id for l in df.itertuples() ]
+
 
     ## read distances
-    counter=0
-    D=[]
-    ids = []
-    for line in open( distfile,'r'):
-        if counter%1000==0:
-            print( 'reading', distfile, counter)
-        counter+=1
-        l = line.split()
-        dists = [ float(x) for x in l[1:] ]
-        D.append( dists )
-        ids.append(l[0])
+    print(f'compute tcrdist distance matrix for {len(tcrs)} clonotypes')
+    D= np.array( [ tcrdist_calculator(x,y) for x in tcrs for y in tcrs ] ).reshape( (len(tcrs), len(tcrs)) )
 
-    D = np.matrix(D)
+    #D = np.matrix(D) # I dunno if this is important, I think it came from some example
 
     n_components = min( n_components_in, D.shape[0] )
 
@@ -63,7 +47,9 @@ def compute_tcrdist_kpcs_from_clones_file(
     for ii in range(n_components):
         print( 'eigenvalue: {:3d} {:.3f}'.format( ii, pca.lambdas_[ii]))
 
-    outfile = '{}_{}_kpcs'.format(distfile, n_components_in)
+    # this is the kpcs_file that conga.preprocess.read_dataset is expecting:
+    #kpcs_file = clones_file[:-4]+'_AB.dist_50_kpcs'
+    outfile = '{}_AB.dist_{}_kpcs'.format(clones_file[:-4], n_components_in)
     print( 'making:', outfile)
     out = open(outfile,'w')
 

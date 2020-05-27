@@ -10,6 +10,8 @@ from . import preprocess as pp
 from . import svg_basic
 from . import util
 from . import tcr_scoring
+from .tcrdist.make_tcr_logo import make_tcr_logo_for_tcrs
+from .tcrdist.tcr_distances import TcrDistCalculator
 import os
 from os.path import exists
 from collections import Counter
@@ -166,23 +168,23 @@ def _parse_clusterpair_rank_genes( adata, uns_tag = 'rank_genes_good_cluster_pai
 
 
 
-def make_tcr_logo( tcrs, organism, ab, pngfile):
-    clonesfile = pngfile+'_clones.tsv'
-    util.make_clones_file( tcrs, clonesfile )
+# def old_make_tcr_logo( tcrs, ab, organism, pngfile):
+#     clonesfile = pngfile+'_clones.tsv'
+#     util.make_clones_file( tcrs, clonesfile )
 
-    exe = '{}make_tcr_logo.py'.format( util.TCRDIST_REPO )
-    if not exists(exe):
-        print( 'ERROR: unable to locate python script in tcr-dist repo:', exe)
-        exit()
+#     exe = '{}make_tcr_logo.py'.format( util.TCRDIST_REPO )
+#     if not exists(exe):
+#         print( 'ERROR: unable to locate python script in tcr-dist repo:', exe)
+#         exit()
 
-    #> /dev/null 2> /dev/null'\
-    cmd = '{} {} --organism {} --ABs {} --outfile_prefix {} --clones_file {}'\
-        .format( util.PYTHON2_EXE, exe, organism, ab, pngfile[:-4], clonesfile )
-    util.run_command(cmd)
-    if not exists(pngfile):
-        print('make_tcr_logo:: cmd failed:', cmd)
-        exit()
-    os.remove(clonesfile)
+#     #> /dev/null 2> /dev/null'\
+#     cmd = '{} {} --organism {} --ABs {} --outfile_prefix {} --clones_file {}'\
+#         .format( util.PYTHON2_EXE, exe, organism, ab, pngfile[:-4], clonesfile )
+#     util.run_command(cmd)
+#     if not exists(pngfile):
+#         print('make_tcr_logo:: cmd failed:', cmd)
+#         exit()
+#     os.remove(clonesfile)
 
 
 
@@ -295,6 +297,10 @@ def make_logo_plots(
 
 
     assert len(logo_genes) == 3*gene_width - 2
+
+    # for making the tcr logos
+    tcrdist_calculator = TcrDistCalculator(organism)
+
 
     # create nbrhood averaged X_igex array
     gex_nbrhood_X_igex = []
@@ -875,7 +881,11 @@ def make_logo_plots(
 
             pngfile = '{}_tmp_{}_{}_{}.png'.format(logo_pngfile, clp[0], clp[1], ab)
             tmpfiles.append(pngfile)
-            make_tcr_logo( [ tcrs[x] for x in nodes ], organism, ab, pngfile )
+            # if 1: # old way
+            #     old_make_tcr_logo( [ tcrs[x] for x in nodes ], ab, organism, pngfile )
+            # else: # new way
+            make_tcr_logo_for_tcrs( [ tcrs[x] for x in nodes ], ab, organism, pngfile,
+                                    tcrdist_calculator=tcrdist_calculator )
             image = mpimg.imread(pngfile)
             plt.imshow(image)
             plt.axis('off')
