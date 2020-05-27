@@ -1,6 +1,7 @@
 import numpy as np
 import pandas as pd
 
+from . import basic
 from .basic import *
 from .amino_acids import amino_acids
 from . import all_genes
@@ -69,7 +70,7 @@ def make_tcr_logo(
     """
     cmds = []
 
-    gene_logo_name_trim = 2 if 'gammadelta' in pipeline_params['db_file'] else 4
+    gene_logo_name_trim = 2 if 'gammadelta' in basic.db_file else 4
 
     assert ab in ['A','B']
     assert len(all_dists) == len(tcrs) and len(all_dists[0]) == len(tcrs)
@@ -96,7 +97,7 @@ def make_tcr_logo(
     distl.sort()
 
     center = distl[0][1]
-    print('center_tcr:', len(tcrs), distl[0], tcrs[center][v_index], tcrs[center][cdr3_index] )
+    #print('center_tcr:', len(tcrs), distl[0], tcrs[center][v_index], tcrs[center][cdr3_index] )
 
     ## count v,j gene reps
     v_count = {}
