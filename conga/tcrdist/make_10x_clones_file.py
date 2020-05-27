@@ -271,15 +271,6 @@ def _make_clones_file( organism, outfile, clonotype2tcrs, clonotype2barcodes ):
     outmap.close()
 
     # for the time being, go with the clones file we just made even though it doesn't have all the usual stupid info
-    #
-    #python_exe = sys.executable
-    # python_exe = '/home/pbradley/anaconda2/bin/python'
-    # script = '/home/pbradley/gitrepos/tcr-dist/file_converter.py'
-
-    # cmd = '{} {} --input_format clones --output_format clones --input_file {} --output_file {}  --organism {} --clobber --epitope UNK_E --extra_fields {} '\
-    #     .format( python_exe, script, tmpfile, outfile, organism, ' '.join(extra_fields) )
-    # print(cmd)
-    # system(cmd)
 
 
 def setup_filtered_clonotype_dicts( clonotype2tcrs, clonotype2barcodes, min_repeat_count_fraction = 0.33):
@@ -488,30 +479,4 @@ def make_10x_clones_file(
 
 
     _make_clones_file( organism, clones_file, clonotype2tcrs, clonotype2barcodes )
-
-
-
-
-
-
-#######################################################################################################
-#######################################################################################################
-#######################################################################################################
-#######################################################################################################
-#######################################################################################################
-#######################################################################################################
-#######################################################################################################
-
-# if __name__ == '__main__':
-#     filtered_contig_annotations_csvfile = '/home/pbradley/csdat/tcr10x/other_vdj/prlic/CD8_45034_90_hs_t_filtered_contig_annotations.csv'
-#     consensus_annotations_csvfile = None
-#     clones_file = 'tmp_new.tsv'
-#     stringent = True
-#     organism = 'human'
-
-#     make_10x_clones_file( filtered_contig_annotations_csvfile, organism, clones_file, stringent,
-#                           consensus_annotations_csvfile )
-
-
-
 

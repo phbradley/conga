@@ -1,10 +1,14 @@
+from os.path import exists
 import numpy as np
 import pandas as pd
+from . import util
+
 
 amino_acids = ['A', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'K', 'L', \
                'M', 'N', 'P', 'Q', 'R', 'S', 'T', 'V', 'W', 'Y']
 
-mhci_model_file ='/home/pbradley/gitrepos/conga/conga/data/logreg_hobit_donor1_v4.tsv_0_model.tsv'
+mhci_model_file = util.path_to_data+'logreg_hobit_donor1_v4.tsv_0_model.tsv'
+assert exists(mhci_model_file)
 mhci_model_df = pd.read_csv(mhci_model_file, sep='\t')
 mhci_model_df.set_index('feature', inplace=True)
 

@@ -1,11 +1,12 @@
 #from phil import *
+from sys import exit
 import math
 from os.path import exists
 import pandas as pd
+import numpy as np
+from . import util
 from . import preprocess as pp
 from . import mhci_scoring
-from sys import exit
-import numpy as np
 
 
 cdr3_score_FG = 'fg'
@@ -18,7 +19,8 @@ fg_trim = 4
 center_len = 5
 
 
-aa_props_file = '/home/pbradley/gitrepos/conga/conga/data/aa_props.tsv'
+aa_props_file = util.path_to_data+'aa_props.tsv'
+assert exists(aa_props_file)
 aa_props_df = pd.read_csv(aa_props_file, sep='\t')
 aa_props_df.set_index('aa', inplace=True)
 
@@ -34,7 +36,7 @@ amino_acids = ['A', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'K', 'L', \
 def read_cd8_score_params():
     # setup the scoring params
     # made by read_flunica_gene_usage_clustermaps*py
-    infofile = '/home/pbradley/gitrepos/conga/conga/data/cd48_score_params_nomait.txt'
+    infofile = util.path_to_data+'cd48_score_params_nomait.txt'
 
     scoretags = 'cdr3_len cdr3_aa gene'.split()
 
@@ -174,7 +176,7 @@ def read_locus_order( remove_slashes_from_gene_names= False ):
     # read the gene order from imgt
     all_locus_order = {'A':{}, 'B':{}}
     for ab in 'AB':
-        filename = '/home/pbradley/gitrepos/conga/conga/data/imgt_tr{}_locus_order.txt'.format(ab.lower())
+        filename = util.path_to_data+'imgt_tr{}_locus_order.txt'.format(ab.lower())
         assert exists(filename)
         for line in open(filename,'r'):
             l = line.split()

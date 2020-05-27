@@ -4,8 +4,8 @@ from os import system
 import os.path
 from scipy.sparse import issparse
 from collections import Counter
-#import pandas as pd
-#from . import preprocess as pp
+# try not to have any conga imports here
+#
 
 # convenience paths
 path_to_conga = os.path.dirname(os.path.realpath(__file__))
@@ -14,24 +14,6 @@ path_to_conga += '/'
 
 path_to_data = path_to_conga+'data/'
 assert os.path.isdir( path_to_data )
-
-
-# def get_mean_var_scanpy(X):
-#     ''' this is based on---ie stolen from---scanpy's _get_mean_var function
-#     wanted to be explicit about what our variance convention is
-#     '''
-#     #
-#     mean = X.mean(axis=0)
-#     if issparse(X):
-#         mean_sq = X.multiply(X).mean(axis=0)
-#         mean = mean.A1
-#         mean_sq = mean_sq.A1
-#     else:
-#         mean_sq = np.multiply(X, X).mean(axis=0)
-#     # do we want unbiased estimator?
-#     #var = (mean_sq - mean**2) * (X.shape[0]/(X.shape[0]-1))
-#     var = (mean_sq - mean**2)
-#     return mean, var
 
 
 def run_command( cmd, verbose=False ):
