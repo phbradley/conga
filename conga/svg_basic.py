@@ -5,6 +5,7 @@ import base64 ## png encoding
 import math
 from math import floor
 from . import util
+from .convert_svg_to_png import convert_svg_to_png
 
 # borrowed from html_colors:
 COLOR_BREWER = False
@@ -111,9 +112,7 @@ def create_file( cmds, width, height, filename, create_png = False, background_c
 
     if create_png:
         assert filename.endswith('.svg')
-        cmd = 'convert {} {}.png'.format(filename,filename[:-4] )
-        #print cmd
-        util.run_command(cmd)
+        convert_svg_to_png(filename, filename[:-4]+'.png')
 
 
     if create_html:
