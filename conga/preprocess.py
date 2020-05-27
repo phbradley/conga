@@ -386,6 +386,7 @@ def cluster_and_tsne_and_umap(
         compute_pca_gex= True,
         skip_tsne=True, # yes this is silly
         skip_tcr=False,
+        clustering_method=None
 ):
     '''calculates neighbors, tsne, louvain for both GEX and TCR
 
@@ -400,6 +401,8 @@ def cluster_and_tsne_and_umap(
     obs: clusters_tcr (int version of) louvain_tcr
 
     '''
+    assert clustering_method in [None, 'louvain', 'leiden']
+
     ncells = adata.shape[0]
     n_components = min(ncells-1, 50)
 
@@ -427,14 +430,23 @@ def cluster_and_tsne_and_umap(
         sc.tl.umap(adata)
         adata.obsm['X_umap_'+tag] = adata.obsm['X_umap']
         resolution = 1.0 if louvain_resolution is None else louvain_resolution
-        try:
+        if clustering_method=='louvain':
             cluster_key_added = 'louvain_'+tag
             sc.tl.louvain(adata, resolution=resolution, key_added=cluster_key_added)
             print('ran louvain clustering:', cluster_key_added)
-        except ImportError: # hacky
+        elif clustering_method=='leiden':
             cluster_key_added = 'leiden_'+tag
             sc.tl.leiden(adata, resolution=resolution, key_added=cluster_key_added)
             print('ran leiden clustering:', cluster_key_added)
+        else: # try both, first louvain, then leiden
+            try:
+                cluster_key_added = 'louvain_'+tag
+                sc.tl.louvain(adata, resolution=resolution, key_added=cluster_key_added)
+                print('ran louvain clustering:', cluster_key_added)
+            except ImportError: # hacky
+                cluster_key_added = 'leiden_'+tag
+                sc.tl.leiden(adata, resolution=resolution, key_added=cluster_key_added)
+                print('ran leiden clustering:', cluster_key_added)
 
         ## set better obsm keys and data types
         # generic names-- these will be the ones we use in other stuff

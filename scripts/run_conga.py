@@ -29,6 +29,7 @@ parser.add_argument('--exclude_gex_clusters', type=int, nargs='*')
 parser.add_argument('--min_cluster_size', type=int, default=5)
 parser.add_argument('--min_cluster_size_fraction', type=float, default=0.001)
 parser.add_argument('--outfile_prefix', required=True)
+parser.add_argument('--clustering_method', choices=['louvain','leiden'])
 parser.add_argument('--bad_barcodes_file')
 parser.add_argument('--checkpoint', action='store_true')
 parser.add_argument('--from_checkpoint1')
@@ -76,7 +77,7 @@ if args.calc_clone_pmhc_pvals or args.bad_barcodes_file or args.filter_ribo_norm
 logfile = args.outfile_prefix+'_log.txt'
 outlog = open(logfile, 'w')
 outlog.write('sys.argv: {}\n'.format(' '.join(sys.argv)))
-sc.logging.print_versions() # goes to stdout
+sc.logging.print_versions() # goes to stderr
 
 if args.from_checkpoint1 is None:
 
@@ -139,7 +140,7 @@ if args.from_checkpoint1 is None:
         adata.obsm['X_pca_tcr'] = X_pca_tcr[reorder,:]
         outlog.write('randomly permuting X_pca_tcr {}\n'.format(X_pca_tcr.shape))
 
-    adata = pp.cluster_and_tsne_and_umap( adata )
+    adata = pp.cluster_and_tsne_and_umap( adata, clustering_method=args.clustering_method )
 
     if args.checkpoint:
         adata.write_h5ad(args.outfile_prefix+'_checkpoint1.h5ad')
