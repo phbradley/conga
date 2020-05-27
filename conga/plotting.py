@@ -232,14 +232,14 @@ def make_logo_plots(
     ## unpack data from adata arrays ##################################
     clone_sizes = adata.obs['clone_sizes']
     if clusters_gex is None:
-        clusters_gex = adata.obs['clusters_gex']
+        clusters_gex = np.array(adata.obs['clusters_gex'])
         if clusters_gex_names is None:
             clusters_gex_names = adata.uns.get('clusters_gex_names', [str(x) for x in range(np.max(clusters_gex)+1)])
     elif clusters_gex_names is None:
         clusters_gex_names = [str(x) for x in range(np.max(clusters_gex)+1)]
 
     if clusters_tcr is None:
-        clusters_tcr = adata.obs['clusters_tcr']
+        clusters_tcr = np.array(adata.obs['clusters_tcr'])
         if clusters_tcr_names is None:
             clusters_tcr_names = adata.uns.get('clusters_tcr_names', [str(x) for x in range(np.max(clusters_tcr)+1)])
     elif clusters_tcr_names is None:
@@ -1032,11 +1032,11 @@ def plot_ranked_strings_on_cells(
     # new wrinkle: clone_index column may be -1, if we included the cluster-level results
     # figure out if these are gex or tcr clusters
     if 'gex' in xy_tag:
-        clusters = adata.obs['clusters_gex']
+        clusters = np.array(adata.obs['clusters_gex'])
         clp_index_for_minus1 = 0
     else:
         assert 'tcr' in xy_tag
-        clusters = adata.obs['clusters_tcr']
+        clusters = np.array(adata.obs['clusters_tcr'])
         clp_index_for_minus1 = 1
 
 

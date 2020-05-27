@@ -401,7 +401,7 @@ def cluster_and_tsne_and_umap(
 
     '''
     ncells = adata.shape[0]
-    n_components = min(ncells, 50)
+    n_components = min(ncells-1, 50)
 
     if compute_pca_gex:
         sc.tl.pca(adata, n_comps=n_components) # re-run now that we have reduced to a single cell per clone
@@ -428,13 +428,17 @@ def cluster_and_tsne_and_umap(
         adata.obsm['X_umap_'+tag] = adata.obsm['X_umap']
         resolution = 1.0 if louvain_resolution is None else louvain_resolution
         try:
-            sc.tl.louvain(adata, resolution=resolution, key_added='louvain_'+tag)
-        except:
-            sc.tl.leiden(adata, resolution=resolution, key_added='louvain_'+tag)
+            cluster_key_added = 'louvain_'+tag
+            sc.tl.louvain(adata, resolution=resolution, key_added=cluster_key_added)
+            print('ran louvain clustering:', cluster_key_added)
+        except ImportError: # hacky
+            cluster_key_added = 'leiden_'+tag
+            sc.tl.leiden(adata, resolution=resolution, key_added=cluster_key_added)
+            print('ran leiden clustering:', cluster_key_added)
 
         ## set better obsm keys and data types
         # generic names-- these will be the ones we use in other stuff
-        adata.obs['clusters_'+tag] = np.copy(adata.obs['louvain_'+tag]).astype(int)
+        adata.obs['clusters_'+tag] = np.copy(adata.obs[cluster_key_added]).astype(int)
         adata.obsm['X_{}_2d'.format(tag)] = adata.obsm['X_umap_'+tag]
 
 
@@ -549,8 +553,8 @@ def reduce_to_single_cell_per_clone(
 
 
 def write_proj_info( adata, outfile ):
-    clusters_gex = adata.obs['clusters_gex']
-    clusters_tcr = adata.obs['clusters_tcr']
+    clusters_gex = np.array(adata.obs['clusters_gex'])
+    clusters_tcr = np.array(adata.obs['clusters_tcr'])
     X_gex_2d = adata.obsm['X_gex_2d']
     X_tcr_2d = adata.obsm['X_tcr_2d']
     X_pca_tcr = adata.obsm['X_pca_tcr']
@@ -712,7 +716,7 @@ def setup_tcr_cluster_names(adata):
     organism = adata.uns['organism']
 
     #clusters_gex = adata.obs['clusters_gex']
-    clusters_tcr = adata.obs['clusters_tcr']
+    clusters_tcr = np.array(adata.obs['clusters_tcr'])
 
     tcrs = retrieve_tcrs_from_adata(adata)
 

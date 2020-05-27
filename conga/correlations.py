@@ -277,8 +277,8 @@ def gex_nbrhood_rank_tcr_scores(
     tcrs = pp.retrieve_tcrs_from_adata(adata)
     pp.add_mait_info_to_adata_obs(adata)
     is_mait = adata.obs['is_mait']
-    clusters_gex = adata.obs['clusters_gex']
-    clusters_tcr = adata.obs['clusters_tcr']
+    clusters_gex = np.array(adata.obs['clusters_gex'])
+    clusters_tcr = np.array(adata.obs['clusters_tcr'])
 
     if ttest_pval_threshold_for_mwu_calc is None:
         ttest_pval_threshold_for_mwu_calc = pval_threshold*10
@@ -390,8 +390,8 @@ def tcr_nbrhood_rank_genes_fast(
     '''
 
     ## unpack from adata
-    clusters_gex = adata.obs['clusters_gex']
-    clusters_tcr = adata.obs['clusters_tcr']
+    clusters_gex = np.array(adata.obs['clusters_gex'])
+    clusters_tcr = np.array(adata.obs['clusters_tcr'])
     tcrs = pp.retrieve_tcrs_from_adata(adata)
     pp.add_mait_info_to_adata_obs(adata)
     is_mait = adata.obs['is_mait']
@@ -565,8 +565,8 @@ def tcr_nbrhood_rank_genes_fast(
 def compute_distance_correlations( adata, verbose=False ):
     ''' return pvalues, rvalues  (each 1 1d numpy array of shape (num_clones,))
     '''
-    clusters_gex = adata.obs['clusters_gex']
-    clusters_tcr = adata.obs['clusters_tcr']
+    clusters_gex = np.array(adata.obs['clusters_gex'])
+    clusters_tcr = np.array(adata.obs['clusters_tcr'])
 
     agroups, bgroups = pp.setup_tcr_groups(adata)
 

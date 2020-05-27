@@ -1,11 +1,11 @@
 import sys
 import os
-sys.path.append( os.path.dirname( os.path.dirname( os.path.abspath(__file__) ) ) )
 from collections import Counter
 from os.path import exists
 import argparse
-import conga
 import time
+sys.path.append( os.path.dirname( os.path.dirname( os.path.abspath(__file__) ) ) ) # in order to import conga package
+import conga
 import conga.preprocess as pp
 import conga.correlations as cc
 import conga.plotting as pl
@@ -76,6 +76,7 @@ if args.calc_clone_pmhc_pvals or args.bad_barcodes_file or args.filter_ribo_norm
 logfile = args.outfile_prefix+'_log.txt'
 outlog = open(logfile, 'w')
 outlog.write('sys.argv: {}\n'.format(' '.join(sys.argv)))
+sc.logging.print_versions() # goes to stdout
 
 if args.from_checkpoint1 is None:
 
@@ -153,7 +154,7 @@ else:
 
 if args.exclude_gex_clusters:
     xl = args.exclude_gex_clusters
-    clusters_gex = adata.obs['clusters_gex']
+    clusters_gex = np.array(adata.obs['clusters_gex'])
     mask = (clusters_gex==xl[0])
     for c in xl[1:]:
         mask |= (clusters_gex==c)
@@ -175,8 +176,9 @@ if args.write_proj_info:
 
 pp.setup_tcr_cluster_names(adata) #stores in adata.uns
 
-clusters_gex = adata.obs['clusters_gex']
-clusters_tcr = adata.obs['clusters_tcr']
+# make these numpy arrays because there seems to be a problem with np.nonzero on pandas series...
+clusters_gex = np.array(adata.obs['clusters_gex'])
+clusters_tcr = np.array(adata.obs['clusters_tcr'])
 
 num_clones = adata.shape[0]
 
@@ -247,8 +249,8 @@ if args.find_nbrhood_overlaps:
             for r in results_df.itertuples():
                 conga_scores[r.clone_index,2] = max(conga_scores[r.clone_index,2], -1*np.log10(r.conga_score) )
 
-    results_df = pd.concat(all_results, ignore_index=True)
-    if results_df.shape[0]:
+    if all_results:
+        results_df = pd.concat(all_results, ignore_index=True)
         indices = results_df['clone_index']
         results_df['gex_cluster'] = list(clusters_gex[indices])
         results_df['tcr_cluster'] = list(clusters_tcr[indices])
