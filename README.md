@@ -39,7 +39,7 @@ python conga/scripts/run_conga.py --restart tmp_hs_pbmc_final.h5ad --find_tcr_nb
 
 # Installation
 
-`conga` relies heavily on the `scanpy` python package for single-cell analysis. See the `scanpy`
+`conga` relies heavily on the wonderful `scanpy` python package for single-cell analysis. See the `scanpy`
 instructions for installation: <https://scanpy.readthedocs.io/en/stable/installation.html>.
 We highly recommend using anaconda/miniconda for managing python environments. The calculations in the
 `conga` manuscript were conducted with the following package versions:
@@ -48,7 +48,7 @@ We highly recommend using anaconda/miniconda for managing python environments. T
 scanpy==1.4.3 anndata==0.6.18 umap==0.3.9 numpy==1.16.2 scipy==1.2.1 pandas==0.24.1 scikit-learn==0.20.2 statsmodels==0.9.0 python-igraph==0.7.1 louvain==0.6.1
 ```
 
-installed with the following `conda` command:
+which might possibly be installed with the following `conda` command:
 ```
 conda create -n conga_classic_env ipython python=3.6 scanpy=1.4.3 umap-learn=0.3.9
 ```
@@ -57,7 +57,7 @@ conda create -n conga_classic_env ipython python=3.6 scanpy=1.4.3 umap-learn=0.3
 We've also been able to re-run everything, albeit with some numerical changes, with a current (2020-05-25) scanpy
 installation and these package versions:
 ```
-scanpy==1.5.1 anndata==0.7.3 umap==0.4.3 numpy==1.17.5 scipy==1.4.1 pandas==1.0.3 scikit-learn==0.23.1 statsmodels==0.11.1 python-igraph==0.8.2 leidenalg==0.8.0
+scanpy==1.5.1 anndata==0.7.3 umap==0.4.3 numpy==1.17.5 scipy==1.4.1 pandas==1.0.3 scikit-learn==0.23.1 statsmodels==0.11.1 python-igraph==0.8.2 louvain==0.6.1 leidenalg==0.8.0
 ```
 
 Which was installed with the following `conda` commands (following the `scanpy` docs):
@@ -76,5 +76,10 @@ ie finds a few more GEX/TCR associations, probably because there seem to be fewe
 If the `louvain` package is installed `conga` will use that. 
 
 
-
+# svg to png
+The `conga` image-making pipeline requires an svg to png conversion. There seem to be a variety of
+options for doing this, with the best choice being somewhat platform dependent. We've had good luck with
+ImageMagick `convert` (on linux) and Inkscape (on mac). The conversion is handled in the file
+`conga/convert_svg_to_png.py`, so you can modify that file if things are not working and you have
+a tool installed; `conga` may not be looking in the right place. 
 

@@ -2,8 +2,14 @@ from os import system
 from os.path import isfile
 from sys import stderr, exit
 
+# modify this if you have command line inkscape installed in a different place
+# note that we also try just 'inkscape' first so if it's in your path you should be good.
+#
+PATH_TO_INKSCAPE='/Applications/Inkscape.app/Contents/Resources/bin/inkscape'
+
+
 ## you could modify this function if you have a different cmdline tool for converting svg to png
-## like inkscape or cairosvg
+## like cairosvg
 ##
 
 def convert_svg_to_png(
@@ -41,13 +47,12 @@ def convert_svg_to_png(
         return
 
     ## this is probably a long-shot, but in case inkscape is installed on mac
-    inkscape_exe = '/Applications/Inkscape.app/Contents/Resources/bin/inkscape'
-    if isfile( inkscape_exe ):
+    if isfile( PATH_TO_INKSCAPE ):
         from os.path import abspath
         svgfile_full = abspath( svgfile )
         pngfile_full = abspath( pngfile )
 
-        cmd = '{} --export-png {} {}'.format( inkscape_exe, pngfile_full, svgfile_full )
+        cmd = '{} --export-png {} {}'.format( PATH_TO_INKSCAPE, pngfile_full, svgfile_full )
         if verbose:
             print(cmd)
         system(cmd)
