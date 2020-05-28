@@ -488,7 +488,7 @@ def reduce_to_single_cell_per_clone(
 
     # compute pcs
     print('compute pca to find rep cell for each clone', adata.shape)
-    sc.tl.pca(adata, n_comps=min(adata.shape[0], n_pcs))
+    sc.tl.pca(adata, n_comps=min(adata.shape[0]-1, n_pcs))
 
     # for each clone, try to identify the most 'representative' cell based on gex
     tcrs_with_duplicates = retrieve_tcrs_from_adata(adata)

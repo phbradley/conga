@@ -663,7 +663,7 @@ def make_logo_plots(
                 if ig==0:
                     plt.xlabel('GEX UMAP1', fontsize=6, labelpad=1)
                     plt.ylabel('GEX UMAP2', fontsize=6, labelpad=1)
-                plt.text( xmn+pad, ymx, 'nbrZ', va='top', ha='left', fontsize=8)
+                plt.text( xmn+pad, ymx, 'nbr', va='top', ha='left', fontsize=8)
                 plt.text( xmx, ymx, gene, va='top', ha='right', fontsize=8)
 
         if gex_header_tcr_score_names:

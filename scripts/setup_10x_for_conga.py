@@ -26,7 +26,7 @@ from conga.tcrdist.make_10x_clones_file import make_10x_clones_file
 
 #### first make the clones file ###########################################################################
 stringent=True
-clones_file = args.filtered_contig_annotations_csvfile+'_tcrdist_clones.tsv' if args.clones_file is None \
+clones_file = args.filtered_contig_annotations_csvfile[:-4]+'_tcrdist_clones.tsv' if args.clones_file is None \
               else args.clones_file
 
 make_10x_clones_file(args.filtered_contig_annotations_csvfile, args.organism, clones_file, stringent=stringent,
