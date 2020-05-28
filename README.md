@@ -25,7 +25,7 @@ python conga/scripts/setup_10x_for_conga.py --filtered_contig_annotations_csvfil
 as follows:
 
 ```
-python conga/scripts/run_conga.py --gex_data data/vdj_v1_hs_pbmc_5gex_filtered_gene_bc_matrices_h5.h5  --gex_data_type 10x_h5 --clones_file vdj_v1_hs_pbmc_t_filtered_contig_annotations_tcrdist_clones.tsv --find_nbrhood_overlaps --organism human  --outfile_prefix tmp_hs_pbmc
+python conga/scripts/run_conga.py --graph_vs_graph  --gex_data data/vdj_v1_hs_pbmc_5gex_filtered_gene_bc_matrices_h5.h5  --gex_data_type 10x_h5 --clones_file vdj_v1_hs_pbmc_t_filtered_contig_annotations_tcrdist_clones.tsv --organism human  --outfile_prefix tmp_hs_pbmc
 ```
 
 3. **RE-ANALYZE**: Step 2 will generate a processed `.h5ad` file that contains all the gene expression
@@ -33,7 +33,7 @@ and TCR sequence information along with the results of clustering and dimensiona
 be much faster to perform subsequent re-analysis or downstream analysis by "restarting" from those files.
 
 ```
-python conga/scripts/run_conga.py --restart tmp_hs_pbmc_final.h5ad --find_tcr_nbrhood_genes --outfile_prefix tmp_hs_pbmc_restart
+python conga/scripts/run_conga.py --restart tmp_hs_pbmc_final.h5ad --graph_vs_tcr_features --graph_vs_gex_features --outfile_prefix tmp_hs_pbmc_restart
 ```
 
 

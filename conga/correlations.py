@@ -134,8 +134,8 @@ def find_neighbor_cluster_interactions(
             overlap_corrected = min( len(set(agroups[same_cluster_nbrs])), len(set(bgroups[same_cluster_nbrs])) )
             if overlap_corrected < overlap:
                 delta = overlap-overlap_corrected
-                new_nbr_pval = pval_rescale * hypergeom.sf( overlap_corrected-1, actual_num_clones, num_neighbors-delta,
-                                                            ii_cluster_clustersize-delta )
+                new_nbr_pval = pval_rescale * hypergeom.sf(overlap_corrected-1, actual_num_clones, num_neighbors-delta,
+                                                           ii_cluster_clustersize-delta )
 
 
         results.append( dict( conga_score=nbr_pval,
@@ -148,7 +148,108 @@ def find_neighbor_cluster_interactions(
 
     return pd.DataFrame(results)
 
-def run_rank_genes_on_good_cluster_pairs(
+
+
+def check_nbr_graphs_indegree_bias(all_nbrs):
+    ''' all_nbrs is a dict mapping from nbr_frac to (gex_nbrs, tcr_nbrs) setup by preprocess.calc_nbrs
+    '''
+    for nbr_frac in all_nbrs:
+        nbrs_gex, nbrs_tcr = all_nbrs[nbr_frac]
+        num_clones = nbrs_gex.shape[0]
+
+        # look at the in-degree distribution
+        expected_indegree = nbrs_gex.shape[1]
+        gex_counts = Counter(nbrs_gex.flatten())
+        gex_indegree_bias = np.array( [ gex_counts[x]/expected_indegree for x in range(num_clones) ] )
+        print(f'gex_indegree_bias: nbr_frac= {nbr_frac:.4f}', stats.describe(gex_indegree_bias))
+
+        tcr_counts = Counter(nbrs_tcr.flatten())
+        tcr_indegree_bias = np.array( [ tcr_counts[x]/expected_indegree for x in range(num_clones) ] )
+        print(f'tcr_indegree_bias: nbr_frac= {nbr_frac:.4f}', stats.describe(tcr_indegree_bias))
+
+        # any correlation?
+        # if there is strong correlation, this could skew the graph-vs-graph analysis
+        print(f'indegree_bias_correlation: nbr_frac= {nbr_frac:.4f}',
+              stats.linregress(gex_indegree_bias, tcr_indegree_bias))
+
+
+def run_graph_vs_graph(
+        adata,
+        all_nbrs,
+        pval_threshold=1.0, #pvals are crude bonferroni corrected by multiplying by num_clones, ie they can be >> 1
+):
+    ''' Runs graph-vs-graph analysis for each nbr_frac in the all_nbrs dictionary
+
+    Returns a (possibly empty) pandas dataframe with the results
+
+    Also sets up the
+
+    'conga_scores_neglog10'  array in adata.obs
+
+    '''
+
+    num_clones = adata.shape[0]
+    agroups, bgroups = pp.setup_tcr_groups(adata)
+    clusters_gex = np.array(adata.obs['clusters_gex'])
+    clusters_tcr = np.array(adata.obs['clusters_tcr'])
+
+    bad_conga_score = -1*np.log10(num_clones)
+
+    conga_scores_by_graph_neglog10 = np.full( (num_clones,3), bad_conga_score)
+
+    all_results = []
+
+    for nbr_frac in all_nbrs:
+        nbrs_gex, nbrs_tcr = all_nbrs[nbr_frac]
+
+
+        print('find_neighbor_neighbor_interactions:')
+        results_df = find_neighbor_neighbor_interactions(
+            adata, nbrs_gex, nbrs_tcr, agroups, bgroups, pval_threshold)
+        if not results_df.empty:
+            results_df['nbr_frac'] = nbr_frac
+            results_df['overlap_type'] = 'nbr_nbr'
+            all_results.append(results_df)
+            for r in results_df.itertuples():
+                conga_scores_by_graph_neglog10[r.clone_index,0] = max(conga_scores_by_graph_neglog10[r.clone_index,0],
+                                                                      -1*np.log10(r.conga_score) )
+
+        print('find_neighbor_cluster_interactions:')
+        results_df = find_neighbor_cluster_interactions(
+            adata, nbrs_tcr, clusters_gex, agroups, bgroups, pval_threshold)
+        if results_df.shape[0]:
+            results_df['nbr_frac'] = nbr_frac
+            results_df['overlap_type'] = 'cluster_nbr'
+            all_results.append(results_df)
+            for r in results_df.itertuples():
+                conga_scores_by_graph_neglog10[r.clone_index,1] = max(conga_scores_by_graph_neglog10[r.clone_index,1],
+                                                                      -1*np.log10(r.conga_score) )
+
+        print('find_neighbor_cluster_interactions:')
+        results_df = find_neighbor_cluster_interactions(
+            adata, nbrs_gex, clusters_tcr, agroups, bgroups, pval_threshold)
+        if results_df.shape[0]:
+            results_df['nbr_frac'] = nbr_frac
+            results_df['overlap_type'] = 'nbr_cluster'
+            all_results.append(results_df)
+            for r in results_df.itertuples():
+                conga_scores_by_graph_neglog10[r.clone_index,2] = max(conga_scores_by_graph_neglog10[r.clone_index,2],
+                                                                      -1*np.log10(r.conga_score) )
+
+    if all_results:
+        results_df = pd.concat(all_results, ignore_index=True)
+    else:
+        results_df = pd.DataFrame([])
+
+    # not sure we really need this level of detail:
+    #adata.obsm['conga_scores_by_graph_neglog10'] = conga_scores_by_graph_neglog10
+
+    adata.obs['conga_scores_neglog10'] = np.max(conga_scores_by_graph_neglog10, axis=1)
+
+    return results_df
+
+
+def run_rank_genes_on_good_biclusters(
         adata,
         good_mask,
         clusters_gex,
@@ -157,7 +258,7 @@ def run_rank_genes_on_good_cluster_pairs(
         rg_tag = 'test',
         neg_tag='none',
         min_count=5,
-        key_added = 'rank_genes_good_cluster_pairs'
+        key_added = 'rank_genes_good_biclusters'
 ):
     num_clones = adata.shape[0]
 
@@ -179,7 +280,7 @@ def run_rank_genes_on_good_cluster_pairs(
         pos_tags.remove(neg_tag)
 
     if not pos_tags:
-        print('run_rank_genes_on_good_cluster_pairs: no good cluster pairs')
+        print('run_rank_genes_on_good_biclusters: no good cluster pairs')
         return
 
     adata.obs[rg_tag] = vals
@@ -427,13 +528,19 @@ def tcr_nbrhood_rank_genes_fast(
     print('done taking big means')
 
     ## add some extra fake genes
+    if 'nndists_gex' in adata.obs_keys():
+        nndists_gex = np.array(adata.obs['nndists_gex'])
+    else:
+        print('WARNING nndists_gex not in adata.obs!')
+        nndists_gex = np.zeros(num_clones)
+
     if len(set(adata.obs['clone_sizes']))==1: # only one clone_size
         genes2 = ['nndists_gex_rank']
-        X2 = np.log1p(np.argsort(-1*np.array(adata.obs['nndists_gex'])))[:,np.newaxis]
+        X2 = np.log1p(np.argsort(-1*nndists_gex))[:,np.newaxis]
     else:
         genes2 = ['clone_sizes', 'nndists_gex_rank']
         X2 = np.vstack( [np.log1p(np.array(adata.obs['clone_sizes'])),
-                         np.log1p(np.argsort(-1*np.array(adata.obs['nndists_gex'])))] ).transpose()
+                         np.log1p(np.argsort(-1*nndists_gex))] ).transpose()
     assert X2.shape == (num_clones,len(genes2))
     X2_sq = X2*X2
     mean2 = X2.mean(axis=0)
@@ -695,4 +802,20 @@ def compute_cluster_interactions( aclusters_in, bclusters_in, barcodes_in, barco
     return
 
 
+
+def setup_fake_nbrs_from_clusters_for_graph_vs_features_analysis( clusters ):
+    ''' Make a fake nbr graph in which one clone in each cluster has a set of nbrs to the other
+    cluster members. Everybody else has empty nbr lists. For graph-vs-feature correlation analyses.
+    '''
+    clusters = np.array(clusters) # just in case; there's a problem w/ np.nonzero on some pandas series
+
+    fake_nbrs = []
+    seen = set()
+    for cl in clusters:
+        if cl in seen:
+            fake_nbrs.append([])
+        else:
+            seen.add(cl)
+            fake_nbrs.append(np.nonzero( clusters==cl )[0])
+    return fake_nbrs
 

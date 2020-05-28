@@ -282,7 +282,11 @@ def make_tcr_score_table(adata, scorenames):
             organism = adata.uns['organism']
             cols.append( [ inkt_score_tcr(x, organism) for x in tcrs ])
         elif name == 'nndists_tcr':
-            cols.append( np.array(adata.obs['nndists_tcr']) )
+            if 'nndists_tcr' not in adata.obs_keys():
+                print('WARNING nndists_tcr score requested but not present in adata.obs!!!!')
+                cols.append( np.zeros( adata.shape[0] ) )
+            else:
+                cols.append( np.array(adata.obs['nndists_tcr']) )
         else:
             score_mode = name.split('_')[-1]
             score_name = '_'.join( name.split('_')[:-1])

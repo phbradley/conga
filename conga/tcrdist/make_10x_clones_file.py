@@ -6,7 +6,7 @@ from itertools import chain
 import sys
 import pandas as pd
 
-MIN_CDR3_LEN = 5 # otherwise tcrdist barfs
+MIN_CDR3_LEN = 6 # otherwise tcrdist barfs; actually we could also set this to 5 and be OK
 
 def show(tcr):
     "For debugging"

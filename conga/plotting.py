@@ -146,7 +146,7 @@ def make_single_rank_genes_logo( ranks, svgfile,
     svg_basic.create_file( cmds, logo_width+2*margin, logo_max_height + 2*margin, svgfile,
                            create_png=create_png, create_html=create_html, background_color='white' )
 
-def _parse_clusterpair_rank_genes( adata, uns_tag = 'rank_genes_good_cluster_pairs' ):
+def _parse_bicluster_rank_genes( adata, uns_tag = 'rank_genes_good_biclusters' ):
     ''' returns all_ranks dict mapping from cluspair to list [ (gene, l2r, pval), ... ]
     '''
 
@@ -200,8 +200,8 @@ def make_logo_plots(
         clusters_gex_names=None,
         clusters_tcr_names=None,
         ignore_tcr_cluster_colors = False,
-        good_cluster_pair_tcr_scores=None,
-        rank_genes_uns_tag = 'rank_genes_good_cluster_pairs',
+        good_bicluster_tcr_scores=None,
+        rank_genes_uns_tag = 'rank_genes_good_biclusters',
         include_alphadist_in_tcr_feature_logos=False,
         max_expn_for_gene_logo = 2.5, # or max over the clps, whichever is larger
         show_pmhc_info_in_logos = False,
@@ -221,9 +221,13 @@ def make_logo_plots(
     * clone sizes (obs: clone_sizes)
     * tcrs (obs)
     * 2d projections: gex and tcr (obsm: X_gex_2d, X_tcr_2d)
-    * conga scores (aka all_max_nbr_chisq): (obsm: conga_scores)
+    * conga scores (obsm: conga_scores_neglog10)
     * X_igex (obsm: X_igex) and X_igex_genes (uns)
     * rank genes info for each cluster-pair
+
+    This code is a bit of a mess. OK, actually a huge mess. It started out simple but then when through
+    multiple versions and complications and variable renamings. Sorry!
+
     '''
 
     if not make_gex_header:
@@ -248,12 +252,10 @@ def make_logo_plots(
     good_score_mask = np.array(list(adata.obs['good_score_mask']))
     X_gex_2d = adata.obsm['X_gex_2d']
     X_tcr_2d = adata.obsm['X_tcr_2d']
-    conga_scores = adata.obsm['conga_scores'] # (num_clones,3)
+    conga_scores = adata.obs['conga_scores_neglog10']
     X_igex = adata.obsm['X_igex']
     X_igex_genes = list(adata.uns['X_igex_genes']) #for .index
     organism = adata.uns['organism']
-    # nndists_gex = np.array(adata.obs['nndists_gex']) # for choosing a representative clonotype
-    # nndists_tcr = np.array(adata.obs['nndists_tcr']) # to label
 
     if show_pmhc_info_in_logos:
         if 'X_pmhc' not in adata.obsm_keys():
@@ -289,9 +291,13 @@ def make_logo_plots(
         X_igex_genes.append('clone_sizes')
         assert X_igex.shape == (num_clones, len(X_igex_genes))
     if 'nndists_gex' in header2_genes:
-        X_igex = np.hstack( [X_igex, np.array(adata.obs['nndists_gex'])[:,np.newaxis] ] )
-        X_igex_genes.append('nndists_gex')
-        assert X_igex.shape == (num_clones, len(X_igex_genes))
+        if 'nndists_gex' in adata.obs_keys():
+            X_igex = np.hstack( [X_igex, np.array(adata.obs['nndists_gex'])[:,np.newaxis] ] )
+            X_igex_genes.append('nndists_gex')
+            assert X_igex.shape == (num_clones, len(X_igex_genes))
+        else:
+            print('WARNING nndists_gex not found in adata.obs')
+            header2_genes.remove('nndists_gex')
 
     gene_width = 6
 
@@ -338,7 +344,7 @@ def make_logo_plots(
     # read the 2D projections
     all_xy_gex = { i:xy for i,xy in enumerate(X_gex_2d) }
     all_xy_tcr = { i:xy for i,xy in enumerate(X_tcr_2d) }
-    all_max_nbr_chisq = { i:np.max(x) for i,x in enumerate(conga_scores) }
+    all_max_nbr_chisq = { i:x for i,x in enumerate(conga_scores) }
 
 
     # setup dbl nbrs
@@ -377,7 +383,7 @@ def make_logo_plots(
     if rank_genes_uns_tag is None:
         all_ranks = None
     else:
-        all_ranks = _parse_clusterpair_rank_genes( adata, uns_tag=rank_genes_uns_tag)
+        all_ranks = _parse_bicluster_rank_genes( adata, uns_tag=rank_genes_uns_tag)
 
 
     clps = [ x[1] for x in reversed( sorted( [ (y[0],x) for x,y in all_scores.items() ]))]
@@ -386,7 +392,7 @@ def make_logo_plots(
     dendro_width = 1.0
     title_logo_width = 0.75
     rg_logo_width = 1.5
-    score_logo_width = 0.0 if good_cluster_pair_tcr_scores is None else 0.5
+    score_logo_width = 0.0 if good_bicluster_tcr_scores is None else 0.5
     tcr_logo_width = 8
     gex_logo_width = 2
     logo_height = 0.5
@@ -448,8 +454,8 @@ def make_logo_plots(
     else:
         small_markersize=1.5
 
-    # store distances between clusterpairs
-    D = np.full( (len(clps),len(clps)), 1.0 ) # dist is 1.0 if no edges between clusterpair
+    # store distances between biclusters
+    D = np.full( (len(clps),len(clps)), 1.0 ) # dist is 1.0 if no edges between bicluster
     for i in range(len(clps)):
         D[i,i] = 0.0
 
@@ -697,32 +703,34 @@ def make_logo_plots(
                 plt.text( xmn+pad, ymx, 'tcr', va='top', ha='left', fontsize=8)
 
 
-    if len(clps)>1:
 
-        if True: ## make a key for the gex logo
-            bottom = (fig_height-top_margin-header_height-num_header2_rows*header2_height)/fig_height
-            height = header2_height/fig_height
-            left = (fig_width-margin-2*header2_height)/fig_width # make these plots square, so height=width
-            width = 2*header2_height/fig_width
-            plt.axes( [left,bottom,width,height] )
-            yshift = math.sqrt(3)/2 # 30 60 90 triangle
-            xy = []
-            for r in range(3):
-                xoff = 0 if r==1 else 0.5
-                yoff = yshift * ( 1-r )
-                ng = gene_width if r==1 else gene_width-1
-                for ii in range(ng):
-                    xy.append( [xoff+ii, yoff] )
-            xy = np.array(xy)
-            color = plt.get_cmap('Reds')(0.2)
-            plt.scatter(xy[:,0], xy[:,1], c=color, s=350, zorder=1)
-            for gene,(x,y) in zip( logo_genes, xy ):
-                plt.text(x,y,gene,fontsize=8,ha='center',va='center',rotation=30, zorder=2)
-            plt.xlim( [-0.5, gene_width-0.5] )
-            plt.ylim( [-yshift-0.5, yshift+0.5 ] )
-            plt.xticks([],[])
-            plt.yticks([],[])
-            #plt.title('key for GEX logo',fontsize=8,va='top',pad=1)
+    if len(clps)>0: ## make a key for the gex logo
+        bottom = (fig_height-top_margin-header_height-num_header2_rows*header2_height)/fig_height
+        height = header2_height/fig_height
+        left = (fig_width-margin-2*header2_height)/fig_width # make these plots square, so height=width
+        width = 2*header2_height/fig_width
+        plt.axes( [left,bottom,width,height] )
+        yshift = math.sqrt(3)/2 # 30 60 90 triangle
+        xy = []
+        for r in range(3):
+            xoff = 0 if r==1 else 0.5
+            yoff = yshift * ( 1-r )
+            ng = gene_width if r==1 else gene_width-1
+            for ii in range(ng):
+                xy.append( [xoff+ii, yoff] )
+        xy = np.array(xy)
+        color = plt.get_cmap('Reds')(0.2)
+        plt.scatter(xy[:,0], xy[:,1], c=color, s=350, zorder=1)
+        for gene,(x,y) in zip( logo_genes, xy ):
+            plt.text(x,y,gene,fontsize=8,ha='center',va='center',rotation=30, zorder=2)
+        plt.xlim( [-0.5, gene_width-0.5] )
+        plt.ylim( [-yshift-0.5, yshift+0.5 ] )
+        plt.xticks([],[])
+        plt.yticks([],[])
+        #plt.title('key for GEX logo',fontsize=8,va='top',pad=1)
+
+
+    if len(clps)>1:
 
         # make a dendrogram along the LHS
         bottom = bottom_margin/fig_height # there's an extra margin-width at the bottom
@@ -780,6 +788,7 @@ def make_logo_plots(
 
     tmpfiles = []
     for irow, iclp in enumerate(leaves):
+        first_row = ( irow == 0)
         last_row = ( irow == len(leaves)-1 )
         print('clp:',irow,len(leaves),logo_pngfile)
         clp = clps[iclp]
@@ -825,6 +834,9 @@ def make_logo_plots(
                 plt.text( 0.1,0,str(clp[1]),va='center',ha='left', fontsize=short_name_fontsize)
         plt.text(-1,1,'{}'.format(num_nodes),va='top',ha='left',fontsize=8)
         plt.text( 1,1,'{}'.format(num_cells),va='top',ha='right',fontsize=8)
+        if first_row:
+            plt.text(-0.1, 1, 'clones', va='top', ha='right', fontsize=6)
+            plt.text( 0.1, 1, 'cells:', va='top', ha='left', fontsize=6)
 
         if show_pmhc_info_in_logos:
             X_pmhc_clp = np.sum(X_pmhc[nodes,:],axis=0)/len(nodes)
@@ -896,8 +908,8 @@ def make_logo_plots(
 
 
         # make the tcr_scores logo
-        if good_cluster_pair_tcr_scores is not None:
-            clp_rank_scores = good_cluster_pair_tcr_scores[clp]
+        if good_bicluster_tcr_scores is not None:
+            clp_rank_scores = good_bicluster_tcr_scores[clp]
             if DONT_SHOW_LOW_MAIT_SCORES:
                 clp_rank_scores = [ x for x in clp_rank_scores if x[0] != 'mait' or x[1]>0 ]
             if not include_alphadist_in_tcr_feature_logos:
@@ -1169,7 +1181,7 @@ def make_summary_figure(
         pval_threshold_for_tcr_genes_results=0.05, # but bonferroni is harder on tcrs since there are so many lame genes
         pval_threshold_for_gex_scores_results=0.05,
 ):
-    conga_scores = adata.obsm['conga_scores'] # (num_clones,3)
+    conga_scores = adata.obs['conga_scores_neglog10'] # (num_clones,3)
 
     # make a nice combo fig
     nrows, ncols = 2,3
@@ -1209,7 +1221,7 @@ def make_summary_figure(
         ############################
         ## now a plot colored by pval
         plt.sca(axs[irow,1])
-        colors = np.maximum( conga_scores.max(axis=1), 0.0 )
+        colors = np.maximum( conga_scores, 0.0 )
         sort_order = np.argsort( colors )
 
         vmin = math.sqrt( -1*math.log10( 1.0 ) ) # was 0.05 then 0.2
@@ -1316,7 +1328,7 @@ def make_feature_panel_plots(
         all_nbrs,
         results_df,
         pngfile,
-        max_panels_per_cluster_pair=3,
+        max_panels_per_bicluster=3,
         max_pvalue=0.05,
         nrows=6,
         ncols=4,
@@ -1340,7 +1352,7 @@ def make_feature_panel_plots(
         if feature in seen:
             continue
         clp = (row.gex_cluster, row.tcr_cluster)
-        if clp_counts[clp] >= max_panels_per_cluster_pair:
+        if clp_counts[clp] >= max_panels_per_bicluster:
             continue
         seen.add(feature)
         clp_counts[clp] += 1
