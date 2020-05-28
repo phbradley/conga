@@ -32,7 +32,7 @@ parser.add_argument('--outfile_prefix', required=True)
 parser.add_argument('--clustering_method', choices=['louvain','leiden'])
 parser.add_argument('--bad_barcodes_file')
 parser.add_argument('--checkpoint', action='store_true')
-parser.add_argument('--from_checkpoint1')
+parser.add_argument('--restart')
 parser.add_argument('--make_unfiltered_logos', action='store_true')
 parser.add_argument('--make_avggood_logos', action='store_true')
 parser.add_argument('--make_avgfull_logos', action='store_true')
@@ -71,15 +71,14 @@ if args.find_pmhc_nbrhood_overlaps or args.calc_clone_pmhc_pvals:
     assert args.tenx_agbt
 
 if args.calc_clone_pmhc_pvals or args.bad_barcodes_file or args.filter_ribo_norm_low_cells:
-    assert not args.from_checkpoint1
-
+    assert not args.restart
 
 logfile = args.outfile_prefix+'_log.txt'
 outlog = open(logfile, 'w')
 outlog.write('sys.argv: {}\n'.format(' '.join(sys.argv)))
 sc.logging.print_versions() # goes to stderr
 
-if args.from_checkpoint1 is None:
+if args.restart is None:
 
     assert exists(args.gex_data)
     assert exists(args.clones_file)
@@ -143,10 +142,11 @@ if args.from_checkpoint1 is None:
     adata = pp.cluster_and_tsne_and_umap( adata, clustering_method=args.clustering_method )
 
     if args.checkpoint:
-        adata.write_h5ad(args.outfile_prefix+'_checkpoint1.h5ad')
+        adata.write_h5ad(args.outfile_prefix+'_checkpoint.h5ad')
 else:
-    adata = sc.read_h5ad(args.from_checkpoint1)
-    print('recover from checkpoint:', adata )
+    assert exists(args.restart)
+    adata = sc.read_h5ad(args.restart)
+    print('recover from h5ad file:', args.restart, adata )
 
     if 'organism' not in adata.uns_keys():
         assert args.organism
@@ -166,7 +166,7 @@ if args.exclude_gex_clusters:
     adata = pp.cluster_and_tsne_and_umap( adata )
 
     if args.checkpoint:
-        adata.write_h5ad(args.outfile_prefix+'_checkpoint1.h5ad')
+        adata.write_h5ad(args.outfile_prefix+'_checkpoint.h5ad')
 
 ################################################ DONE WITH INITIAL SETUP #########################################
 
@@ -299,8 +299,6 @@ adata.obs['good_score_mask'] = good_mask
 min_cluster_size = max( args.min_cluster_size, int( 0.5 + args.min_cluster_size_fraction * num_clones) )
 
 
-# if args.checkpoint:
-#     adata.write_h5ad(args.outfile_prefix+'_checkpoint2.h5ad')
 if args.find_tcr_nbrhood_genes:
     pval_threshold = 1.
     results = []
