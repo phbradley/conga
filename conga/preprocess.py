@@ -406,6 +406,7 @@ def cluster_and_tsne_and_umap(
     if compute_pca_gex:
         sc.tl.pca(adata, n_comps=n_components) # re-run now that we have reduced to a single cell per clone
         adata.obsm['X_pca_gex'] = adata.obsm['X_pca']
+        del adata.obsm['X_pca']
     assert 'X_pca_gex' in adata.obsm_keys()
     assert 'X_pca_tcr' in adata.obsm_keys()
 
@@ -480,7 +481,6 @@ def reduce_to_single_cell_per_clone(
     stashes info in adata:
     obs: clone_sizes
     obsm: X_igex
-    obsm: X_pca  (by sc.tl.pca() using the X array; but note that this gets recomputed in cluster_and_tsne_and_umap())
     uns: X_igex_genes
     '''
 
