@@ -70,6 +70,8 @@ conda install -c conda-forge louvain
 pip install scanpy
 ```
 
+(And consider also adding `conda install -c conda-forge notebook` for Jupyter notebook stuff.)
+
 Preliminary results suggest that, at least with default clustering parameters, the older `louvain`
 clustering algorithm seems to give slightly 'better' results than the newer `leiden` algorithm,
 ie finds a few more GEX/TCR associations, probably because there seem to be fewer, larger clusters.

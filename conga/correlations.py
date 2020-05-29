@@ -403,8 +403,8 @@ def gex_nbrhood_rank_tcr_scores(
         if num_fg < min_num_fg:
             continue
         scores, pvals = stats.ttest_ind_from_stats(
-            mean1=mean_fg, std1=np.sqrt(var_fg), nobs1=num_fg,
-            mean2=mean_bg, std2=np.sqrt(var_bg), nobs2=num_clones-num_fg, # scanpy ttest-over-estim-var uses nobs1 here
+            mean1=mean_fg, std1=np.sqrt(np.maximum(var_fg, 1e-12)), nobs1=num_fg,
+            mean2=mean_bg, std2=np.sqrt(np.maximum(var_bg, 1e-12)), nobs2=num_clones-num_fg,
             equal_var=False  # Welch's
         )
 
@@ -572,8 +572,8 @@ def tcr_nbrhood_rank_genes_fast(
         mean_fg = np.hstack([mean_fg, mean2_fg])
         mean_bg = np.hstack([mean_bg, mean2_bg]) # note that we dont do the variances...
         scores, pvals = stats.ttest_ind_from_stats(
-            mean1=mean_fg, std1=np.sqrt(np.hstack([var_fg, var2_fg])), nobs1=num_fg,
-            mean2=mean_bg, std2=np.sqrt(np.hstack([var_bg, var2_fg])), nobs2=num_clones-num_fg,
+            mean1=mean_fg, std1=np.sqrt(np.maximum(np.hstack([var_fg, var2_fg]), 1e-12)), nobs1=num_fg,
+            mean2=mean_bg, std2=np.sqrt(np.maximum(np.hstack([var_bg, var2_fg]), 1e-12)), nobs2=num_clones-num_fg,
             equal_var=False  # Welch's
         )
 
