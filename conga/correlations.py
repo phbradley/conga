@@ -298,6 +298,7 @@ def calc_good_cluster_tcr_features(
         clusters_tcr,
         tcr_score_names,
         min_count=5,
+        verbose=True,
 ):
     num_clones = adata.shape[0]
 
@@ -323,7 +324,7 @@ def calc_good_cluster_tcr_features(
 
     pval_threshold = 1.
     results_df = gex_nbrhood_rank_tcr_scores( adata, fake_nbrs_gex, tcr_score_names, pval_threshold,
-                                              prefix_tag = 'good_clp' )
+                                              verbose=verbose, prefix_tag = 'good_clp' )
 
     all_tcr_features = {}
     for row in results_df.itertuples():

@@ -4,6 +4,7 @@ from os.path import exists
 from collections import Counter
 from sklearn.metrics import pairwise_distances
 from sklearn.utils import sparsefuncs
+from sklearn.decomposition import KernelPCA
 import numpy as np
 import scipy
 from anndata import AnnData
@@ -13,6 +14,7 @@ from . import tcr_scoring
 from . import util
 from . import pmhc_scoring
 from . import plotting
+from .tcrdist.tcr_distances import TcrDistCalculator
 
 # silly hack
 all_sexlinked_genes = frozenset('XIST DDX3Y EIF1AY KDM5D LINC00278 NLGN4Y RPS4Y1 TTTY14 TTTY15 USP9Y UTY ZFY'.split())
@@ -31,7 +33,7 @@ def add_mait_info_to_adata_obs( adata, key_added = 'is_mait' ):
     Also this is a total approximation based on the TCR alpha chain
     '''
     if key_added in adata.obs:
-        print('adata.obs already has mait info')
+        #print('adata.obs already has mait info')
         return
     tcrs = retrieve_tcrs_from_adata(adata)
     organism = 'human' if 'organism' not in adata.uns_keys() else adata.uns['organism']
@@ -83,7 +85,7 @@ def normalize_and_log_the_raw_matrix( adata, counts_per_cell_after = 1e4 ):
 
     set_raw_matrix_is_logged_to_true( adata )
 
-    print(adata)
+    #print(adata)
     return adata
 
 tcr_keys = 'va ja cdr3a cdr3a_nucseq vb jb cdr3b cdr3b_nucseq'.split() # ugly
@@ -145,7 +147,6 @@ def setup_X_igex( adata ):
     print('found {} of {} good_genes in var_names  organism={}'.format(len(good_genes), len(all_genes), organism))
     assert good_genes
     indices = [ var_names.index(x) for x in good_genes ]
-    #print('igex_genes: {}'.format(' '.join(good_genes)))
     X_igex = adata.raw[:,indices].X.toarray()
     return X_igex, good_genes
 
@@ -254,13 +255,11 @@ def read_dataset(
 
     mask = [ x in barcode2tcr for x in adata.obs.index ]
 
-    print('slicing:',adata.shape, len(mask), np.sum(mask))
+    print(f'Reducing to the {np.sum(mask)} barcodes (out of {adata.shape[0]}) with paired TCR sequence data')
     assert not adata.isview
     #adata = adata[mask,:]
     adata = adata[mask,:].copy()
     assert not adata.isview
-    print('sliced:',adata.shape)
-    #stdout.flush()
 
 
     # stash the kPCA info in adata.obsm
@@ -321,10 +320,8 @@ def filter_normalize_and_hvg(
     assert not adata.isview
     print('filtered out {} cells with more than {} percent mito'\
           .format( np.sum( adata.obs['percent_mito'] >= percent_mito ), percent_mito ) )
-    print('before:',adata)
     adata = adata[adata.obs['percent_mito'] < percent_mito, :].copy()
     assert not adata.isview
-    print('after:',adata)
 
     adata.raw = adata
 
@@ -375,7 +372,7 @@ def filter_normalize_and_hvg(
     adata = adata[:, hvg_mask].copy()
     newshape = adata.shape
     newrawshape = adata.raw.shape
-    print('after slice:', len(adata.var_names), oldshape, oldrawshape, newshape, newrawshape )
+    #print('after slice:', len(adata.var_names), oldshape, oldrawshape, newshape, newrawshape )
 
     return adata
 
@@ -545,9 +542,8 @@ def reduce_to_single_cell_per_clone(
     new_X_igex = np.array(new_X_igex)
     assert new_X_igex.shape == ( num_clones, len(good_genes))
 
-    print('before subset barcodes:', adata.shape)
+    print(f'reduce from {adata.shape[0]} cells to {len(rep_cell_indices)} cells (one per clonotype)')
     adata = adata[ rep_cell_indices, : ].copy() ## seems like we need to copy here, something to do with adata 'views'
-    print('after subset barcodes:', adata.shape)
     adata.obs['clone_sizes'] = np.array( clone_sizes )
     adata.obsm['X_igex'] = new_X_igex
     adata.uns['X_igex_genes'] = good_genes
@@ -738,7 +734,7 @@ def setup_tcr_cluster_names(adata):
         cluster_size = np.sum(clusters_tcr==c)
         ctcrs = [ x for x,y in zip(tcrs,clusters_tcr) if y==c]
         counts = Counter( [ get_vfam(x[0][0]) for x in ctcrs]) +Counter([get_vfam(x[1][0]) for x in ctcrs])
-        print( c, cluster_size, counts.most_common(3))
+        #print( c, cluster_size, counts.most_common(3))
         top_vfam, top_count = counts.most_common(1)[0]
         eps=1e-3
         if top_count+eps >= 0.75*cluster_size:
@@ -763,3 +759,55 @@ def setup_tcr_cluster_names(adata):
                 names.append(str(c))
     print('setup_tcr_cluster_names:', names)
     adata.uns['clusters_tcr_names'] = names
+
+
+def make_tcrdist_kernel_pcs_file_from_clones_file(
+        clones_file,
+        organism,
+        n_components_in=50,
+        verbose = False,
+        outfile = None,
+):
+    if outfile is None: # this is the name expected by read_dataset above (with n_components_in==50)
+        outfile = '{}_AB.dist_{}_kpcs'.format(clones_file[:-4], n_components_in)
+
+    assert organism in ['mouse', 'human']
+
+    tcrdist_calculator = TcrDistCalculator(organism)
+
+    df = pd.read_csv(clones_file, sep='\t')
+
+    # in conga we usually also have cdr3_nucseq but we don't need it for tcrdist; we also don't need the jgene but hey
+    tcrs = [ ( ( l.va_gene, l.ja_gene, l.cdr3a ), ( l.vb_gene, l.jb_gene, l.cdr3b ) ) for l in df.itertuples() ]
+    ids = [ l.clone_id for l in df.itertuples() ]
+
+
+    ## read distances
+    print(f'compute tcrdist distance matrix for {len(tcrs)} clonotypes')
+    D= np.array( [ tcrdist_calculator(x,y) for x in tcrs for y in tcrs ] ).reshape( (len(tcrs), len(tcrs)) )
+
+    n_components = min( n_components_in, D.shape[0] )
+
+    print( 'running KernelPCA', D.shape)
+
+    pca = KernelPCA(kernel='precomputed', n_components=n_components)
+
+    gram = 1 - ( D / D.max() )
+    xy = pca.fit_transform(gram)
+
+    if verbose: #show the eigenvalues
+        for ii in range(n_components):
+            print( 'eigenvalue: {:3d} {:.3f}'.format( ii, pca.lambdas_[ii]))
+
+    # this is the kpcs_file that conga.preprocess.read_dataset is expecting:
+    #kpcs_file = clones_file[:-4]+'_AB.dist_50_kpcs'
+    print( 'writing TCRdist kernel PCs to outfile:', outfile)
+    out = open(outfile,'w')
+
+    for ii in range(D.shape[0]):
+        out.write('pc_comps: {} {}\n'\
+                  .format( ids[ii], ' '.join( '{:.6f}'.format(xy[ii,j]) for j in range(n_components) ) ) )
+    out.close()
+    return
+
+

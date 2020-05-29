@@ -6,6 +6,8 @@ from os.path import exists
 import argparse
 import time
 sys.path.append( os.path.dirname( os.path.dirname( os.path.abspath(__file__) ) ) ) # in order to import conga package
+import matplotlib
+matplotlib.use('Agg') # for remote calcs
 import conga
 import scanpy as sc
 import scanpy.neighbors

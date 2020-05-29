@@ -1,5 +1,5 @@
-import matplotlib
-matplotlib.use('Agg')
+#import matplotlib
+#matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import numpy as np
 import sys
@@ -990,6 +990,7 @@ def make_logo_plots(
         svgfile = tmpfile[:-3]+'svg'
         if exists(svgfile):
             os.remove(svgfile)
+
 
 
 def make_n_pseudopoints( n, xy, radius_in_sdevs=0.25 ):

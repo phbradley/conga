@@ -15,7 +15,7 @@ PATH_TO_INKSCAPE='/Applications/Inkscape.app/Contents/Resources/bin/inkscape'
 def convert_svg_to_png(
         svgfile,
         pngfile,
-        verbose=True,
+        verbose=False,
         allow_missing=False,
         allow_failure=True
 ):

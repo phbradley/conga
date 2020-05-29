@@ -15,17 +15,36 @@ def show(tcr):
     else:
         return ' '.join( show(x) for x in tcr )
 
-# yes, this is very silly, should just add pandas dependency
-# def parse_csv_file( csvfile ):
-#     header = None
-#     all_info = []
-#     for line in open(csvfile,'rU'):
-#         l = parse_tsv.safely_split_csv_line( line[:-1] )
-#         if header is None:
-#             header = l
-#         else:
-#             all_info.append( dict( list(zip( header,l )) ) )
-#     return header, all_info
+def fixup_gene_name( gene, gene_suffix, expected_gene_names ):
+
+    if gene in expected_gene_names:
+        return gene # ALL DONE
+
+    if '*' not in gene:
+        gene += gene_suffix
+
+    if gene in expected_gene_names:
+        return gene # ALL DONE
+
+    vj = gene[3]
+    assert vj in 'VJ'
+
+    if vj=='V' and 'DV' in gene:
+        # sometimes they just delete the '/'
+        # sometimes they convert it into a '-'
+        new_gene = gene[:gene.index('DV')]+'/'+gene[gene.index('DV'):]
+        if new_gene in expected_gene_names:
+            gene = new_gene
+        else:
+            new_gene = gene[:gene.index('DV')-1]+'/'+gene[gene.index('DV'):]
+            if new_gene in expected_gene_names:
+                gene = new_gene
+            else:
+                print('trouble parsing V gene with DV in it:', gene)
+
+    return gene # may still not be in expected_gene_names, will check for that later
+
+
 
 def read_tcr_data(
         organism,
@@ -43,7 +62,7 @@ def read_tcr_data(
 
     """
 
-    expected_gene_names = list(all_genes[organism].keys())
+    expected_gene_names = set(all_genes[organism].keys())
 
     #from cdr3s_human import all_align_fasta
 
@@ -57,15 +76,15 @@ def read_tcr_data(
 
     #_, lines = parse_csv_file(contig_annotations_csvfile)
     df = pd.read_csv(contig_annotations_csvfile)
+    df['productive'] = df['productive'].astype(str) #sometimes it already is if there are 'Nones' in there...
     clonotype2barcodes = {}
     clonotype2tcrs_backup = {} ## in case we dont have a consensus_annotations_csvfile
     for l in df.itertuples():
         bc = l.barcode
         clonotype = l.raw_clonotype_id
+        # annoying: pandas sometimes converts to True/False booleans and sometimes not.
+        assert l.productive in [ 'None', 'False', 'True']
         if clonotype =='None':
-            if l.productive not in [ 'None','False' ]:
-                assert l.productive == 'True'
-                #print 'clonotype==None: unproductive?',l.productive
             continue
         if clonotype not in clonotype2barcodes:
             clonotype2barcodes[clonotype] = []
@@ -88,15 +107,8 @@ def read_tcr_data(
         if clonotype not in clonotype2tcrs_backup:
             clonotype2tcrs_backup[ clonotype ] = {'A':Counter(), 'B':Counter() }
         # stolen from below
-        vg = l.v_gene
-        if '*' not in vg:
-            vg += gene_suffix
-        if 'DV' in vg and vg not in expected_gene_names:
-            #print 'DV?',vg
-            vg = vg[:vg.index('DV')]+'/'+vg[vg.index('DV'):]
-        jg = l.j_gene
-        if '*' not in jg:
-            jg += gene_suffix
+        vg = fixup_gene_name(l.v_gene, gene_suffix, expected_gene_names)
+        jg = fixup_gene_name(l.j_gene, gene_suffix, expected_gene_names)
 
         if vg not in expected_gene_names:
             print('unrecognized V gene:', organism, vg)
@@ -134,12 +146,14 @@ def read_tcr_data(
 
         assert exists(consensus_annotations_csvfile)
         df = pd.read_csv( consensus_annotations_csvfile )
+        df['productive'] = df['productive'].astype(str) #sometimes it already is if there are 'Nones' in there...
 
 
         ## first get clonotypes with one alpha and one beta
         clonotype2tcrs = {}
 
         for l in df.itertuples():
+            assert l.productive in [ 'None', 'False', 'True']
             if l.productive == 'True':
                 id = l.clonotype_id
                 if id not in clonotype2tcrs:
@@ -155,19 +169,8 @@ def read_tcr_data(
                 if ab not in 'AB':
                     print('skipline:', consensus_annotations_csvfile, ch, l.v_gene, l.j_gene)
                     continue
-                vg = l.v_gene
-                if '*' not in vg:
-                    vg += gene_suffix
-                if 'DV' in vg and vg not in expected_gene_names:
-                    #print 'DV?',vg
-                    vg = vg[:vg.index('DV')]+'/'+vg[vg.index('DV'):]
-                jg = l.j_gene
-                if '*' not in jg:
-                    jg += gene_suffix
-                # if vg in tcr_gene_remap[organism]:
-                #     vg = tcr_gene_remap[organism][vg]
-                # if jg in tcr_gene_remap[organism]:
-                #     jg = tcr_gene_remap[organism][jg]
+                vg = fixup_gene_name(l.v_gene, gene_suffix, expected_gene_names)
+                jg = fixup_gene_name(l.j_gene, gene_suffix, expected_gene_names)
 
                 if vg not in expected_gene_names:
                     print('unrecognized V gene:', organism, vg)
@@ -189,9 +192,9 @@ def read_tcr_data(
                         print('diff_umis:',umis, old_umis, id,ab,tcr_chain)
                 else:
                     print('repeat?',id,ab,tcr_chain)
-            else:
-                if l.productive not in [ 'None','False' ]:
-                    print('unproductive?',l.productive)
+            # else:
+            #     if l.productive not in [ 'None','False' ]:
+            #         print('unproductive?',l.productive)
 
 
         if verbose:
@@ -206,10 +209,9 @@ def read_tcr_data(
                         if tl1 != tl2:
                             print('diffids:',id,ab,tl1,tl2)
 
-
     return clonotype2tcrs, clonotype2barcodes
 
-def _make_clones_file( organism, outfile, clonotype2tcrs, clonotype2barcodes ):
+def _make_clones_file( organism, outfile, clonotype2tcrs, clonotype2barcodes, verbose=False ):
     ''' Make a clones file with information parsed from the 10X csv files
 
     organism is one of ['mouse','human']
@@ -239,9 +241,9 @@ def _make_clones_file( organism, outfile, clonotype2tcrs, clonotype2barcodes ):
         if len(tcrs['A']) >= 1 and len(tcrs['B']) >= 1:
             atcrs = tcrs['A'].most_common()
             btcrs = tcrs['B'].most_common()
-            if len(atcrs)>1:
+            if len(atcrs)>1 and verbose:
                 print('multiple alphas, picking top umi:',' '.join( str(x) for _,x in atcrs ))
-            if len(btcrs)>1:
+            if len(btcrs)>1 and verbose:
                 print('multiple  betas, picking top umi:',' '.join( str(x) for _,x in btcrs ))
             atcr, atcr_umi = atcrs[0]
             btcr, btcr_umi = btcrs[0]
@@ -262,8 +264,9 @@ def _make_clones_file( organism, outfile, clonotype2tcrs, clonotype2barcodes ):
             outl['beta_umi']     = str(btcr_umi)
             outl['num_betas']    = str(len(btcrs))
             if len(outl['cdr3a']) < MIN_CDR3_LEN or  len(outl['cdr3b']) < MIN_CDR3_LEN:
-                print('WARNING SKIPPING CLONOTYPE WITH SHORT cdr3s: {} {} {}'\
-                      .format(clonotype, l['cdr3a'], l['cdr3b'] ))
+                if verbose:
+                    print('Warning: skipping clonotype with short cdr3s: {} {} {}'\
+                          .format(clonotype, outl['cdr3a'], outl['cdr3b'] ))
                 continue
             out.write( '\t'.join(str(outl[x]) for x in outfields)+'\n')
             outmap.write('{}\t{}\n'.format(clonotype,','.join(clonotype2barcodes[clonotype])))
@@ -273,7 +276,12 @@ def _make_clones_file( organism, outfile, clonotype2tcrs, clonotype2barcodes ):
     # for the time being, go with the clones file we just made even though it doesn't have all the usual stupid info
 
 
-def setup_filtered_clonotype_dicts( clonotype2tcrs, clonotype2barcodes, min_repeat_count_fraction = 0.33):
+def setup_filtered_clonotype_dicts(
+        clonotype2tcrs,
+        clonotype2barcodes,
+        min_repeat_count_fraction = 0.33,
+        verbose = False
+):
     ''' returns new_clonotype2tcrs, new_clonotype2barcodes
     '''
 
@@ -298,13 +306,12 @@ def setup_filtered_clonotype_dicts( clonotype2tcrs, clonotype2barcodes, min_repe
 
             oldcount1 = pairing_counts[ (t1,t1_p2) ]
             oldcount2 = pairing_counts[ (t2_p2,t2) ]
-            #print 'repeat:', count, oldcount1, oldcount2,\
-            #    t1, t2, t1_p2, t2_p2
 
             if count >= min_repeat_count_fraction * max(oldcount1,oldcount2):
                 # take it anyway -- second alpha or genuinely shared alpha?
 
-                print('take_rep_partners:', count, oldcount1, oldcount2, t1, t2, t1_p2, t2_p2)
+                if verbose:
+                    print('take_rep_partners:', count, oldcount1, oldcount2, t1, t2, t1_p2, t2_p2)
                 # dont overwrite the old pairing... might not do either of these!
                 if t1 not in chain_partner:
                     chain_partner[t1] = t2
@@ -313,13 +320,14 @@ def setup_filtered_clonotype_dicts( clonotype2tcrs, clonotype2barcodes, min_repe
 
                 valid_ab_pairings.add( (t1, t2 ) )
             else:
-                print('skip_rep_partners:', count, oldcount1, oldcount2, t1, t2, t1_p2, t2_p2)
+                if verbose:
+                    print('skip_rep_partners:', count, oldcount1, oldcount2, t1, t2, t1_p2, t2_p2)
 
         else: # neither chain already in chain_partner
             #
             # NOTE: removed the code checking for TIES!!!!!!!!!!!
-
-            print('norep_partners:', count, t1, t2)
+            if verbose:
+                print('norep_partners:', count, t1, t2)
             chain_partner[t1] = t2
             chain_partner[t2] = t1
 
@@ -361,9 +369,11 @@ def setup_filtered_clonotype_dicts( clonotype2tcrs, clonotype2barcodes, min_repe
             if pairs_tuple:
                 pairs_tuple2clonotypes.setdefault( pairs_tuple, [] ).append( cid )
             else:
-                print('SKIPCLONE:', was_good_clone, cid, clone_size, pairs, 'bad_pairs')
+                if verbose:
+                    print('SKIPCLONE:', was_good_clone, cid, clone_size, pairs, 'bad_pairs')
         else:
-            print('SKIPCLONE:', was_good_clone, cid, clone_size, 'no_valid_pairs')
+            if verbose:
+                print('SKIPCLONE:', was_good_clone, cid, clone_size, 'no_valid_pairs')
 
 
     ## reorder pairs_tuples in the case of ties, using umis
@@ -381,12 +391,13 @@ def setup_filtered_clonotype_dicts( clonotype2tcrs, clonotype2barcodes, min_repe
                 # look at umis?
                 c1 = sum( clonotype2tcrs[x]['A'][at1] for x in clonotypes )
                 c2 = sum( clonotype2tcrs[x]['A'][at2] for x in clonotypes )
-                print('alphatie:', count1, count2, c1, c2, show(at1), show(at2), show(bt))
+                if verbose:
+                    print('alphatie:', count1, count2, c1, c2, show(at1), show(at2), show(bt))
                 if c2 > c1:
                     reorder.append( pt )
 
     for pt in reorder:
-        print('reorder:', show(pt))
+        #print('reorder:', show(pt))
         assert len(pt) == 2
         rpt = (pt[1], pt[0])
         assert pt in pairs_tuple2clonotypes and rpt not in pairs_tuple2clonotypes
@@ -403,22 +414,24 @@ def setup_filtered_clonotype_dicts( clonotype2tcrs, clonotype2barcodes, min_repe
                 if len(pt2) == 2 and pt2[0] == pt1[0]:
                     overlaps.append( pt2 )
             if len(overlaps)>1:
-                print('badoverlaps:', len(overlaps), show(pt1), show(overlaps))
+                if verbose:
+                    print('badoverlaps:', len(overlaps), show(pt1), show(overlaps))
             elif len(overlaps)==1:
                 pt2 = overlaps[0]
                 merge_into_pairs.append( (pt1,pt2) )
 
     for pt1, pt2 in merge_into_pairs:
-        print('mergeinto:', show(pt1), show(pt2))
+        #print('mergeinto:', show(pt1), show(pt2))
         pairs_tuple2clonotypes[pt2].extend( pairs_tuple2clonotypes[pt1] )
         del pairs_tuple2clonotypes[pt1]
 
 
     ## look for pairs_tuples that will give the same clones file line
-    for pt1, clonotypes in pairs_tuple2clonotypes.items():
-        for pt2 in pairs_tuple2clonotypes:
-            if pt1 < pt2 and pt1[0] == pt2[0]:
-                print('overlap:', len(pt1), len(pt2), pt1, pt2)
+    if verbose:
+        for pt1, clonotypes in pairs_tuple2clonotypes.items():
+            for pt2 in pairs_tuple2clonotypes:
+                if pt1 < pt2 and pt1[0] == pt2[0]:
+                    print('overlap:', len(pt1), len(pt2), pt1, pt2)
 
 
     ## now setup new clonotype2tcrs, clonotype2barcodes mappings
@@ -428,7 +441,8 @@ def setup_filtered_clonotype_dicts( clonotype2tcrs, clonotype2barcodes, min_repe
     for pairs_tuple, clonotypes in pairs_tuple2clonotypes.items():
         c0 = clonotypes[0]
         if len(clonotypes)>1:
-            print('merging:', ' '.join(clonotypes))
+            if verbose:
+                print('merging:', ' '.join(clonotypes))
         tcrs = {'A':Counter(), 'B':Counter()}
         for (atcr,btcr) in pairs_tuple:
             tcrs['A'][atcr] += pairing_counts[(atcr, btcr)]
