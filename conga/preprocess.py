@@ -406,7 +406,6 @@ def cluster_and_tsne_and_umap(
     if compute_pca_gex:
         sc.tl.pca(adata, n_comps=n_components) # re-run now that we have reduced to a single cell per clone
         adata.obsm['X_pca_gex'] = adata.obsm['X_pca']
-        del adata.obsm['X_pca']
     assert 'X_pca_gex' in adata.obsm_keys()
     assert 'X_pca_tcr' in adata.obsm_keys()
 
@@ -453,6 +452,7 @@ def cluster_and_tsne_and_umap(
 
 
     del adata.obsm['X_umap']
+    del adata.obsm['X_pca']
 
     return adata
 
