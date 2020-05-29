@@ -221,7 +221,7 @@ def make_logo_plots(
     * clone sizes (obs: clone_sizes)
     * tcrs (obs)
     * 2d projections: gex and tcr (obsm: X_gex_2d, X_tcr_2d)
-    * conga scores (obsm: conga_scores_neglog10)
+    * conga scores (obs: conga_scores)
     * X_igex (obsm: X_igex) and X_igex_genes (uns)
     * rank genes info for each cluster-pair
 
@@ -252,7 +252,7 @@ def make_logo_plots(
     good_score_mask = np.array(list(adata.obs['good_score_mask']))
     X_gex_2d = adata.obsm['X_gex_2d']
     X_tcr_2d = adata.obsm['X_tcr_2d']
-    conga_scores = adata.obs['conga_scores_neglog10']
+    conga_scores = np.array(adata.obs['conga_scores'])
     X_igex = adata.obsm['X_igex']
     X_igex_genes = list(adata.uns['X_igex_genes']) #for .index
     organism = adata.uns['organism']
@@ -344,8 +344,6 @@ def make_logo_plots(
     # read the 2D projections
     all_xy_gex = { i:xy for i,xy in enumerate(X_gex_2d) }
     all_xy_tcr = { i:xy for i,xy in enumerate(X_tcr_2d) }
-    all_max_nbr_chisq = { i:x for i,x in enumerate(conga_scores) }
-
 
     # setup dbl nbrs
     all_dbl_nbrs = {}
@@ -518,7 +516,7 @@ def make_logo_plots(
         plt.axes( [left,bottom,width,height] )
 
         ## make a plot colored by pval
-        colors = np.array( [ max(0,all_max_nbr_chisq[x]) for x in ks ] )
+        colors = np.array( [ max(0, -1*np.log10(conga_scores[x])) for x in ks ] )
         sort_order = np.argsort( colors )
 
         vmin = math.sqrt( -1*math.log10( 1.0 ) ) # was 0.05 then 0.2
@@ -720,7 +718,7 @@ def make_logo_plots(
                 xy.append( [xoff+ii, yoff] )
         xy = np.array(xy)
         color = plt.get_cmap('Reds')(0.2)
-        plt.scatter(xy[:,0], xy[:,1], c=color, s=350, zorder=1)
+        plt.scatter(xy[:,0], xy[:,1], c=[color], s=350, zorder=1)
         for gene,(x,y) in zip( logo_genes, xy ):
             plt.text(x,y,gene,fontsize=8,ha='center',va='center',rotation=30, zorder=2)
         plt.xlim( [-0.5, gene_width-0.5] )
@@ -1182,7 +1180,7 @@ def make_summary_figure(
         pval_threshold_for_tcr_genes_results=0.05, # but bonferroni is harder on tcrs since there are so many lame genes
         pval_threshold_for_gex_scores_results=0.05,
 ):
-    conga_scores = adata.obs['conga_scores_neglog10'] # (num_clones,3)
+    conga_scores = np.array(adata.obs['conga_scores'])
 
     # make a nice combo fig
     nrows, ncols = 2,3
@@ -1222,7 +1220,7 @@ def make_summary_figure(
         ############################
         ## now a plot colored by pval
         plt.sca(axs[irow,1])
-        colors = np.maximum( conga_scores, 0.0 )
+        colors = np.maximum( -1*np.log10(conga_scores), 0.0 )
         sort_order = np.argsort( colors )
 
         vmin = math.sqrt( -1*math.log10( 1.0 ) ) # was 0.05 then 0.2

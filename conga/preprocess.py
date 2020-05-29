@@ -451,6 +451,7 @@ def cluster_and_tsne_and_umap(
         adata.obsm['X_{}_2d'.format(tag)] = adata.obsm['X_umap_'+tag]
 
 
+    del adata.obsm['X_umap']
 
     return adata
 
@@ -557,6 +558,7 @@ def reduce_to_single_cell_per_clone(
 
     adata = normalize_and_log_the_raw_matrix( adata ) # prob not necessary; already done for X_igex ?
 
+    del adata.obsm['X_pca'] # delete the old pcas
     return adata
 
 

@@ -184,7 +184,7 @@ def run_graph_vs_graph(
 
     Also sets up the
 
-    'conga_scores_neglog10'  array in adata.obs
+    'conga_scores'  array in adata.obs
 
     '''
 
@@ -193,9 +193,9 @@ def run_graph_vs_graph(
     clusters_gex = np.array(adata.obs['clusters_gex'])
     clusters_tcr = np.array(adata.obs['clusters_tcr'])
 
-    bad_conga_score = -1*np.log10(num_clones)
+    bad_conga_score = num_clones # since conga_score= raw_pval*num_clones, max is num_clones if raw_pval=1
 
-    conga_scores_by_graph_neglog10 = np.full( (num_clones,3), bad_conga_score)
+    conga_scores = np.full( (num_clones,), bad_conga_score, dtype=float)
 
     all_results = []
 
@@ -211,8 +211,7 @@ def run_graph_vs_graph(
             results_df['overlap_type'] = 'nbr_nbr'
             all_results.append(results_df)
             for r in results_df.itertuples():
-                conga_scores_by_graph_neglog10[r.clone_index,0] = max(conga_scores_by_graph_neglog10[r.clone_index,0],
-                                                                      -1*np.log10(r.conga_score) )
+                conga_scores[r.clone_index] = min(conga_scores[r.clone_index], r.conga_score)
 
         print('find_neighbor_cluster_interactions:')
         results_df = find_neighbor_cluster_interactions(
@@ -222,8 +221,7 @@ def run_graph_vs_graph(
             results_df['overlap_type'] = 'cluster_nbr'
             all_results.append(results_df)
             for r in results_df.itertuples():
-                conga_scores_by_graph_neglog10[r.clone_index,1] = max(conga_scores_by_graph_neglog10[r.clone_index,1],
-                                                                      -1*np.log10(r.conga_score) )
+                conga_scores[r.clone_index] = min(conga_scores[r.clone_index], r.conga_score)
 
         print('find_neighbor_cluster_interactions:')
         results_df = find_neighbor_cluster_interactions(
@@ -233,18 +231,14 @@ def run_graph_vs_graph(
             results_df['overlap_type'] = 'nbr_cluster'
             all_results.append(results_df)
             for r in results_df.itertuples():
-                conga_scores_by_graph_neglog10[r.clone_index,2] = max(conga_scores_by_graph_neglog10[r.clone_index,2],
-                                                                      -1*np.log10(r.conga_score) )
+                conga_scores[r.clone_index] = min(conga_scores[r.clone_index], r.conga_score)
 
     if all_results:
         results_df = pd.concat(all_results, ignore_index=True)
     else:
         results_df = pd.DataFrame([])
 
-    # not sure we really need this level of detail:
-    #adata.obsm['conga_scores_by_graph_neglog10'] = conga_scores_by_graph_neglog10
-
-    adata.obs['conga_scores_neglog10'] = np.max(conga_scores_by_graph_neglog10, axis=1)
+    adata.obs['conga_scores'] = conga_scores
 
     return results_df
 

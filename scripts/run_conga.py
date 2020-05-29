@@ -204,9 +204,9 @@ if args.graph_vs_graph: ########################################################
 
 
 
-    # the conga scores, but -log_10 so bigger is better and positive is a 'hit'
-    conga_scores_neglog10 = np.array(adata.obs['conga_scores_neglog10'])
-    good_mask = (conga_scores_neglog10 >= 0.0)
+    # the conga scores
+    conga_scores = np.array(adata.obs['conga_scores'])
+    good_mask = (conga_scores <= 1.0)
 
 
     adata.obs['good_score_mask'] = good_mask
