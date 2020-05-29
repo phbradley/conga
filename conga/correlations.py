@@ -511,16 +511,12 @@ def tcr_nbrhood_rank_genes_fast(
     assert issparse(X)
     assert X.shape[1] == len(genes)
 
-    print('to csc')
     X_csc = adata.raw.X.tocsc()
 
-    print('square X')
     X_sq = X.multiply(X)
-    print('done squaring X')
 
     mean = X.mean(axis=0)
     mean_sq = X_sq.mean(axis=0)
-    print('done taking big means')
 
     ## add some extra fake genes
     if 'nndists_gex' in adata.obs_keys():
