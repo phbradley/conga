@@ -38,15 +38,15 @@ parser.add_argument('--make_avgfull_logos', action='store_true')
 parser.add_argument('--make_clone_plots', action='store_true')
 parser.add_argument('--write_proj_info', action='store_true')
 parser.add_argument('--filter_ribo_norm_low_cells', action='store_true')
-
+# the main modes of operation
 parser.add_argument('--graph_vs_graph', action='store_true')
 parser.add_argument('--graph_vs_tcr_features', action='store_true')
 parser.add_argument('--graph_vs_gex_features', action='store_true')
-
+# some extra analyses
 parser.add_argument('--calc_clone_pmhc_pvals', action='store_true')
 parser.add_argument('--find_pmhc_nbrhood_overlaps', action='store_true') # only if pmhc info is present
 parser.add_argument('--find_distance_correlations', action='store_true')
-
+# configure things
 parser.add_argument('--skip_gex_header', action='store_true')
 parser.add_argument('--skip_gex_header_raw', action='store_true')
 parser.add_argument('--skip_gex_header_nbrZ', action='store_true')

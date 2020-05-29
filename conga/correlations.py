@@ -422,7 +422,8 @@ def gex_nbrhood_rank_tcr_scores(
             if pval>ttest_pval_threshold_for_mwu_calc:
                 continue
 
-            _,mwu_pval = mannwhitneyu( score_table[:,ind][nbrhood_mask], score_table[:,ind][~nbrhood_mask] )
+            _,mwu_pval = mannwhitneyu( score_table[:,ind][nbrhood_mask], score_table[:,ind][~nbrhood_mask],
+                                       alternative='two-sided')
             mwu_pval_adj = mwu_pval * pval_rescale
 
             if min(pval, mwu_pval_adj) <= pval_threshold:
@@ -501,7 +502,7 @@ def tcr_nbrhood_rank_genes_fast(
 
     assert pp.check_if_raw_matrix_is_logged(adata)
 
-    rankby_abs = False
+    rankby_abs = False # following scanpy: this means that we only look at enriched/upregulated/higher score values
 
     num_clones = adata.shape[0]
 
@@ -603,14 +604,15 @@ def tcr_nbrhood_rank_genes_fast(
                 continue
 
             is_real_gene = ind < num_real_genes
+            # here we are looking for genes (or clone_sizes/inverted nndists) that are LARGER in the forground (fg)
             if is_real_gene:
                 col = X_csc[:,ind][nbrhood_mask]
                 noncol = X_csc[:,ind][~nbrhood_mask]
-                _,mwu_pval = mannwhitneyu( col.todense(), noncol.todense() )
+                _, mwu_pval = mannwhitneyu( col.todense(), noncol.todense(), alternative='greater' )
             else:
                 col = X2[:,ind-num_real_genes][nbrhood_mask]
                 noncol = X2[:,ind-num_real_genes][~nbrhood_mask]
-                _,mwu_pval = mannwhitneyu(col, noncol)
+                _, mwu_pval = mannwhitneyu(col, noncol, alternative='greater')
             mwu_pval_adj = mwu_pval * pval_rescale
 
             if min(mwu_pval_adj, pval_adj) < pval_threshold:
