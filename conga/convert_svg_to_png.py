@@ -35,6 +35,8 @@ def convert_svg_to_png(
     if isfile( pngfile ):
         ## success
         return
+    else:
+        print(f'conga.convert_svg_to_png: 1st try failed, command="{cmd}"')
 
     ## cmdline inkscape
     cmd = 'inkscape --export-png {} {}'.format( pngfile, svgfile )
@@ -45,6 +47,8 @@ def convert_svg_to_png(
     if isfile( pngfile ):
         ## success
         return
+    else:
+        print(f'conga.convert_svg_to_png: 2nd try failed, command="{cmd}"')
 
     ## this is probably a long-shot, but in case inkscape is installed on mac
     if isfile( PATH_TO_INKSCAPE ):
@@ -60,6 +64,8 @@ def convert_svg_to_png(
         if isfile( pngfile ):
             ## success
             return
+        else:
+            print(f'conga.convert_svg_to_png: inkscape failed, command="{cmd}"')
 
 
     ## another possibility
@@ -71,11 +77,12 @@ def convert_svg_to_png(
     if isfile( pngfile ):
         ## success
         return
+    else:
+        print(f'conga.convert_svg_to_png: 3rd try failed, command="{cmd}"')
 
 
     ## this might also occur if the svgfile were empty...
-    errmsg = 'Error: convert command failed: cmd="{}" -- is the "convert" cmdline tool (Imagemagick) installed?\n'\
-        .format( cmd )
+    errmsg = 'Error: conga.convert_svg_to_png failed to convert svg file to png file\nIs the "convert" cmdline tool (ImageMagick) installed, or Inkscape?\n'
     print(errmsg)
     stderr.write( errmsg )
     if not allow_failure:

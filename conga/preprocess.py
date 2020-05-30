@@ -205,7 +205,6 @@ def read_dataset(
     lines = pd.read_csv( clones_file,sep='\t')
     id2tcr = {}
     tcr2id = {}
-    tcr2clones_line = {}
     for l in lines.itertuples(index=False):
         if include_tcr_nucseq:
             atcr = ( l.va_gene, l.ja_gene, l.cdr3a, l.cdr3a_nucseq )
@@ -217,7 +216,6 @@ def read_dataset(
         #tcr = ( atcr, btcr, l.clone_id ) # hack to guarantee uniqueness!!!
         id2tcr[ l.clone_id ] = tcr
         tcr2id[ tcr ] = l.clone_id
-        tcr2clones_line[ tcr ] = '\t'.join(str(x) for x in l)+'\n'
 
 
     print('reading:',kpcs_file)
