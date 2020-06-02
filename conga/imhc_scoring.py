@@ -7,14 +7,14 @@ from . import util
 amino_acids = ['A', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'K', 'L', \
                'M', 'N', 'P', 'Q', 'R', 'S', 'T', 'V', 'W', 'Y']
 
-mhci_model_file = util.path_to_data+'logreg_hobit_donor1_v4.tsv_0_model.tsv'
-assert exists(mhci_model_file)
-mhci_model_df = pd.read_csv(mhci_model_file, sep='\t')
-mhci_model_df.set_index('feature', inplace=True)
+imhc_model_file = util.path_to_data+'logreg_hobit_donor1_v4.tsv_0_model.tsv'
+assert exists(imhc_model_file)
+imhc_model_df = pd.read_csv(imhc_model_file, sep='\t')
+imhc_model_df.set_index('feature', inplace=True)
 
 # restrict to features with nonzero weight
-mask = (np.abs(mhci_model_df['coef'])>1e-6)
-mhci_model_df = mhci_model_df[mask]
+mask = (np.abs(imhc_model_df['coef'])>1e-6)
+imhc_model_df = imhc_model_df[mask]
 
 
 def get_cdr3_aa_prop_length_fraction( cdr3, props ):
@@ -51,9 +51,9 @@ def get_feature(tcr, ftag, aa_props_df):
         return sum( get_cdr3_aa_prop_length_fraction(x, aa_props_df[ftag] ) for x in cdr3s)
     return None
 
-def make_mhci_score_table_column(tcrs, aa_props_df):
+def make_imhc_score_table_column(tcrs, aa_props_df):
     scores = np.zeros((len(tcrs),))
-    for row in mhci_model_df.itertuples():
+    for row in imhc_model_df.itertuples():
         col = np.array( [ get_feature(x, row.Index, aa_props_df) for x in tcrs] )
         col = row.coef * (col - row.mean)/np.sqrt(row.var)
         scores += col
@@ -61,13 +61,13 @@ def make_mhci_score_table_column(tcrs, aa_props_df):
     scores += intercept
     return scores
 
-def get_mhci_raw_score_terms_and_coefs(tcrs, aa_props_df):
+def get_imhc_raw_score_terms_and_coefs(tcrs, aa_props_df):
     ''' Just for diagnostics/visualization
     '''
     cols = []
     features = []
     coefs = []
-    for row in mhci_model_df.itertuples():
+    for row in imhc_model_df.itertuples():
         col = np.array( [ get_feature(x, row.Index, aa_props_df) for x in tcrs] )
         cols.append(  (col - row.mean)/np.sqrt(row.var) )
         coefs.append(row.coef)

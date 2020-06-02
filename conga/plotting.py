@@ -211,7 +211,7 @@ def make_logo_plots(
         make_gex_header=True,
         make_gex_header_raw=True,
         make_gex_header_nbrZ=True,
-        gex_header_tcr_score_names = ['mhci2', 'cdr3len', 'cd8', 'nndists_tcr'], # was alphadist
+        gex_header_tcr_score_names = ['imhc', 'cdr3len', 'cd8', 'nndists_tcr'], # was alphadist
         include_full_tcr_cluster_names_in_logo_lines=False,
 
 ):
@@ -775,7 +775,7 @@ def make_logo_plots(
 
         plt.xlim((1.03,0.0))
         plt.axis('off')
-        plt.text(0.0,0.0, 'Biclusters (size>{:d})'.format(min_cluster_size-1),
+        plt.text(0.0,0.0, 'Clusters (size>{:d})'.format(min_cluster_size-1),
                  ha='left', va='top', transform=plt.gca().transAxes)
         leaves = R['leaves'][:] #list( hierarchy.leaves_list( Z ) )
         leaves.reverse() # since we are drawing them downward, but the leaf-order increases upward

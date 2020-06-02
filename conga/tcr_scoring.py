@@ -6,7 +6,7 @@ import pandas as pd
 import numpy as np
 from . import util
 from . import preprocess as pp
-from . import mhci_scoring
+from . import imhc_scoring
 
 
 cdr3_score_FG = 'fg'
@@ -24,11 +24,11 @@ assert exists(aa_props_file)
 aa_props_df = pd.read_csv(aa_props_file, sep='\t')
 aa_props_df.set_index('aa', inplace=True)
 
-# all_tcr_scorenames = ['alphadist', 'cd8', 'cdr3len', 'mhci', 'mait', 'inkt'] +\
+# all_tcr_scorenames = ['alphadist', 'cd8', 'cdr3len', 'imhc', 'mait', 'inkt'] +\
 #                      [ '{}_{}'.format(x,y) for x in aa_props_df.columns for y in cdr3_score_modes ]
 
 #tmp hacking SIMPLIFY -- dont include info on which version of the loop is used for scoring
-all_tcr_scorenames = ['alphadist', 'cd8', 'cdr3len', 'mhci2', 'mait', 'inkt', 'nndists_tcr'] + list(aa_props_df.columns)
+all_tcr_scorenames = ['alphadist', 'cd8', 'cdr3len', 'imhc', 'mait', 'inkt', 'nndists_tcr'] + list(aa_props_df.columns)
 
 amino_acids = ['A', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'K', 'L', \
                'M', 'N', 'P', 'Q', 'R', 'S', 'T', 'V', 'W', 'Y']
@@ -107,15 +107,19 @@ def cd8_score_tcr_chain( ab, v, j, cdr3 ):
 
     return ( score, v_score, j_score, cdr3_len_score, cdr3_aa_score )
 
-def mhci_score_cdr3( cdr3 ): # cdr3 is untrimmed!
+def old_imhc_score_cdr3( cdr3 ): # cdr3 is untrimmed!
+    '''This is the old version of the score, "fit" by staring at the sequences a little bit
+    '''
     if len(cdr3) <= 8:
         return 0
     fgloop = cdr3[4:-4]
     return ( len(fgloop) + 3.0 * fgloop.count('C') + 2.0 * fgloop.count('W') + fgloop.count('R') + fgloop.count('K')
              + 0.5*fgloop.count('H') - fgloop.count('D') - fgloop.count('E') )
 
-def mhci_score_tcr( tcr ):
-    return mhci_score_cdr3( tcr[0][2] ) + 2*mhci_score_cdr3( tcr[1][2] ) # double-weight the beta CDR3 score
+def old_imhc_score_tcr( tcr ):
+    '''This is the old version of the score, "fit" by staring at the sequences a little bit
+    '''
+    return old_imhc_score_cdr3( tcr[0][2] ) + 2*old_imhc_score_cdr3( tcr[1][2] ) # double-weight the beta CDR3
 
 
 def cd8_score_tcr( tcr ):
@@ -271,10 +275,10 @@ def make_tcr_score_table(adata, scorenames):
             cols.append( [ alphadist_score_tcr(x) for x in tcrs ])
         elif name == 'cd8':
             cols.append( [ cd8_score_tcr(x) for x in tcrs ])
-        elif name == 'mhci':
-            cols.append( [ mhci_score_tcr(x) for x in tcrs ])
-        elif name == 'mhci2':
-            cols.append( mhci_scoring.make_mhci_score_table_column(tcrs, aa_props_df))
+        elif name == 'old_imhc':
+            cols.append( [ old_imhc_score_tcr(x) for x in tcrs ])
+        elif name == 'imhc':
+            cols.append( imhc_scoring.make_imhc_score_table_column(tcrs, aa_props_df))
         elif name == 'mait':
             organism = adata.uns['organism']
             cols.append( [ mait_score_tcr(x, organism) for x in tcrs ])

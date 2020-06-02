@@ -85,5 +85,5 @@ ImageMagick `convert` (on linux) and Inkscape (on mac). The conversion is handle
 `conga/convert_svg_to_png.py`, so you can modify that file if things are not working and you have
 a tool installed; `conga` may not be looking in the right place. 
 
-If you are having trouble you could try `conda install -c conda-forge imagemagick` in the relevant
-anaconda environment.
+If you are having trouble and are using anaconda/miniconda, you could try
+`conda install -c conda-forge imagemagick` in the relevant conda environment.
