@@ -8,9 +8,11 @@ the next few months. Questions and requests can be directed to `pbradley` at `fr
 
 # Running
 
-Running `conga` on a single-cell dataset is a two- (or more) step process (see examples in `workflows/`).
+Running `conga` on a single-cell dataset is a two- (or more) step process, as outlined below.
 Python scripts are provided in the `scripts/` directory but analysis steps can also be accessed interactively
-in jupyter notebooks or in your own python scripts through the interface in the `conga` python package.
+in jupyter notebooks (for example, [a simple pipeline](simple_conga_pipeline.ipynb) and
+[Seurat to conga](Seurat_to_Conga.ipynb) in the top directory of this repo)
+or in your own python scripts through the interface in the `conga` python package.
 
 1. **SETUP**: The TCR data is converted to a form that can be read by `conga` and then
 a matrix of `TCRdist` distances is computed. KernelPCA is applied to this distance

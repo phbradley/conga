@@ -78,12 +78,13 @@ def make_rank_genes_logo_stack( ranks, upper_left, logo_width, max_logo_height,
     ''' ranks is a list of (gene,l2r,pval)
     '''
 
-    def pval_factor( pval, min_pval=top_pval_for_max_height ):
-        return math.sqrt( max(1e-3, -1 * math.log10( max(min_pval,pval) ) ))
+    def pval_factor( pval, min_pval ):
+        return math.sqrt( max(1e-6, -1 * math.log10( max(min_pval, pval) ) ))
         #return -1 * math.log10( max(min_pval,pval) )
 
     top_pval = ranks[0][2]
-    logo_height = max_logo_height * pval_factor(top_pval) / pval_factor(top_pval_for_max_height)
+    logo_height = max_logo_height * ( pval_factor(top_pval, top_pval_for_max_height) /
+                                      pval_factor(top_pval_for_max_height, top_pval_for_max_height) )
 
     if logo_height<1e-3:
         return []
@@ -97,7 +98,7 @@ def make_rank_genes_logo_stack( ranks, upper_left, logo_width, max_logo_height,
 
     cmds = []
     for gene,l2r,pval in ranks[:num_genes_to_show]:
-        height = height_scale * pval_factor(pval,min_pval_for_scaling)
+        height = height_scale * pval_factor(pval, min_pval_for_scaling)
         if height<0.01:
             continue
         x1 = x0 + logo_width
@@ -1277,7 +1278,7 @@ def make_summary_figure(
 
 
 
-def make_clone_plots(adata, num_clones_to_plot, pngfile):
+def make_clone_plots(adata, num_clones_to_plot, pngfile, dpi=200):
     ''' This is called before we've condensed to a single cell per clone
     So we don't have PCA or UMAP yet
     '''
@@ -1315,7 +1316,7 @@ def make_clone_plots(adata, num_clones_to_plot, pngfile):
         plt.text(0, 0, '{} cells'.format(clone_size), ha='left', va='bottom', transform=plt.gca().transAxes)
     plt.tight_layout()
     print('making:', pngfile)
-    plt.savefig(pngfile)
+    plt.savefig(pngfile, dpi=dpi)
 
 
 
