@@ -1342,6 +1342,8 @@ def make_feature_panel_plots(
     # sort the results by pvalue
     df = results_df.sort_values('mwu_pvalue_adj')# makes a copy
 
+    nbr_frac_for_cluster_results = max(all_nbrs.keys()) if use_nbr_frac is None else use_nbr_frac
+
     clp_counts = Counter()
     seen = set()
     inds=[]
@@ -1397,10 +1399,9 @@ def make_feature_panel_plots(
 
         scores = feature_to_raw_values[feature]
 
-        if use_nbr_frac is None:
-            nbrs = all_nbrs[row.nbr_frac][0] if xy_tag=='gex' else all_nbrs[row.nbr_frac][1]
-        else:
-            nbrs = all_nbrs[use_nbr_frac][0] if xy_tag=='gex' else all_nbrs[use_nbr_frac][1]
+        row_nbr_frac = use_nbr_frac if use_nbr_frac is not None else nbr_frac_for_cluster_results if row.nbr_frac==0.0 \
+                       else row.nbr_frac
+        nbrs = all_nbrs[row_nbr_frac][0] if xy_tag=='gex' else all_nbrs[row_nbr_frac][1]
         assert nbrs.shape[0] == adata.shape[0]
         num_neighbors = nbrs.shape[1] # this will not work for ragged nbr arrays (but we could change it to work)
 

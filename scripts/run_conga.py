@@ -264,18 +264,9 @@ if args.graph_vs_gex_features: #################################################
     results_df = pd.concat(results, ignore_index=True)
     results_df.to_csv(tsvfile, index=False, sep='\t')
     tcr_nbrhood_genes_results = results_df
+    combo_results = []
     if results_df.shape[0]:
-        pngfile = args.outfile_prefix+'_tcr_nbr_graph_vs_gex_features.png'
-        print('making:', pngfile)
-        exclude_strings = [conga.preprocess.FUNNY_MOUSE_V_GENE] # bad mouse gene, actually a tcr v gene
-        conga.plotting.plot_ranked_strings_on_cells(
-            adata, results_df, 'X_tcr_2d', 'clone_index', 'mwu_pvalue_adj', 1.0, 'feature',
-            pngfile, exclude_strings=exclude_strings)
-
-        pngfile = args.outfile_prefix+'_tcr_nbr_graph_vs_gex_features_panels.png'
-        print('making:', pngfile)
-        #exclude_strings = ['5830405F06Rik'] # bad mouse gene, actually a tcr v gene
-        conga.plotting.make_feature_panel_plots(adata, 'tcr', all_nbrs, results_df, pngfile)
+        combo_results.append( results_df)
 
 
     # now make a TCR cluster graph and use the nbrhoods in there
@@ -291,8 +282,24 @@ if args.graph_vs_gex_features: #################################################
         results_df.to_csv(tsvfile, index=False, sep='\t')
         results_df['nbr_frac'] = 0.0
         tcr_cluster_genes_results = results_df
+        combo_results.append(results_df)
     else:
         tcr_cluster_genes_results = None
+
+    if combo_results:
+        results_df = pd.concat(combo_results, ignore_index=True)
+        pngfile = args.outfile_prefix+'_tcr_nbr_graph_vs_gex_features.png'
+        print('making:', pngfile)
+        exclude_strings = [conga.preprocess.FUNNY_MOUSE_V_GENE] # bad mouse gene, actually a tcr v gene
+        conga.plotting.plot_ranked_strings_on_cells(
+            adata, results_df, 'X_tcr_2d', 'clone_index', 'mwu_pvalue_adj', 1.0, 'feature',
+            pngfile, exclude_strings=exclude_strings)
+
+        pngfile = args.outfile_prefix+'_tcr_nbr_graph_vs_gex_features_panels.png'
+        print('making:', pngfile)
+        #exclude_strings = ['5830405F06Rik'] # bad mouse gene, actually a tcr v gene
+        conga.plotting.make_feature_panel_plots(adata, 'tcr', all_nbrs, results_df, pngfile)
+
 
 
     ## now make another fake nbr graph defined by TCR gene segment usage
@@ -338,18 +345,9 @@ if args.graph_vs_tcr_features: #################################################
     results_df.to_csv(tsvfile, index=False, sep='\t')
     gex_nbrhood_scores_results = results_df
 
+    combo_results = []
     if results_df.shape[0]:
-        pngfile = args.outfile_prefix+'_gex_nbr_graph_vs_tcr_features.png'
-        print('making:', pngfile)
-
-        conga.plotting.plot_ranked_strings_on_cells(
-            adata, results_df, 'X_gex_2d', 'clone_index', 'mwu_pvalue_adj', 1.0, 'feature', pngfile,
-            direction_column='ttest_stat')
-
-        pngfile = args.outfile_prefix+'_gex_nbr_graph_vs_tcr_features_panels.png'
-        print('making:', pngfile)
-        conga.plotting.make_feature_panel_plots(adata, 'gex', all_nbrs, results_df, pngfile)
-
+        combo_results.append(results_df)
 
     # make some fake nbrs
     fake_nbrs_gex = conga.correlations.setup_fake_nbrs_from_clusters_for_graph_vs_features_analysis(clusters_gex)
@@ -364,9 +362,23 @@ if args.graph_vs_tcr_features: #################################################
         results_df['nbr_frac'] = 0.0
 
         gex_cluster_scores_results = results_df
+        combo_results.append(results_df)
     else:
         gex_cluster_scores_results = None
 
+    if combo_results:
+        pngfile = args.outfile_prefix+'_gex_nbr_graph_vs_tcr_features.png'
+        print('making:', pngfile)
+
+        results_df = pd.concat(combo_results, ignore_index=True)
+
+        conga.plotting.plot_ranked_strings_on_cells(
+            adata, results_df, 'X_gex_2d', 'clone_index', 'mwu_pvalue_adj', 1.0, 'feature', pngfile,
+            direction_column='ttest_stat')
+
+        pngfile = args.outfile_prefix+'_gex_nbr_graph_vs_tcr_features_panels.png'
+        print('making:', pngfile)
+        conga.plotting.make_feature_panel_plots(adata, 'gex', all_nbrs, results_df, pngfile)
 
 if args.graph_vs_graph and args.graph_vs_tcr_features and args.graph_vs_gex_features: ################################
     pngfile = args.outfile_prefix+'_summary.png'

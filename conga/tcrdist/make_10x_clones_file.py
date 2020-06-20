@@ -211,6 +211,119 @@ def read_tcr_data(
 
     return clonotype2tcrs, clonotype2barcodes
 
+def read_tcr_data_batch(
+        organism,
+        metadata_file,
+        include_gammadelta = False,
+        allow_unknown_genes = False,
+        verbose = False
+):
+    """ Parse tcr data, only taking 'productive' tcrs
+
+    Returns:
+
+    clonotype2tcrs, clonotype2barcodes
+
+    """
+    assert exists( metadata_file )
+
+    md = pd.read_csv(metadata_file, dtype="string")
+
+    # read in contig files and update suffix to match GEX matrix
+    contig_list = []
+    for x in range(len(md['file'])):
+        dfx = pd.read_csv( md.loc[ x , 'file'] ) #read contig_df
+
+        suffix = md.loc[ x , 'suffix'] # new suffix
+        barcodes = dfx['barcode'].str.split('-').str.get(0)
+
+        #hacky
+        dfx['barcode'] = barcodes + '-' + suffix
+        dfx['contig_id'] = barcodes + '-' + suffix + '_' + \
+            dfx['contig_id'].str.split('_').str.get(1) + \
+            '_' + dfx['contig_id'].str.split('_').str.get(2) # currently unused, but can't hurt
+
+        # giving each library a tag here really boosted the number of clones I got back
+        dfx['raw_clonotype_id'] = dfx['raw_clonotype_id'] + '_' + suffix
+        dfx['raw_consensus_id'] = dfx['raw_consensus_id'] + '_' + suffix # currently unused, but can't hurt
+
+        contig_list.append(dfx)
+
+    df = pd.concat(contig_list)
+
+    expected_gene_names = set(all_genes[organism].keys())
+
+    #from cdr3s_human import all_align_fasta
+
+    gene_suffix = '*01' # may not be used
+
+
+    # read the contig annotations-- map from clonotypes to barcodes
+    # barcode,is_cell,contig_id,high_confidence,length,chain,v_gene,d_gene,j_gene,c_gene,full_length,productive,cdr3,cdr3_nt,reads,umis,raw_clonotype_id,raw_consensus_id
+    # AAAGATGGTCTTCTCG-1,True,AAAGATGGTCTTCTCG-1_contig_1,True,695,TRB,TRBV5-1*01,TRBD2*02,TRBJ2-3*01,TRBC2*01,True,True,CASSPLAGYAADTQYF,TGCGCCAGCAGCCCCCTAGCGGGATACGCAGCAGATACGCAGTATTTT,9427,9,clonotype14,clonotype14_consensus_1
+
+    #_, lines = parse_csv_file(contig_annotations_csvfile)
+    #df = pd.read_csv(contig_annotations_csvfile)
+    df['productive'] = df['productive'].astype(str) #sometimes it already is if there are 'Nones' in there...
+    clonotype2barcodes = {}
+    for l in df.itertuples():
+        # the fields we use:   barcode  raw_clonotype_id  productive  cdr3  cdr3_nt  chain  v_gene  j_gene  umis
+        bc = l.barcode
+        clonotype = l.raw_clonotype_id
+        # annoying: pandas sometimes converts to True/False booleans and sometimes not.
+        assert l.productive in [ 'None', 'False', 'True']
+        if clonotype =='None':
+            continue
+        if clonotype not in clonotype2barcodes:
+            clonotype2barcodes[clonotype] = []
+        if bc in clonotype2barcodes[clonotype]:
+            pass
+            #print 'repeat barcode'
+        else:
+            clonotype2barcodes[clonotype].append( bc )
+
+        ## experimenting here ########################################3
+        if l.productive != 'True':
+            continue
+        if l.cdr3.lower() == 'none' or l.cdr3_nt.lower() == 'none':
+            continue
+
+        chain = l.chain
+        if chain not in ['TRA','TRB']:
+            continue
+        ab = chain[2]
+        if clonotype not in clonotype2tcrs:
+            clonotype2tcrs[ clonotype ] = {'A':Counter(), 'B':Counter() }
+        # stolen from below
+        vg = fixup_gene_name(l.v_gene, gene_suffix, expected_gene_names)
+        jg = fixup_gene_name(l.j_gene, gene_suffix, expected_gene_names)
+
+        if vg not in expected_gene_names:
+            print('unrecognized V gene:', organism, vg)
+            if not allow_unknown_genes:
+                continue
+        if jg not in expected_gene_names:
+            print('unrecognized J gene:', organism, jg)
+            if not allow_unknown_genes:
+                continue
+        #assert vg in all_align_fasta[organism]
+        #assert jg in all_align_fasta[organism]
+
+        tcr_chain = ( vg, jg, l.cdr3, l.cdr3_nt.lower() )
+
+        clonotype2tcrs[clonotype][ab][tcr_chain] += int(l.umis)
+
+    for id in clonotype2tcrs:
+        for ab in 'AB':
+            for t1,count1 in clonotype2tcrs[id][ab].items():
+                for t2, count2 in clonotype2tcrs[id][ab].items():
+                    if t2<=t1:continue
+                    if t1[3] == t2[3]:
+                        print('repeat??', count1, count2, t1, t2)
+
+
+    return clonotype2tcrs, clonotype2barcodes
+
 def _make_clones_file( organism, outfile, clonotype2tcrs, clonotype2barcodes, verbose=False ):
     ''' Make a clones file with information parsed from the 10X csv files
 
@@ -494,3 +607,19 @@ def make_10x_clones_file(
 
     _make_clones_file( organism, clones_file, clonotype2tcrs, clonotype2barcodes )
 
+def make_10x_clones_file_batch(
+        metadata_file,
+        organism,
+        clones_file, # the OUTPUT file, the one we're making
+        stringent = True, # dont believe the 10x clonotypes; reduce 'duplicated' and 'fake' clones
+):
+
+    assert organism in ['human','mouse']
+
+    clonotype2tcrs, clonotype2barcodes = read_tcr_data_batch( organism, metadata_file )
+
+    if stringent:
+        clonotype2tcrs, clonotype2barcodes = setup_filtered_clonotype_dicts( clonotype2tcrs, clonotype2barcodes )
+
+
+    _make_clones_file( organism, clones_file, clonotype2tcrs, clonotype2barcodes )

@@ -175,8 +175,11 @@ def read_dataset(
     elif gex_data_type == '10x_h5':
         adata = sc.read_10x_h5( gex_data, gex_only=True )
 
+    elif gex_data_type == 'loom':
+        adata = sc.read_loom( gex_data )
+
     else:
-        print('unrecognized gex_data_type:', gex_data_type, "should be one of ['h5ad', '10x_mtx', '10x_h5']")
+        print('unrecognized gex_data_type:', gex_data_type, "should be one of ['h5ad', '10x_mtx', '10x_h5', 'loom']")
         exit()
 
     if adata.isview: # this is so weird
