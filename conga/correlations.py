@@ -27,6 +27,8 @@ def find_neighbor_neighbor_interactions(
     ''' Returns a pandas dataframe with results
     of all clones with nbr-nbr overlaps having pvalues <= pval_threshold
 
+    AND a numpy array of the adjusted_pvals
+
     '''
     pp.add_mait_info_to_adata_obs(adata) # for annotation of overlaps
     is_mait = adata.obs['is_mait']
@@ -36,6 +38,8 @@ def find_neighbor_neighbor_interactions(
     pval_rescale = num_clones if scale_pvals_by_num_clones else 1.0
 
     results = []
+    adjusted_pvalues = [pval_rescale]*num_clones # initialize to big value
+
     for ii in range(num_clones):
         is_ii_group = (agroups==agroups[ii]) | (bgroups==bgroups[ii])
         assert is_ii_group[ii]
@@ -56,6 +60,8 @@ def find_neighbor_neighbor_interactions(
         else:
             nbr_pval = pval_rescale
 
+        adjusted_pvalues[ii] = nbr_pval
+
         if nbr_pval > pval_threshold:
             continue ## NOTE
 
@@ -70,6 +76,7 @@ def find_neighbor_neighbor_interactions(
                 delta = overlap-overlap_corrected
                 nbr_pval = pval_rescale * hypergeom.sf( overlap_corrected-1, actual_num_clones, num_neighbors_gex-delta,
                                                         num_neighbors_tcr-delta)
+                adjusted_pvalues[ii] = nbr_pval # update
                 if nbr_pval > pval_threshold:
                     continue ## NOTE
 
@@ -81,7 +88,7 @@ def find_neighbor_neighbor_interactions(
                               mait_fraction=np.sum(is_mait[double_nbrs])/overlap,
                               clone_index=ii ))#double_nbrs ] )
 
-    return pd.DataFrame(results)
+    return pd.DataFrame(results), np.array(adjusted_pvalues)
 
 
 def find_neighbor_cluster_interactions(
@@ -97,6 +104,9 @@ def find_neighbor_cluster_interactions(
 ):
     ''' Returns a pandas dataframe with results
     of all clones with nbr-cluster overlaps having pvalues <= pval_threshold
+
+    AND a numpy array of the adjusted_pvals
+
     '''
     pp.add_mait_info_to_adata_obs(adata) # for annotation of overlaps
     is_mait = adata.obs['is_mait']
@@ -106,6 +116,8 @@ def find_neighbor_cluster_interactions(
     pval_rescale = num_clones if scale_pvals_by_num_clones else 1.0
 
     results = []
+    adjusted_pvalues = [pval_rescale]*num_clones # initialize to big pval
+
     for ii in range(num_clones):
         is_ii_group = (agroups==agroups[ii]) | (bgroups==bgroups[ii])
         assert is_ii_group[ii]
@@ -123,6 +135,7 @@ def find_neighbor_cluster_interactions(
         else:
             nbr_pval = pval_rescale
 
+        adjusted_pvalues[ii] = nbr_pval
         if nbr_pval > pval_threshold:
             continue ## NOTE
 
@@ -134,9 +147,11 @@ def find_neighbor_cluster_interactions(
             overlap_corrected = min( len(set(agroups[same_cluster_nbrs])), len(set(bgroups[same_cluster_nbrs])) )
             if overlap_corrected < overlap:
                 delta = overlap-overlap_corrected
-                new_nbr_pval = pval_rescale * hypergeom.sf(overlap_corrected-1, actual_num_clones, num_neighbors-delta,
-                                                           ii_cluster_clustersize-delta )
-
+                nbr_pval = pval_rescale * hypergeom.sf(overlap_corrected-1, actual_num_clones, num_neighbors-delta,
+                                                       ii_cluster_clustersize-delta )
+                adjusted_pvalues[ii] = nbr_pval
+                if nbr_pval > pval_threshold:
+                    continue
 
         results.append( dict( conga_score=nbr_pval,
                               num_neighbors=num_neighbors,
@@ -146,7 +161,7 @@ def find_neighbor_cluster_interactions(
                               mait_fraction=np.sum(is_mait[same_cluster_nbrs])/overlap,
                               clone_index=ii ))#double_nbrs ] )
 
-    return pd.DataFrame(results)
+    return pd.DataFrame(results), np.array(adjusted_pvalues)
 
 
 
@@ -204,34 +219,32 @@ def run_graph_vs_graph(
 
 
         print('find_neighbor_neighbor_interactions:')
-        results_df = find_neighbor_neighbor_interactions(
+        results_df, adjusted_pvalues = find_neighbor_neighbor_interactions(
             adata, nbrs_gex, nbrs_tcr, agroups, bgroups, pval_threshold)
+        conga_scores = np.minimum(conga_scores, adjusted_pvalues)
+
         if not results_df.empty:
             results_df['nbr_frac'] = nbr_frac
             results_df['overlap_type'] = 'nbr_nbr'
             all_results.append(results_df)
-            for r in results_df.itertuples():
-                conga_scores[r.clone_index] = min(conga_scores[r.clone_index], r.conga_score)
 
         print('find_neighbor_cluster_interactions:')
-        results_df = find_neighbor_cluster_interactions(
+        results_df, adjusted_pvalues = find_neighbor_cluster_interactions(
             adata, nbrs_tcr, clusters_gex, agroups, bgroups, pval_threshold)
+        conga_scores = np.minimum(conga_scores, adjusted_pvalues)
         if results_df.shape[0]:
             results_df['nbr_frac'] = nbr_frac
             results_df['overlap_type'] = 'cluster_nbr'
             all_results.append(results_df)
-            for r in results_df.itertuples():
-                conga_scores[r.clone_index] = min(conga_scores[r.clone_index], r.conga_score)
 
         print('find_neighbor_cluster_interactions:')
-        results_df = find_neighbor_cluster_interactions(
+        results_df, adjusted_pvalues = find_neighbor_cluster_interactions(
             adata, nbrs_gex, clusters_tcr, agroups, bgroups, pval_threshold)
+        conga_scores = np.minimum(conga_scores, adjusted_pvalues)
         if results_df.shape[0]:
             results_df['nbr_frac'] = nbr_frac
             results_df['overlap_type'] = 'nbr_cluster'
             all_results.append(results_df)
-            for r in results_df.itertuples():
-                conga_scores[r.clone_index] = min(conga_scores[r.clone_index], r.conga_score)
 
     if all_results:
         results_df = pd.concat(all_results, ignore_index=True)
