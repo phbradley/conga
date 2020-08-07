@@ -13,6 +13,11 @@ Python scripts are provided in the `scripts/` directory but analysis steps can a
 in jupyter notebooks (for example, [a simple pipeline](simple_conga_pipeline.ipynb) and
 [Seurat to conga](Seurat_to_Conga.ipynb) in the top directory of this repo)
 or in your own python scripts through the interface in the `conga` python package.
+The examples below and in the jupyter notebooks feature publicly available data from 10X Genomics,
+which can be downloaded
+using these links: [GEX data](https://support.10xgenomics.com/single-cell-vdj/datasets/2.2.0/vdj_v1_hs_pbmc_5gex) and
+[TCR data](https://support.10xgenomics.com/single-cell-vdj/datasets/2.2.0/vdj_v1_hs_pbmc_t).
+
 
 1. **SETUP**: The TCR data is converted to a form that can be read by `conga` and then
 a matrix of `TCRdist` distances is computed. KernelPCA is applied to this distance
