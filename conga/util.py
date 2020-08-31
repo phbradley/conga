@@ -36,25 +36,30 @@ organism2vdj_type = {
     'mouse_ig':IG_VDJ_TYPE,
 }
 
-def is_vdj_gene( gene_upper, organism ):
+def is_vdj_gene( gene_upper, organism, include_constant_regions=False ):
     # for filtering out TR or IG gene names from GEX prior to processing
     # or for skipping such genes in the graph_vs_features analysis
     vdj_type = organism2vdj_type[organism]
 
     gene = gene_upper.lower()
     if vdj_type == TCR_AB_VDJ_TYPE:
-        return ( gene.startswith('trav') or gene.lower().startswith('trbv') or
-                 gene.startswith('traj') or gene.lower().startswith('trbj') or
-                 gene.startswith('trbd') or gene_upper == FUNNY_MOUSE_V_GENE )
+        return ( gene.startswith('trav') or gene.startswith('trbv') or
+                 gene.startswith('traj') or gene.startswith('trbj') or
+                 gene.startswith('trbd') or gene_upper == FUNNY_MOUSE_V_GENE or
+                 ( include_constant_regions and (gene.startswith('trac') or gene.startswith('trbc'))))
+
     elif vdj_type == TCR_GD_VDJ_TYPE:
         return ( gene.startswith('trav') or gene.startswith('trdv') or
                  gene.startswith('traj') or gene.startswith('trdj') or
                  gene.startswith('trgv') or gene.startswith('trgj') or
-                 gene.startswith('tcrg-') or gene.startswith('trdd') )
+                 gene.startswith('tcrg-') or gene.startswith('trdd') or
+                 ( include_constant_regions and (gene.startswith('trdc') or gene.startswith('trgc'))))
     elif vdj_type == IG_VDJ_TYPE:
-        return ( gene.startswith('ighv') or gene.lower().startswith('iglv') or gene.lower().startswith('igkv') or
-                 gene.startswith('ighj') or gene.lower().startswith('iglj') or gene.lower().startswith('igkj') or
-                 gene.startswith('ighd') )
+        return ( gene.startswith('ighv') or gene.startswith('iglv') or gene.startswith('igkv') or
+                 gene.startswith('ighj') or gene.startswith('iglj') or gene.startswith('igkj') or
+                 gene.startswith('ighd') or
+                 ( include_constant_regions and
+                   ( gene.startswith('ighc') or gene.startswith('iglc') or gene.startswith('igkc'))))
     else:
         print('unrecognized vdj_type:', vdj_type)
         exit()

@@ -614,7 +614,7 @@ def tcr_nbrhood_rank_genes_fast(
 
         for igene, ind in enumerate(global_indices):
             gene = genes[ind]
-            if util.is_vdj_gene(gene, organism):
+            if util.is_vdj_gene(gene, organism, include_constant_regions=True):
                 continue
             pval_adj = pvals_adj[ind]
             log2fold= logfoldchanges[ind]
