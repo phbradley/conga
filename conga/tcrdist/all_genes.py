@@ -101,6 +101,8 @@ for organism,genes in all_genes.items():
                             loop_mismatches += 10
                             break
                         else:
+                            if not (a in amino_acids and b in amino_acids):
+                                print( id1,id2,a,b)
                             assert a in amino_acids and b in amino_acids
                             if spaces<=1:
                                 loop_mismatches += 1
@@ -117,6 +119,8 @@ for organism,genes in all_genes.items():
                             if a in '*.' or b in '*.':
                                 all_mismatches += 10
                             else:
+                                if not (a in amino_acids and b in amino_acids):
+                                    print( id1,id2,a,b)
                                 assert a in amino_acids and b in amino_acids
                                 all_mismatches += 1
                     #dist = tcr_distances.blosum_sequence_distance( seq1, seq2, gap_penalty=10 )
@@ -209,60 +213,65 @@ for organism,genes in all_genes.items():
 
     #allele2mm1_rep_gene_for_counting[ organism ] = {}
 
-    for chain in 'AB':
+    if not basic.CLASSIC_COUNTREPS:
+        # simpler scheme for choosing the 'count_rep' field
+        for id, g in all_genes[organism].items():
+            g.count_rep = trim_allele_to_gene(id)
+    else:
+        for chain in 'AB':
+            for vj in 'VJ':
+                allele_gs = [ (id,g) for (id,g) in all_genes[organism].items() if g.chain==chain and g.region==vj]
 
-        for vj in 'VJ':
-            allele_gs = [ (id,g) for (id,g) in all_genes[organism].items() if g.chain==chain and g.region==vj]
+                gene2rep = {}
+                gene2alleles = {}
+                rep_gene2alleles = {}
 
-            gene2rep = {}
-            gene2alleles = {}
-            rep_gene2alleles = {}
+                for allele,g in allele_gs:
+                    #assert allele[2] == chain
+                    gene = trim_allele_to_gene( allele )
+                    rep_gene = trim_allele_to_gene( g.mm1_rep )
+                    if rep_gene not in rep_gene2alleles:
+                        rep_gene2alleles[ rep_gene ] = []
+                    rep_gene2alleles[ rep_gene ].append( allele )
 
-            for allele,g in allele_gs:
-                #assert allele[2] == chain
-                gene = trim_allele_to_gene( allele )
-                rep_gene = trim_allele_to_gene( g.mm1_rep )
-                if rep_gene not in rep_gene2alleles:
-                    rep_gene2alleles[ rep_gene ] = []
-                rep_gene2alleles[ rep_gene ].append( allele )
+                    if gene not in gene2rep:
+                        gene2rep[gene] = set()
+                        gene2alleles[gene] = []
+                    gene2rep[ gene ].add( rep_gene )
+                    gene2alleles[gene].append( allele )
 
-                if gene not in gene2rep:
-                    gene2rep[gene] = set()
-                    gene2alleles[gene] = []
-                gene2rep[ gene ].add( rep_gene )
-                gene2alleles[gene].append( allele )
+                merge_rep_genes = {}
+                for gene,reps in gene2rep.items():
+                    if len(reps)>1:
+                        if verbose:
+                            print('multireps:',organism, gene, reps)
+                            for allele in gene2alleles[gene]:
+                                print(' '.join(all_genes[organism][allele].cdrs), allele, \
+                                    all_genes[organism][allele].rep, \
+                                    all_genes[organism][allele].mm1_rep)
+                        assert vj=='V'
 
-            merge_rep_genes = {}
-            for gene,reps in gene2rep.items():
-                if len(reps)>1:
-                    assert vj=='V'
+                        ## we are going to merge these reps
+                        ## which one should we choose?
+                        l = [ (len(rep_gene2alleles[rep]), rep ) for rep in reps ]
+                        l.sort()
+                        l.reverse()
+                        assert l[0][0] > l[1][0]
+                        toprep = l[0][1]
+                        for (count,rep) in l:
+                            if rep in merge_rep_genes:
+                                # ACK need to think more about this, should probably just kill this logic!
+                                assert rep == toprep and merge_rep_genes[rep] == rep
+                            merge_rep_genes[ rep ] = toprep
+
+
+                for allele,g in allele_gs:
+                    count_rep = trim_allele_to_gene( g.mm1_rep ) #get_mm1_rep_ignoring_allele( allele, organism )
+                    if count_rep in merge_rep_genes:
+                        count_rep = merge_rep_genes[ count_rep ]
+                    g.count_rep = count_rep #allele2mm1_rep_gene_for_counting[ organism ][ allele] = count_rep
                     if verbose:
-                        print('multireps:',organism, gene, reps)
-                        for allele in gene2alleles[gene]:
-                            print(' '.join(all_genes[organism][allele].cdrs), allele, \
-                                all_genes[organism][allele].rep, \
-                                all_genes[organism][allele].mm1_rep)
-
-                    ## we are going to merge these reps
-                    ## which one should we choose?
-                    l = [ (len(rep_gene2alleles[rep]), rep ) for rep in reps ]
-                    l.sort()
-                    l.reverse()
-                    assert l[0][0] > l[1][0]
-                    toprep = l[0][1]
-                    for (count,rep) in l:
-                        if rep in merge_rep_genes:
-                            assert rep == toprep and merge_rep_genes[rep] == rep
-                        merge_rep_genes[ rep ] = toprep
-
-
-            for allele,g in allele_gs:
-                count_rep = trim_allele_to_gene( g.mm1_rep ) #get_mm1_rep_ignoring_allele( allele, organism )
-                if count_rep in merge_rep_genes:
-                    count_rep = merge_rep_genes[ count_rep ]
-                g.count_rep = count_rep #allele2mm1_rep_gene_for_counting[ organism ][ allele] = count_rep
-                if verbose:
-                    print('countrep:',organism, allele, count_rep)
+                        print('countrep:',organism, allele, count_rep)
 
 
 if __name__ == '__main__':

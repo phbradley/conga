@@ -22,7 +22,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument('--gex_data')
 parser.add_argument('--gex_data_type', choices=['h5ad', '10x_mtx', '10x_h5'])
 parser.add_argument('--clones_file')
-parser.add_argument('--organism', choices=['mouse', 'human', 'mouse_gd', 'human_gd'])
+parser.add_argument('--organism', choices=['mouse', 'human', 'mouse_gd', 'human_gd', 'human_ig'])
 parser.add_argument('--nbr_fracs', type=float, nargs='*', default=[0.01,0.1] )
 parser.add_argument('--exclude_gex_clusters', type=int, nargs='*')
 parser.add_argument('--min_cluster_size', type=int, default=5)
@@ -290,14 +290,11 @@ if args.graph_vs_gex_features: #################################################
         results_df = pd.concat(combo_results, ignore_index=True)
         pngfile = args.outfile_prefix+'_tcr_nbr_graph_vs_gex_features.png'
         print('making:', pngfile)
-        exclude_strings = [conga.preprocess.FUNNY_MOUSE_V_GENE] # bad mouse gene, actually a tcr v gene
         conga.plotting.plot_ranked_strings_on_cells(
-            adata, results_df, 'X_tcr_2d', 'clone_index', 'mwu_pvalue_adj', 1.0, 'feature',
-            pngfile, exclude_strings=exclude_strings)
+            adata, results_df, 'X_tcr_2d', 'clone_index', 'mwu_pvalue_adj', 1.0, 'feature', pngfile)
 
         pngfile = args.outfile_prefix+'_tcr_nbr_graph_vs_gex_features_panels.png'
         print('making:', pngfile)
-        #exclude_strings = ['5830405F06Rik'] # bad mouse gene, actually a tcr v gene
         conga.plotting.make_feature_panel_plots(adata, 'tcr', all_nbrs, results_df, pngfile)
 
 

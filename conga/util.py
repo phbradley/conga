@@ -15,11 +15,50 @@ path_to_conga += '/'
 path_to_data = path_to_conga+'data/'
 assert os.path.isdir( path_to_data )
 
+FUNNY_MOUSE_TRBV_GENE = '5830405F06Rik' # actually seems to be a tcr v gene transcript or correlate with one
 
 def run_command( cmd, verbose=False ):
     if verbose:
         print('util.run_command: cmd=', cmd)
     system(cmd)
+
+# different types of repertoire data we might have
+TCR_AB_VDJ_TYPE = 'TCR_AB_VDJ_TYPE'
+TCR_GD_VDJ_TYPE = 'TCR_GD_VDJ_TYPE'
+IG_VDJ_TYPE = 'IG_VDJ_TYPE'
+
+organism2vdj_type = {
+    'human':TCR_AB_VDJ_TYPE,
+    'mouse':TCR_AB_VDJ_TYPE,
+    'human_gd':TCR_AB_VDJ_TYPE,
+    'mouse_gd':TCR_GD_VDJ_TYPE,
+    'human_ig':IG_VDJ_TYPE,
+    'mouse_ig':IG_VDJ_TYPE,
+}
+
+def is_vdj_gene( gene_upper, organism ):
+    # for filtering out TR or IG gene names from GEX prior to processing
+    # or for skipping such genes in the graph_vs_features analysis
+    vdj_type = organism2vdj_type[organism]
+
+    gene = gene_upper.lower()
+    if vdj_type == TCR_AB_VDJ_TYPE:
+        return ( gene.startswith('trav') or gene.lower().startswith('trbv') or
+                 gene.startswith('traj') or gene.lower().startswith('trbj') or
+                 gene.startswith('trbd') or gene_upper == FUNNY_MOUSE_V_GENE )
+    elif vdj_type == TCR_GD_VDJ_TYPE:
+        return ( gene.startswith('trav') or gene.startswith('trdv') or
+                 gene.startswith('traj') or gene.startswith('trdj') or
+                 gene.startswith('trgv') or gene.startswith('trgj') or
+                 gene.startswith('tcrg-') or gene.startswith('trdd') )
+    elif vdj_type == IG_VDJ_TYPE:
+        return ( gene.startswith('ighv') or gene.lower().startswith('iglv') or gene.lower().startswith('igkv') or
+                 gene.startswith('ighj') or gene.lower().startswith('iglj') or gene.lower().startswith('igkj') or
+                 gene.startswith('ighd') )
+    else:
+        print('unrecognized vdj_type:', vdj_type)
+        exit()
+    return None
 
 def make_clones_file( tcrs, outfilename, subject = 'UNK', epitope = 'UNK_E' ):
     ''' This may not have all the standard fields

@@ -19,7 +19,6 @@ from .tcrdist.tcr_distances import TcrDistCalculator
 # silly hack
 all_sexlinked_genes = frozenset('XIST DDX3Y EIF1AY KDM5D LINC00278 NLGN4Y RPS4Y1 TTTY14 TTTY15 USP9Y UTY ZFY'.split())
 
-FUNNY_MOUSE_V_GENE = '5830405F06Rik' # actually seems to be a tcr v gene transcript or correlate with one
 
 def check_if_raw_matrix_is_logged( adata ):
     return adata.uns.get( 'raw_matrix_is_logged', False )
@@ -291,7 +290,6 @@ def filter_normalize_and_hvg(
     '''Filters cells and genes to find highly variable genes'''
 
     organism = adata.uns['organism']
-    gamma_delta = '_gd' in organism
 
     ## notes:
     ## * AGTB specific things that we removed
@@ -357,16 +355,7 @@ def filter_normalize_and_hvg(
     if exclude_TR_genes:
         is_tr = []
         for gene in adata.var.index:
-            if gamma_delta:
-                is_tr.append( gene.lower().startswith('trav') or gene.lower().startswith('trdv') or \
-                              gene.lower().startswith('traj') or gene.lower().startswith('trdj') or \
-                              gene.lower().startswith('trgv') or gene.lower().startswith('trgj') or \
-                              gene.lower().startswith('tcrg-') or \
-                              gene == FUNNY_MOUSE_V_GENE )
-            else:
-                is_tr.append( gene.lower().startswith('trav') or gene.lower().startswith('trbv') or \
-                              gene.lower().startswith('traj') or gene.lower().startswith('trbj') or \
-                              gene == FUNNY_MOUSE_V_GENE )
+            is_tr.append( util.is_vdj_gene(gene, organism) );
         print('excluding {} TR genes ({} variable)'.format(sum(is_tr), sum(hvg_mask[is_tr])))
         hvg_mask[is_tr] = False
         assert sum( hvg_mask[is_tr] )==0 # sanity check
@@ -723,7 +712,8 @@ def calc_nbrs(
 
 
 def get_vfam(vgene):
-    assert vgene.startswith('TR') and vgene[3]=='V'
+    #assert vgene.startswith('TR') and vgene[3]=='V'
+    assert vgene[3]=='V'
     pos = 4
     while pos<len(vgene) and vgene[pos].isdigit():
         pos += 1

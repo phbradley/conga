@@ -35,7 +35,11 @@ default_logo_genes = {
                  'CCL5','ZNF683','KLRB1','NKG7','HLA-DRB1' ],
     'mouse_gd': ['Cd4', 'Cd8a', 'Cd8b1', 'Ccr7', 'Sell',
                  'Itgal', 'Prf1', 'Gzma', 'Il2rb', 'Gzmk', 'Ifng',
-                 'Ccl5', 'Cxcr3', 'Zbtb16', 'Nkg7', 'Klrd1']
+                 'Ccl5', 'Cxcr3', 'Zbtb16', 'Nkg7', 'Klrd1'],
+    # should probably specialize these
+    'human_ig': ['CD4','CD8A','CD8B','CCR7','SELL',
+                 'GNLY','PRF1','GZMA','IL7R','IKZF2','KLRD1',
+                 'CCL5','ZNF683','KLRB1','NKG7','HLA-DRB1' ],
 }
 
 
@@ -43,7 +47,8 @@ default_gex_header_genes = {
     'human': ['clone_sizes','CD4','CD8A','CD8B','SELL','GNLY','GZMA','CCL5','ZNF683','IKZF2','PDCD1','KLRB1'],
     'mouse': ['clone_sizes','Cd4', 'Cd8a', 'Cd8b1', 'Sell', 'Itgal', 'Gzma', 'Ccl5', 'Il2rb', 'Ikzf2', 'Pdcd1', 'Zbtb16'],
     'human_gd': ['clone_sizes','CD4','CD8A','CD8B','SELL','GNLY','GZMA','CCL5','ZNF683','IKZF2','PDCD1','KLRB1'],
-    'mouse_gd': ['clone_sizes','Cd4', 'Cd8a', 'Cd8b1', 'Sell', 'Itgal', 'Gzma', 'Ccl5', 'Il2rb', 'Ikzf2', 'Pdcd1', 'Zbtb16']
+    'mouse_gd': ['clone_sizes','Cd4', 'Cd8a', 'Cd8b1', 'Sell', 'Itgal', 'Gzma', 'Ccl5', 'Il2rb', 'Ikzf2', 'Pdcd1', 'Zbtb16'],
+    'human_ig': ['clone_sizes','CD4','CD8A','CD8B','SELL','GNLY','GZMA','CCL5','ZNF683','IKZF2','PDCD1','KLRB1'],
 }
 
 
@@ -1254,10 +1259,9 @@ def make_summary_figure(
 
         ## now a plot of the nbrhood gene/score enrichments
         if xy_tag == 'tcr':
-            exclude_strings = ['5830405F06Rik'] # bad mouse gene, actually a tcr v gene
             plot_ranked_strings_on_cells(adata, tcr_genes_results, 'X_tcr_2d', 'clone_index',
                                          'mwu_pvalue_adj', pval_threshold_for_tcr_genes_results, 'feature',
-                                         exclude_strings=exclude_strings, ax=axs[irow,2] )
+                                         ax=axs[irow,2] )
             plt.sca(axs[irow,2])
             plt.title("Differential gene expression in TCR nbrhoods")
             plt.xlabel('{} UMAP1'.format(XY_TAG))

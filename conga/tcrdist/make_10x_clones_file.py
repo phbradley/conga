@@ -57,6 +57,11 @@ def get_ab_from_10x_chain(chain, organism):
             return 'A' if chain=='TRG' else 'B'
         else:
             return None
+    elif organism in ['human_ig','mouse_ig']:
+        if chain in ['IGH', 'IGK', 'IGL']:
+            return 'B' if chain=='IGH' else 'A'
+        else:
+            return None
     else:
         print('unrecognized organism in get_ab_from_10x_chain:', organism)
         sys.exit()

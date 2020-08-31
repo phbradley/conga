@@ -136,7 +136,7 @@ def get_j_cdr3_nucseq( organism, j_gene, paranoid = False ):
 
 def analyze_junction( organism, v_gene, j_gene, cdr3_protseq, cdr3_nucseq, force_d_id=0, return_cdr3_nucseq_src=False ):
     #print organism, v_gene, j_gene, cdr3_protseq, cdr3_nucseq
-    assert v_gene.startswith('TR') #and v_gene[2] == j_gene[2]
+    #assert v_gene.startswith('TR') #and v_gene[2] == j_gene[2]
     ab = all_genes[organism][v_gene].chain
     v_nucseq = get_v_cdr3_nucseq( organism, v_gene )
     j_nucseq = get_j_cdr3_nucseq( organism, j_gene )

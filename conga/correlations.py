@@ -333,11 +333,16 @@ def calc_good_cluster_tcr_features(
     results_df = gex_nbrhood_rank_tcr_scores( adata, fake_nbrs_gex, tcr_score_names, pval_threshold,
                                               verbose=verbose, prefix_tag = 'good_clp' )
 
+
     all_tcr_features = {}
+    for clp in good_clps:
+        all_tcr_features[clp] = [] # in case results_df doesn't have any rows for this clp
+
     for row in results_df.itertuples():
         clp = (row.gex_cluster, row.tcr_cluster)
         assert clp in good_clps
-        all_tcr_features.setdefault(clp,[]).append( ( row.mwu_pvalue_adj, row.ttest_stat, row.feature))
+        all_tcr_features[clp].append( ( row.mwu_pvalue_adj, row.ttest_stat, row.feature))
+
 
     for clp in all_tcr_features:
         # plotting code expects name then stat then pvalue
@@ -505,7 +510,7 @@ def tcr_nbrhood_rank_genes_fast(
     tcrs = pp.retrieve_tcrs_from_adata(adata)
     pp.add_mait_info_to_adata_obs(adata)
     is_mait = adata.obs['is_mait']
-    gamma_delta = ( '_gd' in adata.uns['organism'] )
+    organism = adata.uns['organism']
     ## done unpacking ###############################
 
     if clone_display_names is None:
@@ -609,9 +614,7 @@ def tcr_nbrhood_rank_genes_fast(
 
         for igene, ind in enumerate(global_indices):
             gene = genes[ind]
-            if gamma_delta and gene.lower()[:4] in ['trav','trgv','trdv','tcrg']:
-                continue
-            if not gamma_delta and gene.lower()[:4] in ['trav','trbv']:
+            if util.is_vdj_gene(gene, organism):
                 continue
             pval_adj = pvals_adj[ind]
             log2fold= logfoldchanges[ind]
