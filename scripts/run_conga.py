@@ -43,6 +43,7 @@ parser.add_argument('--graph_vs_graph', action='store_true')
 parser.add_argument('--graph_vs_tcr_features', action='store_true')
 parser.add_argument('--graph_vs_gex_features', action='store_true')
 # some extra analyses
+parser.add_argument('--cluster_vs_cluster', action='store_true')
 parser.add_argument('--calc_clone_pmhc_pvals', action='store_true')
 parser.add_argument('--find_pmhc_nbrhood_overlaps', action='store_true') # only if pmhc info is present
 parser.add_argument('--find_distance_correlations', action='store_true')
@@ -396,8 +397,15 @@ if args.graph_vs_graph and args.graph_vs_tcr_features and args.graph_vs_gex_feat
 
 
 ## some extra analyses
+if args.cluster_vs_cluster:
+    tcrs = conga.preprocess.retrieve_tcrs_from_adata(adata)
+    clusters_gex = np.array(adata.obs['clusters_gex'])
+    clusters_tcr = np.array(adata.obs['clusters_tcr'])
+    barcodes = list(adata.obs_names)
+    barcode2tcr = dict(zip(barcodes,tcrs))
+    conga.correlations.compute_cluster_interactions( clusters_gex, clusters_tcr, barcodes, barcode2tcr, outlog )
 
-# just out of curiousity:
+# just out of curiosity:
 conga.correlations.check_nbr_graphs_indegree_bias(all_nbrs)
 
 if args.find_distance_correlations:

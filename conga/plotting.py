@@ -1421,7 +1421,8 @@ def make_feature_panel_plots(
         nbr_averaged_scores = ( scores + scores[ nbrs ].sum(axis=1) )/(num_neighbors+1)
 
         plt.scatter(xy[:,0], xy[:,1], c=nbr_averaged_scores, cmap='coolwarm', s=15)
-        plt.title('{} ({},{}) {:.1e}'.format(feature, row.gex_cluster, row.tcr_cluster, row.mwu_pvalue_adj))
+        plt.title('{} ({:d},{:d}) {:.1e}'.format(feature, int(row.gex_cluster+.1), int(row.tcr_cluster+.1),
+                                                 row.mwu_pvalue_adj))
         plt.xticks([],[])
         plt.yticks([],[])
         if (plotno-1)//ncols == nrows-1:
