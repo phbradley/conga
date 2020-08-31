@@ -149,10 +149,10 @@ def is_human_inkt_tcr(tcr):
 
 
 def mait_score_tcr(tcr, organism):
-    if   organism=='human':
+    if 'human' in organism:
         return float(is_human_mait_alpha_chain(tcr[0]))
 
-    elif organism=='mouse':
+    elif 'mouse' in organism:
         return float(is_mouse_mait_alpha_chain(tcr[0]))
 
     else:
@@ -162,10 +162,10 @@ def mait_score_tcr(tcr, organism):
 
 
 def inkt_score_tcr(tcr, organism):
-    if   organism=='human':
+    if 'human' in organism:
         return float(is_human_inkt_tcr(tcr))
 
-    elif organism=='mouse':
+    elif 'mouse' in organism:
         return float(is_mouse_inkt_alpha_chain(tcr[0]))
 
     else:

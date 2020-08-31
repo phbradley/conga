@@ -505,6 +505,7 @@ def tcr_nbrhood_rank_genes_fast(
     tcrs = pp.retrieve_tcrs_from_adata(adata)
     pp.add_mait_info_to_adata_obs(adata)
     is_mait = adata.obs['is_mait']
+    gamma_delta = ( '_gd' in adata.uns['organism'] )
     ## done unpacking ###############################
 
     if clone_display_names is None:
@@ -608,7 +609,9 @@ def tcr_nbrhood_rank_genes_fast(
 
         for igene, ind in enumerate(global_indices):
             gene = genes[ind]
-            if gene.lower()[:4] in ['trav','trbv']:
+            if gamma_delta and gene.lower()[:4] in ['trav','trgv','trdv','tcrg']:
+                continue
+            if not gamma_delta and gene.lower()[:4] in ['trav','trbv']:
                 continue
             pval_adj = pvals_adj[ind]
             log2fold= logfoldchanges[ind]

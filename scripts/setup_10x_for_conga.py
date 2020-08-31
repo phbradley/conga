@@ -6,7 +6,7 @@ import os
 parser = argparse.ArgumentParser()
 
 parser.add_argument('--output_clones_file')
-parser.add_argument('--organism', choices=['mouse', 'human'], required=True)
+parser.add_argument('--organism', choices=['mouse', 'human', 'mouse_gd', 'human_gd'], required=True)
 #parser.add_argument('--n_components', type=int, default=50)
 parser.add_argument('--filtered_contig_annotations_csvfile', required=True)
 parser.add_argument('--consensus_annotations_csvfile')

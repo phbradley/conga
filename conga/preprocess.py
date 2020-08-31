@@ -37,9 +37,10 @@ def add_mait_info_to_adata_obs( adata, key_added = 'is_mait' ):
         return
     tcrs = retrieve_tcrs_from_adata(adata)
     organism = 'human' if 'organism' not in adata.uns_keys() else adata.uns['organism']
-    if organism == 'human':
+    if 'human' in organism:
         is_mait = [ tcr_scoring.is_human_mait_alpha_chain(x[0]) for x in tcrs ]
     else:
+        assert 'mouse' in organism
         is_mait = [ tcr_scoring.is_mouse_inkt_alpha_chain(x[0]) for x in tcrs ]
     adata.obs['is_mait'] = is_mait
 
@@ -132,9 +133,7 @@ def setup_X_igex( adata ):
     if 'organism' in adata.uns_keys():
         organism = adata.uns['organism']
 
-    assert organism in ['mouse','human']
-
-    if organism=='mouse': # this is a temporary hack -- could actually load a mapping between mouse and human genes
+    if 'mouse' in organism: # this is a temporary hack -- could actually load a mapping between mouse and human genes
         all_genes = [x.capitalize() for x in all_genes]
 
     for g in plotting.default_logo_genes[organism] + plotting.default_gex_header_genes[organism]:
@@ -291,6 +290,9 @@ def filter_normalize_and_hvg(
 ):
     '''Filters cells and genes to find highly variable genes'''
 
+    organism = adata.uns['organism']
+    gamma_delta = '_gd' in organism
+
     ## notes:
     ## * AGTB specific things that we removed
     ##   - exclude "antibody" features before normalizing
@@ -355,9 +357,16 @@ def filter_normalize_and_hvg(
     if exclude_TR_genes:
         is_tr = []
         for gene in adata.var.index:
-            is_tr.append( gene.lower().startswith('trav') or gene.lower().startswith('trbv') or \
-                          gene.lower().startswith('traj') or gene.lower().startswith('trbj') or \
-                          gene == FUNNY_MOUSE_V_GENE )
+            if gamma_delta:
+                is_tr.append( gene.lower().startswith('trav') or gene.lower().startswith('trdv') or \
+                              gene.lower().startswith('traj') or gene.lower().startswith('trdj') or \
+                              gene.lower().startswith('trgv') or gene.lower().startswith('trgj') or \
+                              gene.lower().startswith('tcrg-') or \
+                              gene == FUNNY_MOUSE_V_GENE )
+            else:
+                is_tr.append( gene.lower().startswith('trav') or gene.lower().startswith('trbv') or \
+                              gene.lower().startswith('traj') or gene.lower().startswith('trbj') or \
+                              gene == FUNNY_MOUSE_V_GENE )
         print('excluding {} TR genes ({} variable)'.format(sum(is_tr), sum(hvg_mask[is_tr])))
         hvg_mask[is_tr] = False
         assert sum( hvg_mask[is_tr] )==0 # sanity check
@@ -773,8 +782,6 @@ def make_tcrdist_kernel_pcs_file_from_clones_file(
 ):
     if outfile is None: # this is the name expected by read_dataset above (with n_components_in==50)
         outfile = '{}_AB.dist_{}_kpcs'.format(clones_file[:-4], n_components_in)
-
-    assert organism in ['mouse', 'human']
 
     tcrdist_calculator = TcrDistCalculator(organism)
 

@@ -44,13 +44,28 @@ def fixup_gene_name( gene, gene_suffix, expected_gene_names ):
 
     return gene # may still not be in expected_gene_names, will check for that later
 
+def get_ab_from_10x_chain(chain, organism):
+    ''' Returns None if the chain is not valid for this 'organism'
+    '''
+    if organism in ['human', 'mouse']:
+        if chain in ['TRA','TRB']:
+            return chain[2]
+        else:
+            return None
+    elif organism in ['human_gd','mouse_gd']:
+        if chain in ['TRA','TRG','TRD']:
+            return 'A' if chain=='TRG' else 'B'
+        else:
+            return None
+    else:
+        print('unrecognized organism in get_ab_from_10x_chain:', organism)
+        sys.exit()
 
 
 def read_tcr_data(
         organism,
         contig_annotations_csvfile,
         consensus_annotations_csvfile,
-        include_gammadelta = False,
         allow_unknown_genes = False,
         verbose = False
 ):
@@ -101,9 +116,9 @@ def read_tcr_data(
             continue
 
         chain = l.chain
-        if chain not in ['TRA','TRB']:
+        ab = get_ab_from_10x_chain(chain, organism)
+        if ab is None:
             continue
-        ab = chain[2]
         if clonotype not in clonotype2tcrs_backup:
             clonotype2tcrs_backup[ clonotype ] = {'A':Counter(), 'B':Counter() }
         # stolen from below
@@ -162,11 +177,8 @@ def read_tcr_data(
                     assert id in clonotype2barcodes
 
                 ch = l.chain
-                if not ch.startswith('TR'):
-                    print('skipline:', consensus_annotations_csvfile, ch, l.v_gene, l.j_gene)
-                    continue
-                ab = ch[2]
-                if ab not in 'AB':
+                ab = get_ab_from_10x_chain(ch, organism)
+                if ab is None:
                     print('skipline:', consensus_annotations_csvfile, ch, l.v_gene, l.j_gene)
                     continue
                 vg = fixup_gene_name(l.v_gene, gene_suffix, expected_gene_names)
@@ -214,7 +226,6 @@ def read_tcr_data(
 def read_tcr_data_batch(
         organism,
         metadata_file,
-        include_gammadelta = False,
         allow_unknown_genes = False,
         verbose = False
 ):
@@ -227,7 +238,7 @@ def read_tcr_data_batch(
     """
     assert exists( metadata_file )
 
-    md = pd.read_csv(metadata_file, dtype="string")
+    md = pd.read_csv(metadata_file, dtype=str)#"string")
 
     # read in contig files and update suffix to match GEX matrix
     contig_list = []
@@ -265,6 +276,7 @@ def read_tcr_data_batch(
     #_, lines = parse_csv_file(contig_annotations_csvfile)
     #df = pd.read_csv(contig_annotations_csvfile)
     df['productive'] = df['productive'].astype(str) #sometimes it already is if there are 'Nones' in there...
+    clonotype2tcrs = {}
     clonotype2barcodes = {}
     for l in df.itertuples():
         # the fields we use:   barcode  raw_clonotype_id  productive  cdr3  cdr3_nt  chain  v_gene  j_gene  umis
@@ -289,9 +301,9 @@ def read_tcr_data_batch(
             continue
 
         chain = l.chain
-        if chain not in ['TRA','TRB']:
+        ab = get_ab_from_10x_chain(chain, organism)
+        if ab is None:
             continue
-        ab = chain[2]
         if clonotype not in clonotype2tcrs:
             clonotype2tcrs[ clonotype ] = {'A':Counter(), 'B':Counter() }
         # stolen from below
@@ -452,7 +464,7 @@ def setup_filtered_clonotype_dicts(
     ab_counts = Counter() # for diagnostics
     for (clone_size, cid) in reversed( sorted( (len(y), x) for x,y in clonotype2barcodes.items() ) ):
         if cid not in clonotype2tcrs:
-            print('WHOAH missing tcrs for clonotype', clone_size, cid, clonotype2barcodes[cid])
+            #print('WHOAH missing tcrs for clonotype', clone_size, cid, clonotype2barcodes[cid])
             continue
         tcrs = clonotype2tcrs[cid]
         was_good_clone = len(tcrs['A']) >= 1 and len(tcrs['B']) >= 1
@@ -596,8 +608,6 @@ def make_10x_clones_file(
         consensus_annotations_csvfile = None,
 ):
 
-    assert organism in ['human','mouse']
-
     clonotype2tcrs, clonotype2barcodes = read_tcr_data( organism, filtered_contig_annotations_csvfile,
                                                         consensus_annotations_csvfile )
 
@@ -613,8 +623,6 @@ def make_10x_clones_file_batch(
         clones_file, # the OUTPUT file, the one we're making
         stringent = True, # dont believe the 10x clonotypes; reduce 'duplicated' and 'fake' clones
 ):
-
-    assert organism in ['human','mouse']
 
     clonotype2tcrs, clonotype2barcodes = read_tcr_data_batch( organism, metadata_file )
 
