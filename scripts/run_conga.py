@@ -47,6 +47,7 @@ parser.add_argument('--cluster_vs_cluster', action='store_true')
 parser.add_argument('--calc_clone_pmhc_pvals', action='store_true')
 parser.add_argument('--find_pmhc_nbrhood_overlaps', action='store_true') # only if pmhc info is present
 parser.add_argument('--find_distance_correlations', action='store_true')
+parser.add_argument('--find_gex_cluster_degs', action='store_true')
 # configure things
 parser.add_argument('--skip_gex_header', action='store_true')
 parser.add_argument('--skip_gex_header_raw', action='store_true')
@@ -404,6 +405,103 @@ if args.cluster_vs_cluster:
     barcodes = list(adata.obs_names)
     barcode2tcr = dict(zip(barcodes,tcrs))
     conga.correlations.compute_cluster_interactions( clusters_gex, clusters_tcr, barcodes, barcode2tcr, outlog )
+
+if args.find_gex_cluster_degs: # look at differentially expressed genes in gex clusters
+    import matplotlib.pyplot as plt
+    obs_tag = 'genex_clusters'
+    adata.obs[obs_tag] = [ str(x) for x in adata.obs['clusters_gex']]#.astype('category')
+    key_added = 'degs_for_gex_clusters'
+    rank_method = 'wilcoxon'
+    all_clusters = sorted(set(adata.obs[obs_tag]))
+    sc.tl.rank_genes_groups(adata, groupby=obs_tag, method=rank_method, groups=all_clusters, reference='rest',
+                            key_added=key_added)
+    n_genes = 25
+    sc.pl.rank_genes_groups(adata, n_genes=n_genes, sharey=False, show=False, key=key_added)
+    pngfile = args.outfile_prefix+'_gex_cluster_degs.png'
+    plt.savefig(pngfile, bbox_inches="tight")
+    print('made:', pngfile)
+
+
+    new_rank_genes_genes, var_group_positions, var_group_labels = [],[],[]
+    allow_gene_repeats = False
+    min_rank_genes_log2fold_change = 1.0
+    max_rank_genes_pval_adj=0.05
+    n_genes_for_plotting = 5
+
+    for group in all_clusters:
+        my_genes = []
+        for igene,gene in enumerate( adata.uns[key_added]['names'][group] ):
+            log2fold = adata.uns[key_added]['logfoldchanges'][group][igene]
+            pval_adj = adata.uns[key_added]['pvals_adj'][group][igene]
+            #print('rank_gene:',group, igene, gene, log2fold, pval_adj)
+            if len(my_genes) >= n_genes_for_plotting:
+                continue
+            if gene in new_rank_genes_genes and not allow_gene_repeats:
+                continue # no repeats
+            elif gene.startswith('MT-'):
+                continue
+            elif gene[:3] in ['RPL','RPS'] and gene[3].isdigit():
+                continue
+            elif abs(log2fold) < min_rank_genes_log2fold_change:
+                continue
+            elif pval_adj > max_rank_genes_pval_adj:
+                continue
+            print('log2fold: {:.2f} pval_adj: {:9.1e} score: {:.1f} {} {}'\
+                  .format( log2fold, pval_adj, adata.uns[key_added]['scores'][group][igene],
+                           gene, group ) )
+            my_genes.append( gene )
+        if my_genes:
+            var_group_positions.append( ( len(new_rank_genes_genes),
+                                          len(new_rank_genes_genes)+len(my_genes)-1 ) )
+            var_group_labels.append( group )
+            new_rank_genes_genes.extend( my_genes )
+
+    if new_rank_genes_genes:
+        sc.pl.stacked_violin( adata, var_names = new_rank_genes_genes, groupby=obs_tag,
+                              figsize=(10,n_genes_for_plotting*10),
+                              use_raw = True,
+                              stripplot=True, show=False, swap_axes=True,
+                              var_group_positions = var_group_positions,
+                              var_group_labels = var_group_labels,
+                              var_group_rotation = 1.0 )
+        pngfile = args.outfile_prefix+'_gex_cluster_degs_violin.png'
+        plt.savefig(pngfile, bbox_inches="tight")
+        print('made:',pngfile)
+
+        sc.pl.dotplot(adata, var_names=new_rank_genes_genes, groupby=obs_tag, show=False,
+                      var_group_labels=var_group_labels,
+                      var_group_positions=var_group_positions)
+        pngfile = args.outfile_prefix+'_gex_cluster_degs_dotplot.png'
+        plt.savefig(pngfile, bbox_inches="tight")
+        print('made:', pngfile)
+
+        sc.pl._tools.plot_scatter( adata, 'gex_2d', ncols = 6, color = new_rank_genes_genes, show=False,
+                                   use_raw = True, s=40)
+        pngfile = args.outfile_prefix+'_gex_cluster_degs_tsne.png'
+        plt.savefig(pngfile, bbox_inches="tight")
+        print('made:', pngfile)
+
+
+    if adata.uns['organism'] == 'human_ig':
+        genes_lines = """GC-Bs BCL6, RGS13, MEF2B, STMN1, ELL3, SERPINA9
+        PBs XBP1, IRF4, SEC11C, FKBP11, JCHAIN, PRDM1
+        naive TCL1A, IL4R, CCR7, IGHM, IGHD
+        act-Bs TBX21, FCRL5, ITGAX, NKG7, ZEB2, CR2
+        rest TNFRSF13B, CD27, CD24
+        misc IGHA1 IGHA2 IGHG1 IGHG2 IGHG3 IGHG4 IGHE""".replace(',',' ').split('\n')
+        genes, var_group_positions, var_group_labels = [], [], []
+        for line in genes_lines:
+            my_genes = [ x for x in line.split()[1:] if x in adata.raw.var_names]
+            print(len(my_genes), line.split())
+            if my_genes:
+                var_group_positions.append( (len(genes), len(genes)+len(my_genes)-1) )
+                var_group_labels.append( line.split()[0])
+                genes.extend(my_genes)
+        sc.pl.dotplot(adata, var_names=genes, groupby=obs_tag, show=False, var_group_labels=var_group_labels,
+                      var_group_positions=var_group_positions)
+        pngfile = args.outfile_prefix+'_gex_cluster_bcell_genes_dotplot.png'
+        plt.savefig(pngfile, bbox_inches="tight")
+        print('made:', pngfile)
 
 # just out of curiosity:
 conga.correlations.check_nbr_graphs_indegree_bias(all_nbrs)

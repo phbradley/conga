@@ -36,10 +36,10 @@ default_logo_genes = {
     'mouse_gd': ['Cd4', 'Cd8a', 'Cd8b1', 'Ccr7', 'Sell',
                  'Itgal', 'Prf1', 'Gzma', 'Il2rb', 'Gzmk', 'Ifng',
                  'Ccl5', 'Cxcr3', 'Zbtb16', 'Nkg7', 'Klrd1'],
-    # should probably specialize these
-    'human_ig': ['CD4','CD8A','CD8B','CCR7','SELL',
-                 'GNLY','PRF1','GZMA','IL7R','IKZF2','KLRD1',
-                 'CCL5','ZNF683','KLRB1','NKG7','HLA-DRB1' ],
+    # b cells
+    'human_ig': ['IL4R','TCL1A','SELL','IGKC','CD27',
+                 'LAIR1','HLA-C','HLA-DRB1','COTL1','JCHAIN','XBP1',
+                 'EGR1','IGHM','IGHD','IGHA1','IGHA2']
 }
 
 
@@ -48,7 +48,7 @@ default_gex_header_genes = {
     'mouse': ['clone_sizes','Cd4', 'Cd8a', 'Cd8b1', 'Sell', 'Itgal', 'Gzma', 'Ccl5', 'Il2rb', 'Ikzf2', 'Pdcd1', 'Zbtb16'],
     'human_gd': ['clone_sizes','CD4','CD8A','CD8B','SELL','GNLY','GZMA','CCL5','ZNF683','IKZF2','PDCD1','KLRB1'],
     'mouse_gd': ['clone_sizes','Cd4', 'Cd8a', 'Cd8b1', 'Sell', 'Itgal', 'Gzma', 'Ccl5', 'Il2rb', 'Ikzf2', 'Pdcd1', 'Zbtb16'],
-    'human_ig': ['clone_sizes','CD4','CD8A','CD8B','SELL','GNLY','GZMA','CCL5','ZNF683','IKZF2','PDCD1','KLRB1'],
+    'human_ig': ['clone_sizes','IL4R','TCL1A','SELL','IGKC','HLA-DRB1','CD27','JCHAIN','XBP1','COTL1','EGR1','IGHM'],
 }
 
 
