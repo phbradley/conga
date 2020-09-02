@@ -545,3 +545,4 @@ adata.obs.to_csv(args.outfile_prefix+'_final_obs.tsv', sep='\t')
 outlog.write('run_conga took {:.3f} minutes\n'.format((time.time()- start_time)/60))
 
 outlog.close()
+print('DONE')

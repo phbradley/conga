@@ -80,6 +80,18 @@ def convert_svg_to_png(
     else:
         print(f'conga.convert_svg_to_png: 3rd try failed, command="{cmd}"')
 
+    ## another possibility
+    cmd = 'magick convert {} {}'.format( svgfile, pngfile )
+    if verbose:
+        print(cmd)
+    system(cmd)
+
+    if isfile( pngfile ):
+        ## success
+        return
+    else:
+        print(f'conga.convert_svg_to_png: 4th try failed, command="{cmd}"')
+
 
     ## this might also occur if the svgfile were empty...
     errmsg = 'Error: conga.convert_svg_to_png failed to convert svg file to png file\nIs the "convert" cmdline tool (ImageMagick) installed, or Inkscape?\n'

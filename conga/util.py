@@ -45,7 +45,7 @@ def is_vdj_gene( gene_upper, organism, include_constant_regions=False ):
     if vdj_type == TCR_AB_VDJ_TYPE:
         return ( gene.startswith('trav') or gene.startswith('trbv') or
                  gene.startswith('traj') or gene.startswith('trbj') or
-                 gene.startswith('trbd') or gene_upper == FUNNY_MOUSE_V_GENE or
+                 gene.startswith('trbd') or gene_upper == FUNNY_MOUSE_TRBV_GENE or
                  ( include_constant_regions and (gene.startswith('trac') or gene.startswith('trbc'))))
 
     elif vdj_type == TCR_GD_VDJ_TYPE:

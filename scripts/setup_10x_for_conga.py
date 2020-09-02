@@ -38,3 +38,5 @@ assert exists(output_clones_file)
 make_tcrdist_kernel_pcs_file_from_clones_file( output_clones_file, args.organism )
 
 print(f'If this all worked you should be able to pass {output_clones_file} as the --clones_file argument to run_conga.py')
+print('DONE')
+
