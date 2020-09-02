@@ -16,6 +16,7 @@ path_to_data = path_to_conga+'data/'
 assert os.path.isdir( path_to_data )
 
 FUNNY_MOUSE_TRBV_GENE = '5830405F06Rik' # actually seems to be a tcr v gene transcript or correlate with one
+FUNNY_HUMAN_IGHV_GENES = ['AC233755.1','AC233755.2'] # seem to be associated with one or more IGHV genes
 
 def run_command( cmd, verbose=False ):
     if verbose:
@@ -57,7 +58,7 @@ def is_vdj_gene( gene_upper, organism, include_constant_regions=False ):
     elif vdj_type == IG_VDJ_TYPE:
         return ( gene.startswith('ighv') or gene.startswith('iglv') or gene.startswith('igkv') or
                  gene.startswith('ighj') or gene.startswith('iglj') or gene.startswith('igkj') or
-                 gene.startswith('ighd') or
+                 gene.startswith('ighd') or gene_upper in FUNNY_HUMAN_IGHV_GENES or
                  ( include_constant_regions and
                    ( gene.startswith('ighc') or gene.startswith('iglc') or gene.startswith('igkc'))))
     else:

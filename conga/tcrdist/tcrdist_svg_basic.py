@@ -3,6 +3,7 @@ from os.path import exists
 import base64 ## png encoding
 import math
 from . import basic ## convert_svg_to_png
+from .basic import MONOSPACE_FONT_FAMILY
 from .html_colors import CB_RED, CB_GREEN, CB_BLUE, CB_ORANGE, CB_PURPLE
 
 
@@ -108,7 +109,7 @@ def embed_pngfile( pngfile, width, height, x0, y0, aspect=None ):
 
 
 def make_text( text, lower_left, fontsize,
-               extra_tag = None, font_family = "monospace", color = "black", font_weight = "normal" ):
+               extra_tag = None, font_family = MONOSPACE_FONT_FAMILY, color = "black", font_weight = "normal" ):
     assert font_weight in ['normal','bold']
     cmd = '<text x="{:.3f}" y="{:.3f}" font-size="{}" font-weight="{}" font-family="{}" fill="{}" xml:space="preserve">{}</text>\n'\
         .format( lower_left[0], lower_left[1], fontsize, font_weight, font_family, color, text )
@@ -149,8 +150,8 @@ class SVG_tree_plotter:
         color = 'black'
         ## shift so that p is the lower right
         textwidth = fontsize*0.6 * len(text)
-        cmd = '<text x="{:.3f}" y="{:.3f}" font-size="{}" font-family="monospace" fill="{}" xml:space="preserve">{}</text>\n'\
-            .format( p[0]-textwidth, p[1], fontsize, color, text )
+        cmd = '<text x="{:.3f}" y="{:.3f}" font-size="{}" font-family="{}" fill="{}" xml:space="preserve">{}</text>\n'\
+            .format( p[0]-textwidth, p[1], fontsize, MONOSPACE_FONT_FAMILY, color, text )
         self.cmds.append( cmd )
 
     def write( self, out ):
@@ -185,8 +186,9 @@ def color_stack( upper_left, lower_right, letters, colors, values ):
         #print letter, 'my_height:',my_height, 'y_scale:',y_scale,'fontheight:',fontheight,'my_xy:',my_x,my_y
 
         ## we need to translate so that
-        lines.append( '<text x="{:.6f}" y="{:.6f}" font-size="{}" font-family="monospace" fill="{}" transform="scale({:.6f},{:.6f})">{}</text>\n'\
-                      .format( my_x / x_scale, my_y / y_scale, fontsize, color, x_scale, y_scale, letter ) )
+        lines.append( '<text x="{:.6f}" y="{:.6f}" font-size="{}" font-family="{}" fill="{}" transform="scale({:.6f},{:.6f})">{}</text>\n'\
+                      .format( my_x / x_scale, my_y / y_scale, fontsize, MONOSPACE_FONT_FAMILY, color,
+                               x_scale, y_scale, letter ) )
 
         #lines.append( '<text x="{:.6f}" y="{:.6f}" font-size="{}" font-family="monospace" fill="{}" >{}</text>\n'\
         #              .format( my_x , my_y , fontsize, color, letter ) )
@@ -209,12 +211,10 @@ def text_in_box( upper_left, lower_right, text, color ):
     #print text, 'height:',height, 'y_scale:',y_scale,'fontheight:',fontheight,'my_xy:'
 
     ## we need to translate so that
-    font_family = 'Droid Sans Mono'
-    font_family = 'monospace'
     return '<text x="{:.6f}" y="{:.6f}" font-size="{}" font-family="{}" fill="{}" transform="scale({:.6f},{:.6f})">{}</text>\n'\
         .format( float(upper_left [0]) / x_scale,
                  float(lower_right[1]) / y_scale,
-                 fontsize, font_family, color, x_scale, y_scale, text )
+                 fontsize, MONOSPACE_FONT_FAMILY, color, x_scale, y_scale, text )
 
 
 

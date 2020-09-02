@@ -220,6 +220,7 @@ def make_logo_plots(
         include_alphadist_in_tcr_feature_logos=False,
         max_expn_for_gene_logo = 2.5, # or max over the clps, whichever is larger
         show_pmhc_info_in_logos = False,
+        nocleanup = False, # dont delete temporary image files (useful for debugging)
 
         ## controls for the gene expression thumbnails that come before the actual logos:
         gex_header_genes=None,
@@ -996,13 +997,13 @@ def make_logo_plots(
 
     plt.savefig(logo_pngfile, dpi=300)
 
-
-    for tmpfile in tmpfiles:
-        if exists(tmpfile):
-            os.remove(tmpfile)
-        svgfile = tmpfile[:-3]+'svg'
-        if exists(svgfile):
-            os.remove(svgfile)
+    if not nocleanup:
+        for tmpfile in tmpfiles:
+            if exists(tmpfile):
+                os.remove(tmpfile)
+            svgfile = tmpfile[:-3]+'svg'
+            if exists(svgfile):
+                os.remove(svgfile)
 
 
 
@@ -1397,6 +1398,13 @@ def make_feature_panel_plots(
             feature_to_raw_values[f] = np.array(adata.obs[f])
             if f=='clone_sizes':
                 feature_to_raw_values[f] = np.log1p(feature_to_raw_values[f])
+        elif f=='nndists_gex_rank':
+            if 'nndists_gex' in adata.obs_keys():
+                nndists_gex = np.array(adata.obs['nndists_gex'])
+            else:
+                print('WARNING nndists_gex not in adata.obs!')
+                nndists_gex = np.zeros(num_clones)
+            feature_to_raw_values[f] = np.log1p(np.argsort(-1*nndists_gex))
         else:
             feature_score_table = tcr_scoring.make_tcr_score_table(adata, [f])
             feature_to_raw_values[f] = feature_score_table[:,0]

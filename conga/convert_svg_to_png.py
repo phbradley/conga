@@ -7,6 +7,9 @@ from sys import stderr, exit
 #
 PATH_TO_INKSCAPE='/Applications/Inkscape.app/Contents/Resources/bin/inkscape'
 
+#MONOSPACE_FONT_FAMILY = 'monospace'
+#MONOSPACE_FONT_FAMILY = 'courier'
+MONOSPACE_FONT_FAMILY = 'DejaVu Sans Mono'
 
 ## you could modify this function if you have a different cmdline tool for converting svg to png
 ## like cairosvg

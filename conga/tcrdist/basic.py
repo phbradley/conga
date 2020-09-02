@@ -9,7 +9,7 @@ from math import floor,sqrt
 from sys import stderr,argv,exit
 import random
 
-from ..convert_svg_to_png import convert_svg_to_png
+from ..convert_svg_to_png import convert_svg_to_png, MONOSPACE_FONT_FAMILY
 
 # combo dbs for tr and ig
 db_file = 'combo_xcr.tsv'

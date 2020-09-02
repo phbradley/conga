@@ -285,6 +285,7 @@ def filter_normalize_and_hvg(
         antibody = False,
         hvg_min_disp=0.5,
         exclude_TR_genes = True,
+        also_exclude_TR_constant_region_genes = True, ## this is NEW and not the default for the old TCR analysis!!!!
         exclude_sexlinked = False,
 ):
     '''Filters cells and genes to find highly variable genes'''
@@ -355,7 +356,8 @@ def filter_normalize_and_hvg(
     if exclude_TR_genes:
         is_tr = []
         for gene in adata.var.index:
-            is_tr.append( util.is_vdj_gene(gene, organism) );
+            is_tr.append( util.is_vdj_gene(gene, organism,
+                                           include_constant_regions=also_exclude_TR_constant_region_genes))
         print('excluding {} TR genes ({} variable)'.format(sum(is_tr), sum(hvg_mask[is_tr])))
         hvg_mask[is_tr] = False
         assert sum( hvg_mask[is_tr] )==0 # sanity check

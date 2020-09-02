@@ -12,10 +12,14 @@ from . import tcr_sampler ## for analyze_junction
 
 junction_bars = True
 
-font_family = "Droid Sans Mono"
+font_family = MONOSPACE_FONT_FAMILY # in basic, from ../convert_svg_to_png.py
 
-greek_alpha = '&#x3b1;'
-greek_beta  = '&#x3b2;'
+greek_alpha = 'A'
+greek_beta  = 'B'
+
+# these don't always seem to work
+#greek_alpha = '&#x3b1;'
+#greek_beta  = '&#x3b2;'
 
 junction_bars_color = { 'V':  'silver',
                         'N1': 'red',
@@ -53,6 +57,7 @@ def make_tcr_logo(
         members, # list of integers, indices into tcrs
         all_dists, # matrix of distances between tcrs
         ab,# A or B
+        organism,
         rep_colors, # dictionary of colors indexed by the V and J gene names in the tcrs list
         vj_logo_width,
         pwmplusgaps_width,
@@ -70,7 +75,14 @@ def make_tcr_logo(
     """
     cmds = []
 
-    gene_logo_name_trim = 2 if 'gammadelta' in basic.db_file else 4
+    def trim_gene_name_for_logo(gene, vj, ab=ab, organism=organism):
+        if vj=='J':
+            return gene[4:]
+        if ( '_gd' in organism and ab=='B' or # could be TRAV or TRDV
+             '_ig' in organism and ab=='A' ): # could be IGKV or IGLV
+            return gene[2]+gene[4:]
+        return gene[4:]
+
 
     assert ab in ['A','B']
     assert len(all_dists) == len(tcrs) and len(all_dists[0]) == len(tcrs)
@@ -165,8 +177,8 @@ def make_tcr_logo(
     y1 = y0 + pwm_height
 
     ## make a v-gene logo
-    vl = [(y,x[gene_logo_name_trim:],rep_colors[x]) for x,y in v_count.items()]
-    jl = [(y,x[gene_logo_name_trim:],rep_colors[x]) for x,y in j_count.items()]
+    vl = [(y, trim_gene_name_for_logo(x, 'V'), rep_colors[x]) for x,y in v_count.items()]
+    jl = [(y, trim_gene_name_for_logo(x, 'J'), rep_colors[x]) for x,y in j_count.items()]
 
     #single_glyph_width = 2* vj_logo_width + pwmplusgaps_width + 2*xpad
     #x0 = xmargin + glyph_size_text_width + ii_ab2 * ( single_glyph_width + ab_glyphs_spacer )
@@ -398,7 +410,7 @@ def make_default_logo_svg_cmds(
 
     # scale everything by our desired height, width
 
-    return make_tcr_logo( upper_left, tcrs, members, all_dists, chain, rep_colors,
+    return make_tcr_logo( upper_left, tcrs, members, all_dists, chain, organism, rep_colors,
                           scale_w * default_vj_logo_width,
                           scale_w * default_pwmplusgaps_width,
                           scale_w * default_xpad,
