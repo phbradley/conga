@@ -48,6 +48,7 @@ parser.add_argument('--calc_clone_pmhc_pvals', action='store_true')
 parser.add_argument('--find_pmhc_nbrhood_overlaps', action='store_true') # only if pmhc info is present
 parser.add_argument('--find_distance_correlations', action='store_true')
 parser.add_argument('--find_gex_cluster_degs', action='store_true')
+parser.add_argument('--find_hotspot_genes', action='store_true')
 # configure things
 parser.add_argument('--skip_gex_header', action='store_true')
 parser.add_argument('--skip_gex_header_raw', action='store_true')
@@ -405,6 +406,25 @@ if args.cluster_vs_cluster:
     barcodes = list(adata.obs_names)
     barcode2tcr = dict(zip(barcodes,tcrs))
     conga.correlations.compute_cluster_interactions( clusters_gex, clusters_tcr, barcodes, barcode2tcr, outlog )
+
+if args.find_hotspot_genes:
+    for nbr_frac in args.nbr_fracs:
+        nbrs_gex, nbrs_tcr = all_nbrs[nbr_frac]
+        print('find_hotspot_genes for nbr_frac', nbr_frac)
+        results = conga.correlations.find_hotspot_genes(adata, nbrs_tcr, pval_threshold=0.05)
+
+        if results.shape[0]:
+            tsvfile = '{}_hotspot_genes_{:.3f}_nbrs.tsv'.format(args.outfile_prefix, nbr_frac)
+            results.to_csv(tsvfile, sep='\t', index=False)
+
+            for xy_tag, nbrs in [['gex', nbrs_gex], ['tcr', nbrs_tcr]]:
+                for nbr_avg in range(2):
+                    pngfile = '{}_hotspot_genes_{:.3f}_nbrs_{}_umap{}.png'\
+                              .format(args.outfile_prefix, nbr_frac, xy_tag, '_nbr_avg'*nbr_avg)
+                    print('making:', pngfile)
+                    conga.plotting.plot_hotspot_genes(adata, xy_tag, results, pngfile, nbrs=nbrs,
+                                                      compute_nbr_averages=bool(nbr_avg) )
+
 
 if args.find_gex_cluster_degs: # look at differentially expressed genes in gex clusters
     import matplotlib.pyplot as plt

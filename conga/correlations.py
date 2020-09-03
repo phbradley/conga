@@ -1,9 +1,9 @@
 import numpy as np
 from scipy import stats
 from sklearn.metrics import pairwise_distances
-from scipy.stats import hypergeom, mannwhitneyu, linregress
-from scipy.sparse import issparse
-from collections import Counter
+from scipy.stats import hypergeom, mannwhitneyu, linregress, norm
+from scipy.sparse import issparse, csr_matrix
+from collections import Counter, OrderedDict
 import scanpy as sc
 from . import preprocess as pp
 from . import tcr_scoring
@@ -830,4 +830,95 @@ def setup_fake_nbrs_from_clusters_for_graph_vs_features_analysis( clusters ):
             seen.add(cl)
             fake_nbrs.append(np.nonzero( clusters==cl )[0])
     return fake_nbrs
+
+def find_hotspot_genes(
+        adata,
+        nbrs_tcr,
+        pval_threshold
+):
+    """ My hacky first implementation of the HotSpot method:
+    "Identifying Informative Gene Modules Across Modalities of Single Cell Genomics"
+
+    David DeTomaso, Nir Yosef
+    https://www.biorxiv.org/content/10.1101/2020.02.06.937805v1
+
+    pvalues are crude bonferroni corrected
+
+    """
+
+    organism = adata.uns['organism']
+
+    # compute indegree for each clonotype
+    num_clones = adata.shape[0]
+    num_nbrs = len(nbrs_tcr[0]) # start by assuming that nbrs_tcr is NOT a ragged array (fixed nbr num for all clones)
+
+    # compute mean and sdev of raw gene expression matrix
+    X = adata.raw.X
+    assert X.shape[0] == num_clones
+    num_genes = X.shape[1]
+
+    X_sq = X.multiply(X)
+
+    X_mean = X.mean(axis=0).A1
+    X_sq_mean = X_sq.mean(axis=0).A1
+    X_mean_sq = X_mean**2
+    X_std = X_sq_mean - X_mean_sq
+
+    print('START computing H matrix', type(X)) # we want this to be a csr_matrix since we are working with rows...
+    assert type(X) is csr_matrix
+    H = csr_matrix( np.zeros((num_genes,)) )
+    indegrees = np.zeros((num_clones,))
+
+    for ii in range(num_clones):
+        if ii%250==0:
+            print('computing H matrix', ii, num_clones)
+        X_ii = X[ii,:]
+        assert len(nbrs_tcr[ii]) == num_nbrs
+        for jj in nbrs_tcr[ii]:
+            H += X_ii.multiply(X[jj,:])
+            indegrees[jj] += 1
+
+    # multiple the indegree matrix by the raw X matrix by the means
+    indegrees_mat = csr_matrix( indegrees[:, np.newaxis] )
+    assert indegrees_mat.shape == (num_clones,1)
+
+    X_mean_mat = csr_matrix( X_mean )
+    assert X_mean_mat.shape == (1, num_genes)
+
+    Y = X.multiply( indegrees_mat ).multiply( X_mean_mat ).sum(axis=0)
+
+    assert H.shape == Y.shape
+
+    print('nonzero min X_std?', X_std.min())
+    # Y is a numpy.matrix
+    #
+    H = (H-Y).A1
+    mask1 = (H==0)
+    mask2 = (X_std==0)
+    mask3 = mask1 & (~mask2)
+    print('zeros:', np.sum(mask1), np.sum(mask2), np.sum(mask3))
+    H /= np.maximum(1e-9, X_std)
+
+    inds = np.argsort(H)[::-1] # decreasing
+    genes = adata.raw.var_names
+
+    # the simple estimate for the variance of H is the total number of neighbors
+    H /= np.sqrt(num_genes*num_nbrs)
+
+    rank=0
+    results = []
+    for ind in inds:
+        gene = genes[ind]
+        if util.is_vdj_gene(gene, organism, include_constant_regions=True):
+            continue
+        Z = H[ind]
+        pvalue_adj = num_genes * norm.sf(Z)
+        if pvalue_adj > pval_threshold:
+            break
+        results.append(OrderedDict(rank=rank, Z=Z, pvalue_adj=pvalue_adj, gene=gene))
+        if rank<100:
+            print('hotspot_gene: {:4d} {:9.3f} {:8.1e} {:10s}'.format(rank, Z, pvalue_adj, gene))
+        rank += 1
+
+    return pd.DataFrame(results)
 

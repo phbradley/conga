@@ -1440,3 +1440,52 @@ def make_feature_panel_plots(
 
     plt.tight_layout()
     plt.savefig(pngfile)
+
+
+def plot_hotspot_genes(
+        adata,
+        xy_tag, # 'gex' or 'tcr'
+        results_df,
+        pngfile,
+        nbrs = None,
+        compute_nbr_averages=False,
+        nrows=6,
+        ncols=4,
+):
+    """ Expected columns in results_df dataframe: pvalue_adj gene
+
+    """
+    if results_df.shape[0]==0:
+        print('no results to plot:', pngfile)
+        return
+
+    df = results_df.iloc[:nrows*ncols,:]
+
+    xy = adata.obsm['X_{}_2d'.format(xy_tag)]
+    var_names = list(adata.raw.var_names)
+
+    plt.figure(figsize=(ncols*3,nrows*3))
+    plotno=0
+    for row in df.itertuples():
+        plotno+=1
+        plt.subplot(nrows, ncols, plotno)
+
+        scores = adata.raw.X[:, var_names.index(row.gene)].toarray()[:,0]
+        if compute_nbr_averages:
+            assert nbrs.shape[0] == adata.shape[0]
+            num_neighbors = nbrs.shape[1] # this will not work for ragged nbr arrays (but we could change it to work)
+            scores = ( scores + scores[ nbrs ].sum(axis=1) )/(num_neighbors+1)
+
+        reorder = np.argsort(scores)
+        plt.scatter(xy[reorder,0], xy[reorder,1], c=scores[reorder], cmap='viridis', s=15)
+        plt.title('{} {:.1e}'.format(row.gene, row.pvalue_adj))
+        plt.xticks([],[])
+        plt.yticks([],[])
+        if (plotno-1)//ncols == nrows-1:
+            plt.xlabel('{} UMAP1'.format(xy_tag.upper()))
+        if plotno%ncols == 1:
+            plt.ylabel('{} UMAP2'.format(xy_tag.upper()))
+
+    plt.tight_layout()
+    plt.savefig(pngfile)
+
