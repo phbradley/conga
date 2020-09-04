@@ -771,6 +771,7 @@ def make_tcrdist_kernel_pcs_file_from_clones_file(
         n_components_in=50,
         verbose = False,
         outfile = None,
+        distfile = None
 ):
     if outfile is None: # this is the name expected by read_dataset above (with n_components_in==50)
         outfile = '{}_AB.dist_{}_kpcs'.format(clones_file[:-4], n_components_in)
@@ -787,6 +788,9 @@ def make_tcrdist_kernel_pcs_file_from_clones_file(
     ## read distances
     print(f'compute tcrdist distance matrix for {len(tcrs)} clonotypes')
     D= np.array( [ tcrdist_calculator(x,y) for x in tcrs for y in tcrs ] ).reshape( (len(tcrs), len(tcrs)) )
+
+    if distfile is not None:
+        np.savetxt( distfile, D.astype(float), fmt='%.1f')
 
     n_components = min( n_components_in, D.shape[0] )
 

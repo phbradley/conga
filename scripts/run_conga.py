@@ -62,6 +62,7 @@ parser.add_argument('--gex_header_tcr_score_names', type=str, nargs='*',
 parser.add_argument('--gex_nbrhood_tcr_score_names', type=str, nargs='*',
                     default=conga.tcr_scoring.all_tcr_scorenames )
 parser.add_argument('--shuffle_tcr_kpcs', action='store_true') # shuffle the TCR kpcs to test for FDR
+parser.add_argument('--exclude_vgene_strings', type=str, nargs='*')
 
 args = parser.parse_args()
 
@@ -88,6 +89,15 @@ if args.restart is None:
     assert args.organism
     adata.uns['organism'] = args.organism
     assert 'organism' in adata.uns_keys()
+
+    if args.exclude_vgene_strings:
+        tcrs = conga.preprocess.retrieve_tcrs_from_adata(adata)
+        exclude_mask = np.full((adata.shape[0],),False)
+        for s in args.exclude_vgene_strings:
+            mask = np.array([s in x[0][0] or s in x[1][0] for x in tcrs])
+            print('exclude_vgene_strings:', s, 'num_matches:', np.sum(mask))
+            exclude_mask |= mask
+        adata = adata[~exclude_mask].copy()
 
     if args.tenx_agbt:
         conga.pmhc_scoring.shorten_pmhc_var_names(adata)
