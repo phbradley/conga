@@ -513,6 +513,7 @@ if args.find_gex_cluster_degs: # look at differentially expressed genes in gex c
 
 
     if adata.uns['organism'] == 'human_ig':
+        # list of B cell marker genes from "Human germinal centres engage memory and naive B cells after influenza vaccination" Turner...Ellebedy, Nature 2020: https://doi.org/10.1038/s41586-020-2711-0
         genes_lines = """GC-Bs BCL6, RGS13, MEF2B, STMN1, ELL3, SERPINA9
         PBs XBP1, IRF4, SEC11C, FKBP11, JCHAIN, PRDM1
         naive TCL1A, IL4R, CCR7, IGHM, IGHD
