@@ -84,6 +84,13 @@ clustering algorithm seems to give slightly 'better' results than the newer `lei
 ie finds a few more GEX/TCR associations, probably because there seem to be fewer, larger clusters.
 If the `louvain` package is installed `conga` will use that. 
 
+# Updates
+* 2020-09-04: (EXPERIMENTAL) Added support for bcrs and for gamma-delta TCRs. Right now `conga` uses the
+`'organism'` specifier to communicate the data type: `human` and `mouse` mean alpha-beta TCRs;
+`human_gd` and `mouse_gd` mean gamma-deltas; `human_ig` means B cell data (not setup for mouse
+yet but let us know if that's of interest to you, for example by opening an Issue on github).
+Hacking the organism field like this allows us to put all the gene sequence information into a single,
+enlarged database file (`conga/tcrdist/db/combo_xcrs.tsv`).
 
 # svg to png
 The `conga` image-making pipeline requires an svg to png conversion. There seem to be a variety of
