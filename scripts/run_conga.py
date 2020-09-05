@@ -310,6 +310,15 @@ if args.graph_vs_gex_features: #################################################
         print('making:', pngfile)
         conga.plotting.make_feature_panel_plots(adata, 'tcr', all_nbrs, results_df, pngfile)
 
+        # show the genes in a clustermap
+        clustermap_pvalue_threshold = 0.05
+        genes = set(results_df[results_df.mwu_pvalue_adj <= clustermap_pvalue_threshold].feature)
+        if len(genes)>1:
+            pngfile = '{}_all_tcr_graph_genes_clustermap.png'.format(args.outfile_prefix)
+            nbr_frac = max(args.nbr_fracs)
+            gex_nbrs, tcr_nbrs = all_nbrs[nbr_frac]
+            conga.plotting.plot_interesting_genes_vs_tcrs_clustermap(
+                adata, genes, pngfile, nbrs=tcr_nbrs, compute_nbr_averages=True)
 
 
     ## now make another fake nbr graph defined by TCR gene segment usage
@@ -336,8 +345,21 @@ if args.graph_vs_gex_features: #################################################
 
             pval_threshold = 1.
 
-            conga.correlations.tcr_nbrhood_rank_genes_fast( adata, fake_nbrs_tcr, pval_threshold, prefix_tag=seg+ab,
-                                                            clone_display_names=clone_display_names )
+            results_df = conga.correlations.tcr_nbrhood_rank_genes_fast(
+                adata, fake_nbrs_tcr, pval_threshold, prefix_tag=seg+ab, clone_display_names=clone_display_names )
+
+            if results_df.shape[0]:
+                results_df['clone_index'] = -1
+                tsvfile = args.outfile_prefix+'_tcr_gene_segments_vs_gex_features.tsv'
+                print('making:', tsvfile)
+                results_df.to_csv(tsvfile, index=False, sep='\t')
+
+                results_df['nbr_frac'] = 0.0
+                pngfile = args.outfile_prefix+'_tcr_gene_segments_vs_gex_features_panels.png'
+                print('making:', pngfile)
+                use_nbr_frac = max(args.nbr_fracs)
+                conga.plotting.make_feature_panel_plots(adata, 'tcr', all_nbrs, results_df, pngfile,
+                                                        use_nbr_frac=use_nbr_frac)
 
 
 if args.graph_vs_tcr_features: #######################################################################################
@@ -418,12 +440,18 @@ if args.cluster_vs_cluster:
     conga.correlations.compute_cluster_interactions( clusters_gex, clusters_tcr, barcodes, barcode2tcr, outlog )
 
 if args.find_hotspot_genes:
+    # My hacky and probably buggy first implementation of the HotSpot method:
+    # "Identifying Informative Gene Modules Across Modalities of Single Cell Genomics"
+    # David DeTomaso, Nir Yosef
+    # https://www.biorxiv.org/content/10.1101/2020.02.06.937805v1
+    all_hotspot_genes = []
     for nbr_frac in args.nbr_fracs:
         nbrs_gex, nbrs_tcr = all_nbrs[nbr_frac]
         print('find_hotspot_genes for nbr_frac', nbr_frac)
         results = conga.correlations.find_hotspot_genes(adata, nbrs_tcr, pval_threshold=0.05)
 
         if results.shape[0]:
+            all_hotspot_genes.extend(list(results['gene']))
             tsvfile = '{}_hotspot_genes_{:.3f}_nbrs.tsv'.format(args.outfile_prefix, nbr_frac)
             results.to_csv(tsvfile, sep='\t', index=False)
 
@@ -435,6 +463,12 @@ if args.find_hotspot_genes:
                     conga.plotting.plot_hotspot_genes(adata, xy_tag, results, pngfile, nbrs=nbrs,
                                                       compute_nbr_averages=bool(nbr_avg) )
 
+    if len(set(all_hotspot_genes))>1:
+        pngfile = '{}_all_hotspot_genes_clustermap.png'.format(args.outfile_prefix)
+        nbr_frac = max(args.nbr_fracs)
+        gex_nbrs, tcr_nbrs = all_nbrs[nbr_frac]
+        conga.plotting.plot_interesting_genes_vs_tcrs_clustermap(
+            adata, set(all_hotspot_genes), pngfile, nbrs=tcr_nbrs, compute_nbr_averages=True)
 
 if args.find_gex_cluster_degs: # look at differentially expressed genes in gex clusters
     import matplotlib.pyplot as plt

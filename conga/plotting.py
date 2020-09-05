@@ -9,12 +9,14 @@ import math
 from . import preprocess as pp
 from . import svg_basic
 from . import util
+from . import preprocess
 from . import tcr_scoring
 from .tcrdist.make_tcr_logo import make_tcr_logo_for_tcrs
 from .tcrdist.tcr_distances import TcrDistCalculator
+from .tcrdist.util import assign_colors_to_conga_tcrs
 import os
 from os.path import exists
-from collections import Counter
+from collections import Counter, OrderedDict
 import matplotlib.image as mpimg
 from matplotlib.collections import LineCollection
 from scipy.cluster import hierarchy
@@ -1459,10 +1461,15 @@ def plot_hotspot_genes(
         print('no results to plot:', pngfile)
         return
 
-    df = results_df.iloc[:nrows*ncols,:]
+    df = results_df.iloc[:nrows*ncols,:].copy()
+    df.sort_values('pvalue_adj', inplace=True) # ensure sorted
 
     xy = adata.obsm['X_{}_2d'.format(xy_tag)]
     var_names = list(adata.raw.var_names)
+    if df.shape[0] < nrows*ncols:
+        # make fewer panels
+        nrows = max(1, int(np.sqrt(df.shape[0])))
+        ncols = (df.shape[0]-1)//nrows + 1
 
     plt.figure(figsize=(ncols*3,nrows*3))
     plotno=0
@@ -1488,4 +1495,88 @@ def plot_hotspot_genes(
 
     plt.tight_layout()
     plt.savefig(pngfile)
+
+
+
+def plot_interesting_genes_vs_tcrs_clustermap(
+        adata,
+        genes,
+        pngfile,
+        nbrs = None,
+        compute_nbr_averages=False,
+):
+    ''' Makes a seaborn clustermap: cols are cells, sorted by hierarchical clustering w tcrdist
+    rows are the genes, ordered by clustermap correlation
+    '''
+    try:
+        import seaborn as sns
+    except:
+        print('ERROR seaborn is not installed')
+        return
+
+    var_names = list(adata.raw.var_names)
+    genes = [ x for x in genes if x in var_names]
+
+    if len(genes)<2:
+        print('too few genes for clustermap:', len(genes))
+        return
+
+    nrows = len(genes)
+    ncols = adata.shape[0]
+
+    # compute linkage of cells based on tcr
+    X = adata.obsm['X_pca_tcr'] # the kernal pca components
+    print('computing pairwise X_pca_tcr distances', X.shape)
+    Y = distance.pdist(X, metric='euclidean')
+
+    print('computing linkage matrix from pairwise X_pca_tcr distances')
+    cells_linkage = hierarchy.linkage(Y, method='ward')
+
+    A = np.zeros((nrows, ncols))
+
+    for ii,gene in enumerate(genes):
+
+        scores = adata.raw.X[:, var_names.index(gene)].toarray()[:,0]
+
+        scores = (scores-np.mean(scores))/np.sqrt(np.std(scores))
+
+        if compute_nbr_averages:
+            num_neighbors = nbrs.shape[1] # this will not work for ragged nbr arrays (but we could change it to work)
+            scores = ( scores + scores[ nbrs ].sum(axis=1) )/(num_neighbors+1)
+
+        A[ii,:] = scores
+
+
+    ## add some cell colors
+    organism = adata.uns['organism']
+    tcrs = preprocess.retrieve_tcrs_from_adata(adata)
+    gene_colors = assign_colors_to_conga_tcrs(tcrs, organism)
+    gene_colors_df = pd.DataFrame(OrderedDict(VA=gene_colors[0], JA=gene_colors[1],
+                                              VB=gene_colors[2], JB=gene_colors[3]))
+
+
+    mx = np.max(np.abs(A))
+    print('making clustermap; num_genes=', len(genes))
+    fig_width = 10
+    fig_height = max(5.0, len(genes)*0.2 )
+    # not present in older version of seaborn:
+    #dendrogram_inches = 2.
+    #dendrogram_ratio = (dendrogram_inches/fig_height, dendrogram_inches/fig_width)
+    cm = sns.clustermap(A, col_linkage=cells_linkage, metric='correlation', cmap='coolwarm', vmin=-mx, vmax=mx,
+                        col_colors=gene_colors, figsize=(fig_width,fig_height))#, dendrogram_ratio=dendrogram_ratio)
+    row_indices = cm.dendrogram_row.reordered_ind
+    row_labels = [genes[x] for x in row_indices]
+    cm.ax_heatmap.set_yticks( 0.5+np.arange(nrows))
+    cm.ax_heatmap.set_yticklabels( row_labels, rotation='horizontal' )
+    cm.ax_heatmap.set_xticks([])
+    cm.ax_heatmap.set_xticklabels([])
+    print('saving', pngfile)
+    cm.savefig(pngfile, dpi=200)
+
+    if False: # debugging
+        col_indices = cm.dendrogram_col.reordered_ind
+        for ind, ii in enumerate(col_indices[:25]):
+            print(ind, tcrs[ii][0][:3], tcrs[ii][1][:3],
+                  gene_colors[0][ii], gene_colors[1][ii], gene_colors[2][ii], gene_colors[3][ii] )
+            #gene_colors_df.loc[ii])
 

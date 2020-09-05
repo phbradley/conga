@@ -4,6 +4,7 @@ from scipy.spatial import distance
 from .basic import *
 from .all_genes import all_genes
 from . import html_colors
+from collections import Counter
 #import parse_tsv
 
 verbose = __name__ == '__main__'
@@ -185,6 +186,25 @@ def assign_label_reps_and_colors_based_on_most_common_genes_in_repertoire( tcr_i
             tcr_info[ color_tag ] = rep_colors[ tcr_info[ rep_tag ] ]
 
     return ## we modified the elements of the tcr_infos list in place
+
+def assign_colors_to_conga_tcrs( tcrs, organism ):
+    ''' tcrs is a list [ ( (va,ja,cdr3a,*),(vb,jb,cdr3b,*)), ... ]
+
+    returns a list of color tuples [ (va_color,ja_color,vb_color,jb_color),...]
+    '''
+    color_lists = []
+    for i_ab in range(2):
+        for i_vj in range(2):
+            genes = [ x[i_ab][i_vj] for x in tcrs ]
+            count_reps = [ all_genes[organism][x].count_rep for x in genes ]
+            counts = Counter( count_reps )
+            uniq_count_reps_sorted = [x[0] for x in counts.most_common()]
+            count_rep_colors = dict(zip(uniq_count_reps_sorted,
+                                        html_colors.get_rank_colors_no_lights(len(uniq_count_reps_sorted))))
+            color_lists.append( [ count_rep_colors[x] for x in count_reps] )
+    return color_lists
+    #return list(zip(*color_lists))
+
 
 
 ## this is not exactly perfect, but probably OK to start with...
