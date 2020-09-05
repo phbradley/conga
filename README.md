@@ -2,7 +2,8 @@
 
 This repository contains the `conga` python package and associated scripts
 and workflows. `conga` was developed to detect correlation between
-T cell gene expression profile and TCR sequence in single-cell datasets.
+T cell gene expression profile and TCR sequence in single-cell datasets. We've just
+recently added support for gamma delta TCRs and for B cells, too.
 `conga` is in active development right now so the interface may change in
 the next few months. Questions and requests can be directed to `pbradley` at `fredhutch` dot `org`.
 
