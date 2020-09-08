@@ -187,22 +187,34 @@ def assign_label_reps_and_colors_based_on_most_common_genes_in_repertoire( tcr_i
 
     return ## we modified the elements of the tcr_infos list in place
 
-def assign_colors_to_conga_tcrs( tcrs, organism ):
+def assign_colors_to_conga_tcrs( tcrs, organism, return_sorted_color_tuples=False ):
     ''' tcrs is a list [ ( (va,ja,cdr3a,*),(vb,jb,cdr3b,*)), ... ]
 
-    returns a list of color tuples [ (va_color,ja_color,vb_color,jb_color),...]
+    returns a list of 4 lists [ va_colors, ja_colors, vb_colors, jb_colors ] each of length = len(tcrs)
+
+    sorted_color_tuples = [ sorted_va_color_tuples, sorted_ja_color_tuples, .vb., .jb.]
+    where sorted_va_color_tuples = [(most_common_va_count_rep, its_color), (second_most_common_va_count_rep, its_color),
+                                    ...]
+
     '''
     color_lists = []
+    sorted_color_tuples = []
+
     for i_ab in range(2):
         for i_vj in range(2):
             genes = [ x[i_ab][i_vj] for x in tcrs ]
             count_reps = [ all_genes[organism][x].count_rep for x in genes ]
             counts = Counter( count_reps )
             uniq_count_reps_sorted = [x[0] for x in counts.most_common()]
-            count_rep_colors = dict(zip(uniq_count_reps_sorted,
-                                        html_colors.get_rank_colors_no_lights(len(uniq_count_reps_sorted))))
+            color_tuples = list( zip(uniq_count_reps_sorted,
+                                     html_colors.get_rank_colors_no_lights(len(uniq_count_reps_sorted))))
+            count_rep_colors = dict(color_tuples)
             color_lists.append( [ count_rep_colors[x] for x in count_reps] )
-    return color_lists
+            sorted_color_tuples.append(color_tuples)
+    if return_sorted_color_tuples:
+        return color_lists, sorted_color_tuples
+    else:
+        return color_lists
     #return list(zip(*color_lists))
 
 

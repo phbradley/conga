@@ -14,6 +14,7 @@ from . import tcr_scoring
 from .tcrdist.make_tcr_logo import make_tcr_logo_for_tcrs
 from .tcrdist.tcr_distances import TcrDistCalculator
 from .tcrdist.util import assign_colors_to_conga_tcrs
+from .tcrdist.all_genes import all_genes
 import os
 from os.path import exists
 from collections import Counter, OrderedDict
@@ -1454,8 +1455,9 @@ def plot_hotspot_genes(
         nrows=6,
         ncols=4,
 ):
-    """ Expected columns in results_df dataframe: pvalue_adj gene
-
+    """ Expected columns in results_df dataframe: pvalue_adj feature feature_type
+    where feature_type is either 'gex' or 'tcr'
+    need that since some feature strings can be both
     """
     if results_df.shape[0]==0:
         print('no results to plot:', pngfile)
@@ -1477,7 +1479,11 @@ def plot_hotspot_genes(
         plotno+=1
         plt.subplot(nrows, ncols, plotno)
 
-        scores = adata.raw.X[:, var_names.index(row.gene)].toarray()[:,0]
+        if row.feature_type == 'gex':
+            assert row.feature in var_names
+            scores = adata.raw.X[:, var_names.index(row.feature)].toarray()[:,0]
+        else:
+            scores = tcr_scoring.make_tcr_score_table(adata,[row.feature])[:,0]
         if compute_nbr_averages:
             assert nbrs.shape[0] == adata.shape[0]
             num_neighbors = nbrs.shape[1] # this will not work for ragged nbr arrays (but we could change it to work)
@@ -1485,7 +1491,7 @@ def plot_hotspot_genes(
 
         reorder = np.argsort(scores)
         plt.scatter(xy[reorder,0], xy[reorder,1], c=scores[reorder], cmap='viridis', s=15)
-        plt.title('{} {:.1e}'.format(row.gene, row.pvalue_adj))
+        plt.title('{} {:.1e}'.format(row.feature, row.pvalue_adj))
         plt.xticks([],[])
         plt.yticks([],[])
         if (plotno-1)//ncols == nrows-1:
@@ -1498,12 +1504,17 @@ def plot_hotspot_genes(
 
 
 
-def plot_interesting_genes_vs_tcrs_clustermap(
+def plot_interesting_features_vs_tcr_clustermap(
         adata,
-        genes,
+        features,
         pngfile,
+        feature_types = None, # list of either 'gex','tcr'
         nbrs = None,
         compute_nbr_averages=False,
+        feature_labels = None,
+        show_gex_cluster_colorbar = False,
+        show_tcr_cluster_colorbar = True,
+        show_VJ_gene_segment_colorbars = True,
 ):
     ''' Makes a seaborn clustermap: cols are cells, sorted by hierarchical clustering w tcrdist
     rows are the genes, ordered by clustermap correlation
@@ -1514,14 +1525,19 @@ def plot_interesting_genes_vs_tcrs_clustermap(
         print('ERROR seaborn is not installed')
         return
 
-    var_names = list(adata.raw.var_names)
-    genes = [ x for x in genes if x in var_names]
+    if feature_labels is None:
+        feature_labels = features[:]
 
-    if len(genes)<2:
-        print('too few genes for clustermap:', len(genes))
+    var_names = list(adata.raw.var_names)
+    #assert len(gene_labels) == len(genes)
+    #gene_labels = [ y for x,y in zip(genes,gene_labels) if x in var_names]
+    #genes = [ x for x in genes if x in var_names]
+
+    if len(features)<2:
+        print('too few features for clustermap:', len(genes))
         return
 
-    nrows = len(genes)
+    nrows = len(features)
     ncols = adata.shape[0]
 
     # compute linkage of cells based on tcr
@@ -1534,11 +1550,18 @@ def plot_interesting_genes_vs_tcrs_clustermap(
 
     A = np.zeros((nrows, ncols))
 
-    for ii,gene in enumerate(genes):
+    for ii,feature in enumerate(features):
+        is_gex_feature = feature in var_names and ( feature_types is None or feature_types[ii]=='gex')
+        if is_gex_feature:
+            scores = adata.raw.X[:, var_names.index(feature)].toarray()[:,0]
+        else:
+            # could end up here if for some reason it's a gex feature but not present in var_names (shouldnt happen!)
+            scores = tcr_scoring.make_tcr_score_table(adata, [feature])[:,0].astype(float)
 
-        scores = adata.raw.X[:, var_names.index(gene)].toarray()[:,0]
-
-        scores = (scores-np.mean(scores))/np.sqrt(np.std(scores))
+        mn, std = np.mean(scores), np.std(scores)
+        scores = (scores-mn)
+        if std!=0:
+            scores /= std
 
         if compute_nbr_averages:
             num_neighbors = nbrs.shape[1] # this will not work for ragged nbr arrays (but we could change it to work)
@@ -1549,28 +1572,66 @@ def plot_interesting_genes_vs_tcrs_clustermap(
 
     ## add some cell colors
     organism = adata.uns['organism']
-    tcrs = preprocess.retrieve_tcrs_from_adata(adata)
-    gene_colors = assign_colors_to_conga_tcrs(tcrs, organism)
-    gene_colors_df = pd.DataFrame(OrderedDict(VA=gene_colors[0], JA=gene_colors[1],
-                                              VB=gene_colors[2], JB=gene_colors[3]))
+    colorbar_names, colorbar_colors, colorbar_sorted_tuples = [], [], []
+
+    if show_gex_cluster_colorbar:
+        clusters_gex = np.array(adata.obs['clusters_gex'])
+        num_clusters_gex = np.max(clusters_gex)+1
+        cluster_color_dict = get_integers_color_dict(num_clusters_gex)
+        colorbar_names.append( 'gex_cluster')
+        colorbar_colors.append( [cluster_color_dict[x] for x in clusters_gex] )
+        colorbar_sorted_tuples.append( [ ('gexclus'+str(x), cluster_color_dict[x]) for x in range(num_clusters_gex)])
+
+    if show_tcr_cluster_colorbar:
+        clusters_tcr = np.array(adata.obs['clusters_tcr'])
+        num_clusters_tcr = np.max(clusters_tcr)+1
+        cluster_color_dict = get_integers_color_dict(num_clusters_tcr)
+        colorbar_names.append( 'tcr_cluster')
+        colorbar_colors.append( [cluster_color_dict[x] for x in clusters_tcr] )
+        colorbar_sorted_tuples.append( [ ('tcrclus'+str(x), cluster_color_dict[x]) for x in range(num_clusters_tcr)])
+
+    if show_VJ_gene_segment_colorbars:
+        tcrs = preprocess.retrieve_tcrs_from_adata(adata)
+        gene_colors, sorted_gene_colors = assign_colors_to_conga_tcrs(tcrs, organism, return_sorted_color_tuples=True)
+        colorbar_names.extend('VA JA VB JB'.split())
+        colorbar_colors.extend(gene_colors)
+        num_to_show = 10 # in the text written at the top
+        colorbar_sorted_tuples.extend( [ x[:num_to_show] for x in sorted_gene_colors ] )
 
 
     mx = np.max(np.abs(A))
-    print('making clustermap; num_genes=', len(genes))
+    print('making clustermap; num_features=', len(features))
     fig_width = 10
-    fig_height = max(5.0, len(genes)*0.2 )
+    fig_height = max(5.0, len(features)*0.2 )
     # not present in older version of seaborn:
     #dendrogram_inches = 2.
     #dendrogram_ratio = (dendrogram_inches/fig_height, dendrogram_inches/fig_width)
     cm = sns.clustermap(A, col_linkage=cells_linkage, metric='correlation', cmap='coolwarm', vmin=-mx, vmax=mx,
-                        col_colors=gene_colors, figsize=(fig_width,fig_height))#, dendrogram_ratio=dendrogram_ratio)
+                        col_colors=colorbar_colors, figsize=(fig_width,fig_height))#, dendrogram_ratio=dendrogram_ratio)
     row_indices = cm.dendrogram_row.reordered_ind
-    row_labels = [genes[x] for x in row_indices]
+    row_labels = [feature_labels[x] for x in row_indices]
     cm.ax_heatmap.set_yticks( 0.5+np.arange(nrows))
-    cm.ax_heatmap.set_yticklabels( row_labels, rotation='horizontal' )
+    cm.ax_heatmap.set_yticklabels( row_labels, rotation='horizontal', fontdict={'fontsize':8} )
     cm.ax_heatmap.set_xticks([])
     cm.ax_heatmap.set_xticklabels([])
+
+    # show the top couple genes and their colors
+    ax = cm.ax_col_dendrogram
+    col_dendro_width = fig_width * (ax.get_position().x1 - ax.get_position().x0 )
+    col_dendro_height = fig_height * (ax.get_position().y1 - ax.get_position().y0 )
+
+    line_height_inches = 0.09
+    fontsize=7
+    for ii, sorted_tuples in enumerate(colorbar_sorted_tuples):
+        ax.text(-0.01, 1.0 - (ii*line_height_inches+0.05)/col_dendro_height,
+                colorbar_names[ii], va='top', ha='right', fontsize=fontsize, color='k', transform=ax.transAxes)
+        for jj in range(len(sorted_tuples)):
+            gene, color = sorted_tuples[jj]
+            ax.text(float(jj)/len(sorted_tuples), 1.0 - (ii*line_height_inches+0.05)/col_dendro_height,
+                    gene, va='top', ha='left', fontsize=fontsize, color=color, transform=ax.transAxes)
+
     print('saving', pngfile)
+
     cm.savefig(pngfile, dpi=200)
 
     if False: # debugging
@@ -1580,3 +1641,207 @@ def plot_interesting_genes_vs_tcrs_clustermap(
                   gene_colors[0][ii], gene_colors[1][ii], gene_colors[2][ii], gene_colors[3][ii] )
             #gene_colors_df.loc[ii])
 
+
+def plot_interesting_features_vs_gex_clustermap(
+        adata,
+        features,
+        pngfile,
+        feature_types = None, # list of either 'gex','tcr'
+        nbrs = None,
+        compute_nbr_averages=False,
+        feature_labels = None,
+        show_gex_cluster_colorbar = True,
+        show_tcr_cluster_colorbar = False,
+        show_VJ_gene_segment_colorbars = False,
+):
+    ''' Makes a seaborn clustermap: cols are cells, sorted by hierarchical clustering w gex-pca-euclidean dist
+    rows are the features, ordered by clustermap correlation
+    '''
+    try:
+        import seaborn as sns
+    except:
+        print('ERROR seaborn is not installed')
+        return
+
+
+    if len(features)<2:
+        print('too few features for clustermap:', len(features))
+        return
+
+    if feature_labels is None:
+        feature_labels = features[:]
+
+    # for the clustermap:
+    nrows = len(features)
+    ncols = adata.shape[0]
+
+    # compute linkage of cells based on gex
+    X = adata.obsm['X_pca_gex'] # the pca components
+    print('computing pairwise X_pca_gex distances', X.shape)
+    Y = distance.pdist(X, metric='euclidean')
+
+    print('computing linkage matrix from pairwise X_pca_tcr distances')
+    cells_linkage = hierarchy.linkage(Y, method='ward')
+
+    A = np.zeros((nrows, ncols))
+
+    var_names = list(adata.raw.var_names)
+
+    for ii,feature in enumerate(features):
+        is_gex_feature = feature in var_names and ( feature_types is None or feature_types[ii]=='gex')
+        if is_gex_feature:
+            scores = adata.raw.X[:, var_names.index(feature)].toarray()[:,0]
+        else:
+            scores = tcr_scoring.make_tcr_score_table(adata, [feature])[:,0].astype(float)
+
+        mn,std = np.mean(scores), np.std(scores)
+        scores -= mn
+        if std!=0:
+            scores /= std
+        else:
+            print('WHOAH stddev of {} is {} {}'.format(feature, std, mn, scores))
+            sys.stderr.write('ERROR problem in conga.plotting.plot_interesting_features_vs_gex_clustermap')
+            return #########################3 EARLY RETURN!!!!
+
+        if compute_nbr_averages:
+            num_neighbors = nbrs.shape[1] # this will not work for ragged nbr arrays (but we could change it to work)
+            scores = ( scores + scores[ nbrs ].sum(axis=1) )/(num_neighbors+1)
+
+        A[ii,:] = scores
+
+
+    ## add some cell colors
+    organism = adata.uns['organism']
+
+    colorbar_names, colorbar_colors, colorbar_sorted_tuples = [], [], []
+
+    if show_gex_cluster_colorbar:
+        clusters_gex = np.array(adata.obs['clusters_gex'])
+        num_clusters_gex = np.max(clusters_gex)+1
+        cluster_color_dict = get_integers_color_dict(num_clusters_gex)
+        colorbar_names.append( 'gex_cluster')
+        colorbar_colors.append( [cluster_color_dict[x] for x in clusters_gex] )
+        colorbar_sorted_tuples.append( [ ('gexclus'+str(x), cluster_color_dict[x]) for x in range(num_clusters_gex)])
+
+    if show_tcr_cluster_colorbar:
+        clusters_tcr = np.array(adata.obs['clusters_tcr'])
+        num_clusters_tcr = np.max(clusters_tcr)+1
+        cluster_color_dict = get_integers_color_dict(num_clusters_tcr)
+        colorbar_names.append( 'tcr_cluster')
+        colorbar_colors.append( [cluster_color_dict[x] for x in clusters_tcr] )
+        colorbar_sorted_tuples.append( [ ('tcrclus'+str(x), cluster_color_dict[x]) for x in range(num_clusters_tcr)])
+
+    if show_VJ_gene_segment_colorbars:
+        tcrs = preprocess.retrieve_tcrs_from_adata(adata)
+        gene_colors, sorted_gene_colors = assign_colors_to_conga_tcrs(tcrs, organism, return_sorted_color_tuples=True)
+        colorbar_names.extend('VA JA VB JB'.split())
+        colorbar_colors.extend(gene_colors)
+        num_to_show = 10 # in the text written at the top
+        colorbar_sorted_tuples.extend( [ x[:num_to_show] for x in sorted_gene_colors ] )
+
+
+    #gene_colors_df = pd.DataFrame(OrderedDict(zip(colorbar_names, colorbar_colors)))
+
+    mx = np.max(np.abs(A))
+    print('making clustermap; num_features=', len(features))
+    fig_width = 10
+    fig_height = max(5.0, len(features)*0.2 )
+    # not present in older version of seaborn:
+    #dendrogram_inches = 2.
+    #dendrogram_ratio = (dendrogram_inches/fig_height, dendrogram_inches/fig_width)
+    cm = sns.clustermap(A, col_linkage=cells_linkage, metric='correlation', cmap='coolwarm', vmin=-mx, vmax=mx,
+                        col_colors=colorbar_colors, figsize=(fig_width,fig_height))#, dendrogram_ratio=dendrogram_ratio)
+    row_indices = cm.dendrogram_row.reordered_ind
+    row_labels = [feature_labels[x] for x in row_indices]
+    cm.ax_heatmap.set_yticks( 0.5+np.arange(nrows))
+    cm.ax_heatmap.set_yticklabels( row_labels, rotation='horizontal', fontdict={'fontsize':8} )
+    cm.ax_heatmap.set_xticks([])
+    cm.ax_heatmap.set_xticklabels([])
+
+    # show the top couple V/J genes and their colors
+    ax = cm.ax_col_dendrogram
+    col_dendro_width = fig_width * (ax.get_position().x1 - ax.get_position().x0 )
+    col_dendro_height = fig_height * (ax.get_position().y1 - ax.get_position().y0 )
+
+    line_height_inches = 0.09
+    fontsize=7
+    for ii, sorted_tuples in enumerate(colorbar_sorted_tuples):
+        ax.text(-0.01, 1.0 - (ii*line_height_inches+0.05)/col_dendro_height,
+                colorbar_names[ii], va='top', ha='right', fontsize=fontsize, color='k', transform=ax.transAxes)
+        for jj in range(len(sorted_tuples)):
+            gene, color = sorted_tuples[jj]
+            ax.text(float(jj)/len(sorted_tuples), 1.0 - (ii*line_height_inches+0.05)/col_dendro_height,
+                    gene, va='top', ha='left', fontsize=fontsize, color=color, transform=ax.transAxes)
+
+    print('saving', pngfile)
+
+    cm.savefig(pngfile, dpi=200)
+
+def plot_cluster_gene_compositions(
+        adata,
+        pngfile
+):
+    ''' Show for each GEX cluster the top VJ genes, and the TCR cluster composition
+    Show GEX cluster composition for each TCR cluster
+    '''
+    organism = adata.uns['organism']
+    num_clones = adata.shape[0]
+    organism_genes = all_genes[organism]
+
+    clusters_gex = np.array(adata.obs['clusters_gex'])
+    clusters_tcr = np.array(adata.obs['clusters_tcr'])
+
+    tcrs = pp.retrieve_tcrs_from_adata(adata)
+
+    gene_colors, sorted_gene_colors = assign_colors_to_conga_tcrs(tcrs, organism, return_sorted_color_tuples=True)
+
+    # gex cluster compositions
+    num_clusters_gex = np.max(clusters_gex)+1
+    num_clusters_tcr = np.max(clusters_tcr)+1
+    #ncols = 1+num_clusters_gex
+    #nrows = 5 # tcr cluster, va, ja, vb, jb
+
+    plt.figure(figsize=(10,4))
+
+    for col in range(5):
+        plt.subplot(1,5,col+1)
+        #
+        if col==0:
+            features = clusters_tcr
+            color_dict = get_integers_color_dict(num_clusters_tcr) # map from feature to color
+            feature_name = 'tcr cluster'
+
+        else:
+            ii_ab = (col-1)//2
+            ii_vj = (col-1)%2
+            features = np.array([ organism_genes[x[ii_ab][ii_vj]].count_rep for x in tcrs])
+            color_dict = dict(sorted_gene_colors[col-1])
+            feature_name = 'VA JA VB JB'.split()[col-1]
+
+
+        centers, bottoms, heights, colors = [], [], [], []
+        for ii in range(-1, num_clusters_gex):
+            if ii==-1:
+                mask = np.full((num_clones,), True)
+            else:
+                mask = clusters_gex==ii
+
+            counts = Counter( features[mask])
+            total = np.sum(mask)
+
+            if ii==-1:
+                feature_order = [x[0] for x in counts.most_common()]
+
+            bottom=1.0
+            for feature in feature_order:
+                count = counts[feature]
+                height = float(count)/total
+                bottom -= height
+                centers.append(ii)
+                bottoms.append(bottom)
+                heights.append(height)
+                colors.append(color_dict[feature])
+
+        plt.bar(centers, height=heights, width=0.8, bottom=bottoms, color=colors)
+        plt.title(feature_name)
+    plt.savefig(pngfile)

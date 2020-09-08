@@ -405,7 +405,8 @@ def cluster_and_tsne_and_umap(
     n_components = min(ncells-1, 50)
 
     if compute_pca_gex:
-        sc.tl.pca(adata, n_comps=n_components) # re-run now that we have reduced to a single cell per clone
+        # switch to arpack for better reproducibility
+        sc.tl.pca(adata, svd_solver='arpack', n_comps=n_components) # re-run now that we have reduced to a single cell per clone
         adata.obsm['X_pca_gex'] = adata.obsm['X_pca']
     assert 'X_pca_gex' in adata.obsm_keys()
     assert 'X_pca_tcr' in adata.obsm_keys()
@@ -487,7 +488,8 @@ def reduce_to_single_cell_per_clone(
 
     # compute pcs
     print('compute pca to find rep cell for each clone', adata.shape)
-    sc.tl.pca(adata, n_comps=min(adata.shape[0]-1, n_pcs))
+    # switch to arpack for better reproducibility
+    sc.tl.pca(adata, svd_solver='arpack', n_comps=min(adata.shape[0]-1, n_pcs))
 
     # for each clone, try to identify the most 'representative' cell based on gex
     tcrs_with_duplicates = retrieve_tcrs_from_adata(adata)

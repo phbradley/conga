@@ -7,6 +7,7 @@ import numpy as np
 from . import util
 from . import preprocess as pp
 from . import imhc_scoring
+from .tcrdist.all_genes import all_genes
 
 
 cdr3_score_FG = 'fg'
@@ -264,8 +265,13 @@ def make_tcr_score_table(adata, scorenames):
     ''' Returns an array of the tcr scores of shape: (adata.shape[0], len(scorenames))
     '''
     global aa_props_df
+    organism = adata.uns['organism']
 
     tcrs = pp.retrieve_tcrs_from_adata(adata)
+
+    organism_genes = all_genes[organism]
+    genes = frozenset( organism_genes.keys())
+    count_reps = frozenset( [ x.count_rep for x in organism_genes.values() ] )
 
     cols = []
     for name in scorenames:
@@ -291,6 +297,28 @@ def make_tcr_score_table(adata, scorenames):
                 cols.append( np.zeros( adata.shape[0] ) )
             else:
                 cols.append( np.array(adata.obs['nndists_tcr']) )
+        elif name in genes:
+            matched = False
+            for i_ab,ab in enumerate('AB'):
+                for i_vj,vj in enumerate('VJ'):
+                    ii_genes = set([x for x,y in organism_genes.items() if y.chain==ab and y.region==vj ])
+                    if name in ii_genes:
+                        assert not matched
+                        matched = True
+                        cols.append( [float(x[i_ab][i_vj]==name) for x in tcrs])
+            assert matched
+
+        elif name in count_reps:
+            matched = False
+            for i_ab,ab in enumerate('AB'):
+                for i_vj,vj in enumerate('VJ'):
+                    ii_count_reps = set([x.count_rep for x in organism_genes.values() if x.chain==ab and x.region==vj ])
+                    if name in ii_count_reps:
+                        assert not matched
+                        matched = True
+                        cols.append( [float(organism_genes[x[i_ab][i_vj]].count_rep==name) for x in tcrs])
+            assert matched
+
         else:
             score_mode = name.split('_')[-1]
             score_name = '_'.join( name.split('_')[:-1])

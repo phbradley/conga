@@ -8,6 +8,7 @@ import scanpy as sc
 from . import preprocess as pp
 from . import tcr_scoring
 from . import util
+from .tcrdist.all_genes import all_genes
 import sys
 import pandas as pd
 from sys import exit
@@ -22,7 +23,8 @@ def find_neighbor_neighbor_interactions(
         pval_threshold,
         counts_correction=0, # if there are a lot of maits, for example; this is the number
         correct_overlaps_for_groups=True,
-        scale_pvals_by_num_clones=True
+        scale_pvals_by_num_clones=True,
+        verbose=False
 ):
     ''' Returns a pandas dataframe with results
     of all clones with nbr-nbr overlaps having pvalues <= pval_threshold
@@ -60,6 +62,9 @@ def find_neighbor_neighbor_interactions(
         else:
             nbr_pval = pval_rescale
 
+        if verbose:
+            print('nbr_overlap:', ii, overlap, nbr_pval)
+
         adjusted_pvalues[ii] = nbr_pval
 
         if nbr_pval > pval_threshold:
@@ -67,6 +72,9 @@ def find_neighbor_neighbor_interactions(
 
         double_nbrs = [ x for x in ii_nbrs_tcr if x in ii_nbrs_gex_set ]
         assert overlap == len(double_nbrs)
+
+        if verbose:
+            print('nbr_overlap_nbrs:', ii, overlap, nbr_pval, double_nbrs)
 
         overlap_corrected = overlap
         if correct_overlaps_for_groups:
@@ -192,6 +200,7 @@ def run_graph_vs_graph(
         adata,
         all_nbrs,
         pval_threshold=1.0, #pvals are crude bonferroni corrected by multiplying by num_clones, ie they can be >> 1
+        verbose=False
 ):
     ''' Runs graph-vs-graph analysis for each nbr_frac in the all_nbrs dictionary
 
@@ -220,7 +229,7 @@ def run_graph_vs_graph(
 
         print('find_neighbor_neighbor_interactions:')
         results_df, adjusted_pvalues = find_neighbor_neighbor_interactions(
-            adata, nbrs_gex, nbrs_tcr, agroups, bgroups, pval_threshold)
+            adata, nbrs_gex, nbrs_tcr, agroups, bgroups, pval_threshold, verbose=verbose)
         conga_scores = np.minimum(conga_scores, adjusted_pvalues)
 
         if not results_df.empty:
@@ -465,7 +474,7 @@ def gex_nbrhood_rank_tcr_scores(
                 tcr_cluster = Counter( nbrhood_clusters_tcr[ top_indices ]).most_common(1)[0][0]
                 mait_fraction = np.sum(nbrhood_is_mait[ top_indices ] )/len(top_indices)
 
-                if verbose:
+                if verbose and mwu_pval_adj <= pval_threshold:
                     print('gex_{}_score: {:9.2e} {:9.2e} {:7.2f} clp {:2d} {:2d} {:7.3f} {:7.3f} {:15s} {} {} mf: {:.3f} {}'\
                           .format( prefix_tag, pval, mwu_pval_adj, score, gex_cluster, tcr_cluster, mean_fg[ind],
                                    mean_bg[ind], score_name,
@@ -660,7 +669,7 @@ def tcr_nbrhood_rank_genes_fast(
                 mait_fraction = np.sum(nbrhood_is_mait[ top_indices ] )/len(top_indices)
 
 
-                if verbose:
+                if verbose and mwu_pval_adj<=pval_threshold:
                     print('tcr_{}_gene: {:9.2e} {:9.2e} {:7.3f} clp {:2d} {:2d} {:8s} {:.4f} {:.4f} {:4d} {} mf: {:.3f} {} {}'\
                           .format( prefix_tag, pval_adj, mwu_pval_adj, log2fold, gex_cluster, tcr_cluster, gene,
                                    mean_fg[ind], mean_bg[ind], num_fg, clone_display_names[ii], mait_fraction,
@@ -831,6 +840,107 @@ def setup_fake_nbrs_from_clusters_for_graph_vs_features_analysis( clusters ):
             fake_nbrs.append(np.nonzero( clusters==cl )[0])
     return fake_nbrs
 
+def find_hotspot_features(
+        X,
+        nbrs,
+        features,
+        pval_threshold,
+        verbose=False
+):
+    """ My hacky first implementation of the HotSpot method:
+    "Identifying Informative Gene Modules Across Modalities of Single Cell Genomics"
+
+    David DeTomaso, Nir Yosef
+    https://www.biorxiv.org/content/10.1101/2020.02.06.937805v1
+
+    pvalues are crude bonferroni corrected
+
+    """
+    print('START computing H matrix', type(X)) # we want this to be a csr_matrix since we are working with rows...
+    assert type(X) is csr_matrix # right now anyhow; not a strict requirement
+
+    num_clones, num_features = X.shape
+    num_nbrs = len(nbrs[0]) # start by assuming that nbrs is NOT a ragged array (fixed nbr num for all clones)
+    assert len(features) == num_features
+
+    # compute mean and sdev of raw gene expression matrix
+    X_sq = X.multiply(X)
+
+    X_mean = X.mean(axis=0).A1
+    X_sq_mean = X_sq.mean(axis=0).A1
+    X_mean_sq = X_mean**2
+    X_var = X_sq_mean - X_mean_sq
+
+    H = csr_matrix( np.zeros((num_features,)) )
+    indegrees = np.zeros((num_clones,))
+
+    for ii in range(num_clones):
+        if ii%250==0:
+            print('computing H matrix', ii, num_clones)
+            sys.stdout.flush()
+        X_ii = X[ii,:]
+        assert len(nbrs[ii]) == num_nbrs
+        for jj in nbrs[ii]:
+            H += X_ii.multiply(X[jj,:])
+            indegrees[jj] += 1
+
+    # multiply the indegree matrix by the raw X matrix by the means
+    indegrees_mat = csr_matrix( indegrees[:, np.newaxis] )
+    assert indegrees_mat.shape == (num_clones,1)
+
+    X_mean_mat = csr_matrix( X_mean )
+    assert X_mean_mat.shape == (1, num_features)
+
+    Y = X.multiply( indegrees_mat ).multiply( X_mean_mat ).sum(axis=0)
+
+    assert H.shape == Y.shape
+
+    # Y is a numpy.matrix
+    #
+    H = (H-Y).A1
+    mask1 = (H==0)
+    mask2 = (X_var==0)
+    mask3 = mask2 & (~mask1) # H nonzero but stddev 0
+    print('zeros:', np.sum(mask1), np.sum(mask2), np.sum(mask3))
+
+    if verbose:
+        inds = np.argsort(X_var)
+        Hstd = np.sqrt(num_features*num_nbrs)
+        for ind in inds[:25]:
+            print('std: {} =?= {} H: {} new_H: {} feature: {}'\
+                  .format(X_var[ind], np.var(X[:,ind].toarray()),
+                          H[ind]/Hstd, H[ind]/(Hstd*max(1e-9,X_var[ind])), features[ind]))
+    #print(hiphil)
+
+    H /= np.maximum(1e-9, X_var)
+
+    H[X_var==0] = 0 # set to zero if stddev is 0
+
+    inds = np.argsort(H)[::-1] # decreasing
+
+    # the simple estimate for the variance of H is the total number of neighbors
+    H /= np.sqrt(num_clones*num_nbrs)
+
+    results = []
+    for ind in inds:
+        feature = features[ind]
+        true_std = np.std(X[:,ind].toarray()[:,0])
+        if true_std<1e-6:
+            print('WHOAH var prob? {} {} =?= {}'.format(feature, X_var[ind], true_std**2))
+            continue
+        Z = H[ind]
+        pvalue_adj = num_features * norm.sf(Z)
+        if pvalue_adj > pval_threshold:
+            break
+        if verbose:
+            print('top_var: {} =?= {} {} {} {} {}'.format(X_var[ind], true_std**2, true_std, Z, pvalue_adj, feature))
+        results.append(OrderedDict(Z=Z, pvalue_adj=pvalue_adj, feature=feature))
+
+    return pd.DataFrame(results)
+
+
+
+
 def find_hotspot_genes(
         adata,
         nbrs_tcr,
@@ -847,78 +957,61 @@ def find_hotspot_genes(
     """
 
     organism = adata.uns['organism']
-
-    # compute indegree for each clonotype
-    num_clones = adata.shape[0]
-    num_nbrs = len(nbrs_tcr[0]) # start by assuming that nbrs_tcr is NOT a ragged array (fixed nbr num for all clones)
-
-    # compute mean and sdev of raw gene expression matrix
     X = adata.raw.X
-    assert X.shape[0] == num_clones
-    num_genes = X.shape[1]
-
-    X_sq = X.multiply(X)
-
-    X_mean = X.mean(axis=0).A1
-    X_sq_mean = X_sq.mean(axis=0).A1
-    X_mean_sq = X_mean**2
-    X_std = X_sq_mean - X_mean_sq
-
-    print('START computing H matrix', type(X)) # we want this to be a csr_matrix since we are working with rows...
-    assert type(X) is csr_matrix
-    H = csr_matrix( np.zeros((num_genes,)) )
-    indegrees = np.zeros((num_clones,))
-
-    for ii in range(num_clones):
-        if ii%250==0:
-            print('computing H matrix', ii, num_clones)
-        X_ii = X[ii,:]
-        assert len(nbrs_tcr[ii]) == num_nbrs
-        for jj in nbrs_tcr[ii]:
-            H += X_ii.multiply(X[jj,:])
-            indegrees[jj] += 1
-
-    # multiple the indegree matrix by the raw X matrix by the means
-    indegrees_mat = csr_matrix( indegrees[:, np.newaxis] )
-    assert indegrees_mat.shape == (num_clones,1)
-
-    X_mean_mat = csr_matrix( X_mean )
-    assert X_mean_mat.shape == (1, num_genes)
-
-    Y = X.multiply( indegrees_mat ).multiply( X_mean_mat ).sum(axis=0)
-
-    assert H.shape == Y.shape
-
-    print('nonzero min X_std?', X_std.min())
-    # Y is a numpy.matrix
-    #
-    H = (H-Y).A1
-    mask1 = (H==0)
-    mask2 = (X_std==0)
-    mask3 = mask1 & (~mask2)
-    print('zeros:', np.sum(mask1), np.sum(mask2), np.sum(mask3))
-    H /= np.maximum(1e-9, X_std)
-
-    inds = np.argsort(H)[::-1] # decreasing
     genes = adata.raw.var_names
 
-    # the simple estimate for the variance of H is the total number of neighbors
-    H /= np.sqrt(num_genes*num_nbrs)
+    df = find_hotspot_features(X, nbrs_tcr, genes, pval_threshold)
 
-    rank=0
-    results = []
-    for ind in inds:
-        gene = genes[ind]
-        if util.is_vdj_gene(gene, organism, include_constant_regions=True):
-            continue
-        Z = H[ind]
-        pvalue_adj = num_genes * norm.sf(Z)
-        if pvalue_adj > pval_threshold:
-            break
-        results.append(OrderedDict(rank=rank, Z=Z, pvalue_adj=pvalue_adj, gene=gene))
-        if rank<100:
-            print('hotspot_gene: {:4d} {:9.3f} {:8.1e} {:10s}'.format(rank, Z, pvalue_adj, gene))
-        rank += 1
+    if df.shape[0]==0:
+        return df
 
-    return pd.DataFrame(results)
+    # filter out VDJ genes
+    mask = [ not util.is_vdj_gene(x.feature, organism, include_constant_regions=True) for x in df.itertuples()]
+
+    df = df[mask]
+
+    # show the top 100 hits
+    for ii,l in enumerate(df[:100].itertuples()):
+        print('hotspot_gene: {:4d} {:9.3f} {:8.1e} {:10s}'.format(ii, l.Z, l.pvalue_adj, l.feature))
+
+    return df
+
+
+def find_hotspot_tcr_features(
+        adata,
+        nbrs_gex,
+        pval_threshold,
+        min_gene_count=5
+):
+    """ My hacky first implementation of the HotSpot method:
+    "Identifying Informative Gene Modules Across Modalities of Single Cell Genomics"
+
+    David DeTomaso, Nir Yosef
+    https://www.biorxiv.org/content/10.1101/2020.02.06.937805v1
+
+    pvalues are crude bonferroni corrected
+
+    """
+
+    organism = adata.uns['organism']
+    tcrs = pp.retrieve_tcrs_from_adata(adata)
+
+    organism_genes = all_genes[organism]
+    counts = Counter( [ organism_genes[x[i_ab][j_vj]].count_rep
+                        for x in tcrs for i_ab in range(2) for j_vj in range(2)] )
+    count_reps = [x for x,y in counts.most_common() if y>min_gene_count ]
+
+    features = tcr_scoring.all_tcr_scorenames + count_reps
+    score_table = tcr_scoring.make_tcr_score_table(adata, features)
+    X = csr_matrix(score_table)
+    #print('find_hotspot_tcr_features: X=', X)
+
+    df = find_hotspot_features(X, nbrs_gex, features, pval_threshold)#, verbose=True)
+
+    # show the top 100 hits
+    for ii,l in enumerate(df[:100].itertuples()):
+        print('hotspot_tcr_feature: {:4d} {:9.3f} {:8.1e} {:10s}'.format(ii, l.Z, l.pvalue_adj, l.feature))
+
+    return df
+
 
