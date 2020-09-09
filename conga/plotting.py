@@ -1445,6 +1445,27 @@ def make_feature_panel_plots(
     plt.savefig(pngfile)
 
 
+def get_raw_feature_scores( feature, adata, feature_type=None):
+    if feature.startswith('gex_cluster'):
+        return (np.array(adata.obs['clusters_gex'])==int(feature[11:])).astype(float)
+    elif feature.startswith('tcr_cluster'):
+        return (np.array(adata.obs['clusters_tcr'])==int(feature[11:])).astype(float)
+    elif feature == 'nndists_gex_rank':
+        if 'nndists_gex' in adata.obs_keys():
+            nndists_gex = np.array(adata.obs['nndists_gex'])
+        else:
+            print('WARNING nndists_gex not in adata.obs!')
+            nndists_gex = np.zeros(adata.shape[0])
+        return np.log1p(np.argsort(-1*nndists_gex))
+    elif feature_type == 'gex' or (feature_type==None and feature in adata.raw.var_names):
+        # will this be slow? creating list every time... probably OK for plotting routines
+        return adata.raw.X[:, list(adata.raw.var_names).index(feature)].toarray()[:,0]
+    else:
+        assert feature_type in [ None, 'tcr']
+        return tcr_scoring.make_tcr_score_table(adata,[feature])[:,0].astype(float)
+
+
+
 def plot_hotspot_genes(
         adata,
         xy_tag, # 'gex' or 'tcr'
@@ -1463,8 +1484,8 @@ def plot_hotspot_genes(
         print('no results to plot:', pngfile)
         return
 
-    df = results_df.iloc[:nrows*ncols,:].copy()
-    df.sort_values('pvalue_adj', inplace=True) # ensure sorted
+    df = results_df.sort_values('pvalue_adj') # ensure sorted
+    df = df.iloc[:nrows*ncols,:]
 
     xy = adata.obsm['X_{}_2d'.format(xy_tag)]
     var_names = list(adata.raw.var_names)
@@ -1479,11 +1500,13 @@ def plot_hotspot_genes(
         plotno+=1
         plt.subplot(nrows, ncols, plotno)
 
-        if row.feature_type == 'gex':
-            assert row.feature in var_names
-            scores = adata.raw.X[:, var_names.index(row.feature)].toarray()[:,0]
-        else:
-            scores = tcr_scoring.make_tcr_score_table(adata,[row.feature])[:,0]
+        scores = get_raw_feature_scores( row.feature, adata, row.feature_type )
+        # if row.feature_type == 'gex':
+        #     if row.startswith
+        #     assert row.feature in var_names
+        #     scores = adata.raw.X[:, var_names.index(row.feature)].toarray()[:,0]
+        # else:
+        #     scores = tcr_scoring.make_tcr_score_table(adata,[row.feature])[:,0]
         if compute_nbr_averages:
             assert nbrs.shape[0] == adata.shape[0]
             num_neighbors = nbrs.shape[1] # this will not work for ragged nbr arrays (but we could change it to work)
@@ -1515,6 +1538,8 @@ def plot_interesting_features_vs_tcr_clustermap(
         show_gex_cluster_colorbar = False,
         show_tcr_cluster_colorbar = True,
         show_VJ_gene_segment_colorbars = True,
+        min_vmax = 0.4,
+        max_vmax = 0.8,
 ):
     ''' Makes a seaborn clustermap: cols are cells, sorted by hierarchical clustering w tcrdist
     rows are the genes, ordered by clustermap correlation
@@ -1551,12 +1576,13 @@ def plot_interesting_features_vs_tcr_clustermap(
     A = np.zeros((nrows, ncols))
 
     for ii,feature in enumerate(features):
-        is_gex_feature = feature in var_names and ( feature_types is None or feature_types[ii]=='gex')
-        if is_gex_feature:
-            scores = adata.raw.X[:, var_names.index(feature)].toarray()[:,0]
-        else:
-            # could end up here if for some reason it's a gex feature but not present in var_names (shouldnt happen!)
-            scores = tcr_scoring.make_tcr_score_table(adata, [feature])[:,0].astype(float)
+        scores = get_raw_feature_scores( feature, adata, feature_types if feature_types is None else feature_types[ii])
+        # is_gex_feature = feature in var_names and ( feature_types is None or feature_types[ii]=='gex')
+        # if is_gex_feature:
+        #     scores = adata.raw.X[:, var_names.index(feature)].toarray()[:,0]
+        # else:
+        #     # could end up here if for some reason it's a gex feature but not present in var_names (shouldnt happen!)
+        #     scores = tcr_scoring.make_tcr_score_table(adata, [feature])[:,0].astype(float)
 
         mn, std = np.mean(scores), np.std(scores)
         scores = (scores-mn)
@@ -1598,8 +1624,18 @@ def plot_interesting_features_vs_tcr_clustermap(
         num_to_show = 10 # in the text written at the top
         colorbar_sorted_tuples.extend( [ x[:num_to_show] for x in sorted_gene_colors ] )
 
+    if feature_types is None:
+        mx = np.max(np.abs(A))
+    else:
+        # try to only use other-type features for setting max
+        mask = [ x=='gex' for x in feature_types]
+        if np.sum(mask):
+            mx = np.max(np.abs(A[mask,:]))
+        else:
+            mx = np.max(np.abs(A))
 
-    mx = np.max(np.abs(A))
+    mx = min(max_vmax, max(min_vmax, mx))
+
     print('making clustermap; num_features=', len(features))
     fig_width = 10
     fig_height = max(5.0, len(features)*0.2 )
@@ -1653,6 +1689,8 @@ def plot_interesting_features_vs_gex_clustermap(
         show_gex_cluster_colorbar = True,
         show_tcr_cluster_colorbar = False,
         show_VJ_gene_segment_colorbars = False,
+        min_vmax = 0.4,
+        max_vmax = 0.8,
 ):
     ''' Makes a seaborn clustermap: cols are cells, sorted by hierarchical clustering w gex-pca-euclidean dist
     rows are the features, ordered by clustermap correlation
@@ -1688,20 +1726,20 @@ def plot_interesting_features_vs_gex_clustermap(
     var_names = list(adata.raw.var_names)
 
     for ii,feature in enumerate(features):
-        is_gex_feature = feature in var_names and ( feature_types is None or feature_types[ii]=='gex')
-        if is_gex_feature:
-            scores = adata.raw.X[:, var_names.index(feature)].toarray()[:,0]
-        else:
-            scores = tcr_scoring.make_tcr_score_table(adata, [feature])[:,0].astype(float)
-
-        mn,std = np.mean(scores), np.std(scores)
+        scores = get_raw_feature_scores(feature, adata, feature_types if feature_types is None else feature_types[ii])
+        # is_gex_feature = feature in var_names and ( feature_types is None or feature_types[ii]=='gex')
+        # if is_gex_feature:
+        #     scores = adata.raw.X[:, var_names.index(feature)].toarray()[:,0]
+        # else:
+        #     scores = tcr_scoring.make_tcr_score_table(adata, [feature])[:,0].astype(float)
+        mn, std = np.mean(scores), np.std(scores)
         scores -= mn
         if std!=0:
             scores /= std
         else:
             print('WHOAH stddev of {} is {} {}'.format(feature, std, mn, scores))
             sys.stderr.write('ERROR problem in conga.plotting.plot_interesting_features_vs_gex_clustermap')
-            return #########################3 EARLY RETURN!!!!
+            return ######################### EARLY RETURN!!!!
 
         if compute_nbr_averages:
             num_neighbors = nbrs.shape[1] # this will not work for ragged nbr arrays (but we could change it to work)
@@ -1742,7 +1780,19 @@ def plot_interesting_features_vs_gex_clustermap(
 
     #gene_colors_df = pd.DataFrame(OrderedDict(zip(colorbar_names, colorbar_colors)))
 
-    mx = np.max(np.abs(A))
+    if feature_types is None:
+        mx = np.max(np.abs(A))
+    else:
+        # try to only use other-type features for setting max
+        mask = [ x=='tcr' for x in feature_types]
+        if np.sum(mask):
+            mx = np.max(np.abs(A[mask,:]))
+        else:
+            mx = np.max(np.abs(A))
+
+    mx = min(max_vmax, max(min_vmax, mx))
+    #mx = np.max(np.abs(A))
+
     print('making clustermap; num_features=', len(features))
     fig_width = 10
     fig_height = max(5.0, len(features)*0.2 )

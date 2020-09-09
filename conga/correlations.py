@@ -2,7 +2,8 @@ import numpy as np
 from scipy import stats
 from sklearn.metrics import pairwise_distances
 from scipy.stats import hypergeom, mannwhitneyu, linregress, norm
-from scipy.sparse import issparse, csr_matrix
+#from scipy.sparse import issparse, csr_matrix
+import scipy.sparse as sps
 from collections import Counter, OrderedDict
 import scanpy as sc
 from . import preprocess as pp
@@ -372,7 +373,7 @@ def get_split_mean_var( X, X_sq, mask, mean, mean_sq ):
     wt_bg = 1. - wt_fg
     mean_fg = X[mask].mean(axis=0)
     mean_sq_fg = X_sq[mask].mean(axis=0)
-    if issparse(X):
+    if sps.issparse(X):
         mean_fg = mean_fg.A1
         mean_sq_fg = mean_sq_fg.A1
     mean_bg = (mean - wt_fg*mean_fg)/wt_bg
@@ -537,7 +538,7 @@ def tcr_nbrhood_rank_genes_fast(
     genes = list(adata.raw.var_names)
     num_real_genes = len(genes)
     X = adata.raw.X
-    assert issparse(X)
+    assert sps.issparse(X)
     assert X.shape[1] == len(genes)
 
     X_csc = adata.raw.X.tocsc()
@@ -856,8 +857,8 @@ def find_hotspot_features(
     pvalues are crude bonferroni corrected
 
     """
-    print('START computing H matrix', type(X)) # we want this to be a csr_matrix since we are working with rows...
-    assert type(X) is csr_matrix # right now anyhow; not a strict requirement
+    print('START computing H matrix', type(X)) # we want this to be a sps.csr_matrix since we are working with rows...
+    assert type(X) is sps.csr_matrix # right now anyhow; not a strict requirement
 
     num_clones, num_features = X.shape
     num_nbrs = len(nbrs[0]) # start by assuming that nbrs is NOT a ragged array (fixed nbr num for all clones)
@@ -871,7 +872,7 @@ def find_hotspot_features(
     X_mean_sq = X_mean**2
     X_var = X_sq_mean - X_mean_sq
 
-    H = csr_matrix( np.zeros((num_features,)) )
+    H = sps.csr_matrix( np.zeros((num_features,)) )
     indegrees = np.zeros((num_clones,))
 
     for ii in range(num_clones):
@@ -885,10 +886,10 @@ def find_hotspot_features(
             indegrees[jj] += 1
 
     # multiply the indegree matrix by the raw X matrix by the means
-    indegrees_mat = csr_matrix( indegrees[:, np.newaxis] )
+    indegrees_mat = sps.csr_matrix( indegrees[:, np.newaxis] )
     assert indegrees_mat.shape == (num_clones,1)
 
-    X_mean_mat = csr_matrix( X_mean )
+    X_mean_mat = sps.csr_matrix( X_mean )
     assert X_mean_mat.shape == (1, num_features)
 
     Y = X.multiply( indegrees_mat ).multiply( X_mean_mat ).sum(axis=0)
@@ -973,10 +974,24 @@ def find_hotspot_genes(
     """
 
     organism = adata.uns['organism']
+    clusters_gex = np.array(adata.obs['clusters_gex'])
     X = adata.raw.X
     genes = adata.raw.var_names
 
-    df = find_hotspot_features(X, nbrs_tcr, genes, pval_threshold)
+    num_clones = adata.shape[0]
+    num_clusters = np.max(clusters_gex)+1
+    Y = np.zeros((num_clones, num_clusters))
+    for ii in range(num_clusters):
+        Y[:,ii] = (clusters_gex==ii).astype(float)
+    Y = sps.csr_matrix(Y)
+
+    print('stacking extra columns!', X.shape, Y.shape)
+    X = sps.hstack([X,Y]).tocsr()
+    print('DONE stacking extra columns!')
+
+
+    df = find_hotspot_features(X, nbrs_tcr, list(genes)+['gex_cluster{}'.format(x) for x in range(num_clusters)],
+                               pval_threshold)
 
     if df.shape[0]==0:
         return df
@@ -1011,15 +1026,16 @@ def find_hotspot_tcr_features(
 
     organism = adata.uns['organism']
     tcrs = pp.retrieve_tcrs_from_adata(adata)
+    num_clusters = np.max(adata.obs['clusters_tcr'])+1
 
     organism_genes = all_genes[organism]
     counts = Counter( [ organism_genes[x[i_ab][j_vj]].count_rep
                         for x in tcrs for i_ab in range(2) for j_vj in range(2)] )
     count_reps = [x for x,y in counts.most_common() if y>min_gene_count ]
 
-    features = tcr_scoring.all_tcr_scorenames + count_reps
+    features = tcr_scoring.all_tcr_scorenames + count_reps + ['tcr_cluster{}'.format(x) for x in range(num_clusters)]
     score_table = tcr_scoring.make_tcr_score_table(adata, features)
-    X = csr_matrix(score_table)
+    X = sps.csr_matrix(score_table)
     #print('find_hotspot_tcr_features: X=', X)
 
     df = find_hotspot_features(X, nbrs_gex, features, pval_threshold)#, verbose=True)

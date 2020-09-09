@@ -19,12 +19,13 @@ start_time = time.time()
 parser = argparse.ArgumentParser()
 
 #type is str by default
-parser.add_argument('--gex_data')
+parser.add_argument('--gex_data', help='Input file with the single-cell gene expression data')
 parser.add_argument('--gex_data_type', choices=['h5ad', '10x_mtx', '10x_h5'])
 parser.add_argument('--clones_file')
 parser.add_argument('--organism', choices=['mouse', 'human', 'mouse_gd', 'human_gd', 'human_ig'])
 parser.add_argument('--nbr_fracs', type=float, nargs='*', default=[0.01,0.1] )
 parser.add_argument('--exclude_gex_clusters', type=int, nargs='*')
+parser.add_argument('--exclude_mait_and_inkt_cells', action='store_true')
 parser.add_argument('--min_cluster_size', type=int, default=5)
 parser.add_argument('--min_cluster_size_fraction', type=float, default=0.001)
 parser.add_argument('--outfile_prefix', required=True)
@@ -48,8 +49,7 @@ parser.add_argument('--calc_clone_pmhc_pvals', action='store_true')
 parser.add_argument('--find_pmhc_nbrhood_overlaps', action='store_true') # only if pmhc info is present
 parser.add_argument('--find_distance_correlations', action='store_true')
 parser.add_argument('--find_gex_cluster_degs', action='store_true')
-parser.add_argument('--find_hotspot_genes', action='store_true')
-parser.add_argument('--find_hotspot_tcr_features', action='store_true')
+parser.add_argument('--find_hotspot_features', action='store_true')
 parser.add_argument('--plot_cluster_gene_compositions', action='store_true')
 # configure things
 parser.add_argument('--skip_gex_header', action='store_true')
@@ -76,8 +76,13 @@ if args.find_pmhc_nbrhood_overlaps or args.calc_clone_pmhc_pvals:
     # we need pmhc info for these analyses; right now that's restricted to the 10x AGBT dataset format
     assert args.tenx_agbt
 
-if args.calc_clone_pmhc_pvals or args.bad_barcodes_file or args.filter_ribo_norm_low_cells:
-    assert not args.restart
+if args.restart: # these are incompatible with restarting
+     assert not (args.calc_clone_pmhc_pvals or
+                 args.bad_barcodes_file or
+                 args.filter_ribo_norm_low_cells or
+                 args.exclude_vgene_strings or
+                 args.shuffle_tcr_kpcs or
+                 args.exclude_mait_and_inkt_cells)
 
 logfile = args.outfile_prefix+'_log.txt'
 outlog = open(logfile, 'w')
@@ -105,6 +110,23 @@ if args.restart is None:
             print('exclude_vgene_strings:', s, 'num_matches:', np.sum(mask))
             exclude_mask |= mask
         adata = adata[~exclude_mask].copy()
+
+    if args.exclude_mait_and_inkt_cells:
+        tcrs = conga.preprocess.retrieve_tcrs_from_adata(adata)
+        if args.organism == 'human':
+            mask = [ not (conga.tcr_scoring.is_human_mait_alpha_chain(x[0]) or
+                          conga.tcr_scoring.is_human_inkt_tcr(x)) for x in tcrs ]
+        elif args.organism == 'mouse':
+            mask = [ not (conga.tcr_scoring.is_mouse_mait_alpha_chain(x[0]) or
+                          conga.tcr_scoring.is_mouse_inkt_alpha_chain(x[0])) for x in tcrs ]
+        else:
+            print('ERROR: --exclude_mait_and_inkt_cells option is only compatible with a/b tcrs')
+            print('ERROR:   but organism is not "human" or "mouse"')
+            sys.exit(1)
+        print('excluding {} mait/inkt cells from dataset of size {}'\
+              .format(adata.shape[0]-np.sum(mask), adata.shape[0]))
+        adata = adata[mask].copy()
+
 
     if args.tenx_agbt:
         conga.pmhc_scoring.shorten_pmhc_var_names(adata)
@@ -486,91 +508,58 @@ if args.plot_cluster_gene_compositions:
     pngfile = args.outfile_prefix+'_cluster_gene_compositions.png'
     conga.plotting.plot_cluster_gene_compositions(adata, pngfile)
 
-if args.find_hotspot_genes:
+if args.find_hotspot_features:
     # My hacky and probably buggy first implementation of the HotSpot method:
+    #
     # "Identifying Informative Gene Modules Across Modalities of Single Cell Genomics"
     # David DeTomaso, Nir Yosef
     # https://www.biorxiv.org/content/10.1101/2020.02.06.937805v1
-    all_hotspot_gene_pvalues = {}
+
+    #all_hotspot_gene_pvalues = {}
+
     for nbr_frac in args.nbr_fracs:
         nbrs_gex, nbrs_tcr = all_nbrs[nbr_frac]
         print('find_hotspot_genes for nbr_frac', nbr_frac)
-        results = conga.correlations.find_hotspot_genes(adata, nbrs_tcr, pval_threshold=0.05)
-        results['feature_type'] = 'gex'
+        gex_results = conga.correlations.find_hotspot_genes(adata, nbrs_tcr, pval_threshold=0.05)
+        gex_results['feature_type'] = 'gex'
 
-        if results.shape[0]:
-            for l in results.itertuples():
-                all_hotspot_gene_pvalues[l.feature] = min(l.pvalue_adj, all_hotspot_gene_pvalues.get(l.feature,1.))
-            tsvfile = '{}_hotspot_genes_{:.3f}_nbrs.tsv'.format(args.outfile_prefix, nbr_frac)
-            results.to_csv(tsvfile, sep='\t', index=False)
-
-            for xy_tag, nbrs in [['gex', nbrs_gex], ['tcr', nbrs_tcr]]:
-                for nbr_avg in range(2):
-                    pngfile = '{}_hotspot_genes_{:.3f}_nbrs_{}_umap{}.png'\
-                              .format(args.outfile_prefix, nbr_frac, xy_tag, '_nbr_avg'*nbr_avg)
-                    print('making:', pngfile)
-                    conga.plotting.plot_hotspot_genes(adata, xy_tag, results, pngfile, nbrs=nbrs,
-                                                      compute_nbr_averages=bool(nbr_avg) )
-
-    if len(all_hotspot_gene_pvalues)>1:
-        pngfile = '{}_all_hotspot_genes_vs_tcr_clustermap.png'.format(args.outfile_prefix)
-        nbr_frac = max(args.nbr_fracs)
-        gex_nbrs, tcr_nbrs = all_nbrs[nbr_frac]
-        genes = list(all_hotspot_gene_pvalues.keys())
-        gene_labels = ['{:9.1e} {}'.format(all_hotspot_gene_pvalues[x], x) for x in genes]
-        conga.plotting.plot_interesting_features_vs_tcr_clustermap(
-            adata, genes, pngfile, nbrs=tcr_nbrs, compute_nbr_averages=True, feature_labels=gene_labels)
-
-if args.find_hotspot_tcr_features:
-    # My hacky and probably buggy first implementation of the HotSpot method:
-    # "Identifying Informative Gene Modules Across Modalities of Single Cell Genomics"
-    # David DeTomaso, Nir Yosef
-    # https://www.biorxiv.org/content/10.1101/2020.02.06.937805v1
-    all_hotspot_feature_pvalues = {}
-    for nbr_frac in args.nbr_fracs:
-        nbrs_gex, nbrs_tcr = all_nbrs[nbr_frac]
         print('find_hotspot_tcr_features for nbr_frac', nbr_frac)
-        results = conga.correlations.find_hotspot_tcr_features(adata, nbrs_gex, pval_threshold=0.05)
-        results['feature_type'] = 'tcr'
+        tcr_results = conga.correlations.find_hotspot_tcr_features(adata, nbrs_gex, pval_threshold=0.05)
+        tcr_results['feature_type'] = 'tcr'
 
-        if results.shape[0]:
-            for l in results.itertuples():
-                all_hotspot_feature_pvalues[l.feature] = min(l.pvalue_adj, all_hotspot_feature_pvalues.get(l.feature,1.))
-            tsvfile = '{}_hotspot_tcr_features_{:.3f}_nbrs.tsv'.format(args.outfile_prefix, nbr_frac)
-            results.to_csv(tsvfile, sep='\t', index=False)
+        for tag, results in [ ['gex', gex_results],
+                              ['tcr', tcr_results],
+                              ['combo', pd.concat([gex_results, tcr_results]) ] ]:
+            if results.shape[0]<1:
+                continue
 
-            for xy_tag, nbrs in [['gex', nbrs_gex], ['tcr', nbrs_tcr]]:
-                for nbr_avg in range(2):
-                    pngfile = '{}_hotspot_tcr_features_{:.3f}_nbrs_{}_umap{}.png'\
-                              .format(args.outfile_prefix, nbr_frac, xy_tag, '_nbr_avg'*nbr_avg)
-                    print('making:', pngfile)
-                    conga.plotting.plot_hotspot_genes(adata, xy_tag, results, pngfile, nbrs=nbrs,
-                                                      compute_nbr_averages=bool(nbr_avg) )
-    if len(all_hotspot_feature_pvalues)>1:
-        pngfile = '{}_all_hotspot_tcr_features_vs_gex_clustermap.png'.format(args.outfile_prefix)
-        nbr_frac = max(args.nbr_fracs)
-        gex_nbrs, tcr_nbrs = all_nbrs[nbr_frac]
-        features = list(all_hotspot_feature_pvalues.keys())
-        feature_labels = ['{:9.1e} {}'.format(all_hotspot_feature_pvalues[x], x) for x in features]
-        conga.plotting.plot_interesting_features_vs_gex_clustermap(
-            adata, features, pngfile, nbrs=gex_nbrs, compute_nbr_averages=True, feature_labels=feature_labels,
-            feature_types=['tcr']*len(features))
+            for plot_tag, plot_nbrs in [['gex',nbrs_gex], ['tcr',nbrs_tcr]]:
+                if tag == plot_tag:
+                    continue
+                # 2D UMAPs colored by nbr-averaged feature values
+                pngfile = '{}_hotspot_{}_features_{:.3f}_nbrs_{}_umap.png'\
+                          .format(args.outfile_prefix, tag, nbr_frac, plot_tag)
+                print('making:', pngfile)
+                conga.plotting.plot_hotspot_genes(adata, plot_tag, results, pngfile, nbrs=plot_nbrs,
+                                                  compute_nbr_averages=True)
 
-        if args.find_hotspot_genes and all_hotspot_gene_pvalues: # make combo plots that combine all the features
-            genes = list(all_hotspot_gene_pvalues.keys())
-            gene_labels = ['{:9.1e} {}'.format(all_hotspot_gene_pvalues[x], x) for x in genes]
+                if results.shape[0]<2:
+                    continue # clustermap not interesting...
 
-            pngfile = '{}_all_hotspot_combo_features_vs_gex_clustermap.png'.format(args.outfile_prefix)
-            conga.plotting.plot_interesting_features_vs_gex_clustermap(
-                adata, features+genes, pngfile, nbrs=gex_nbrs, compute_nbr_averages=True,
-                feature_labels=feature_labels+gene_labels,
-                feature_types=['tcr']*len(features)+['gex']*len(genes))
-
-            pngfile = '{}_all_hotspot_combo_features_vs_tcr_clustermap.png'.format(args.outfile_prefix)
-            conga.plotting.plot_interesting_features_vs_tcr_clustermap(
-                adata, features+genes, pngfile, nbrs=tcr_nbrs, compute_nbr_averages=True,
-                feature_labels=feature_labels+gene_labels,
-                feature_types=['tcr']*len(features)+['gex']*len(genes))
+                ## clustermap of features versus cells
+                pngfile = '{}_{:.3f}_nbrs_{}_hotspot_features_vs_{}_clustermap.png'\
+                          .format(args.outfile_prefix, nbr_frac, tag, plot_tag)
+                features = list(results.feature)
+                feature_labels = ['{:9.1e} {} {}'.format(x,y,z)
+                                  for x,y,z in zip(results.pvalue_adj, results.feature_type, results.feature)]
+                if plot_tag=='gex':
+                    conga.plotting.plot_interesting_features_vs_gex_clustermap(
+                        adata, features, pngfile, nbrs=plot_nbrs, compute_nbr_averages=True,
+                        feature_labels=feature_labels, feature_types = list(results.feature_type))
+                else:
+                    conga.plotting.plot_interesting_features_vs_tcr_clustermap(
+                        adata, features, pngfile, nbrs=plot_nbrs, compute_nbr_averages=True,
+                        feature_labels=feature_labels, feature_types = list(results.feature_type))
 
 
 if args.find_gex_cluster_degs: # look at differentially expressed genes in gex clusters

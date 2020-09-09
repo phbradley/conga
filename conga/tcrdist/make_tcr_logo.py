@@ -53,7 +53,7 @@ boxpad = 2 #OK to keep this fixed independent of scaling??
 ## returns
 def make_tcr_logo(
         upper_left, # [x0,y0] location of the upper left corner
-        tcrs, # list of tuples with tcr info in specific order, see setup fxn aboe
+        tcrs, # list of tuples with tcr info in specific order, see docstring below
         members, # list of integers, indices into tcrs
         all_dists, # matrix of distances between tcrs
         ab,# A or B
@@ -71,6 +71,9 @@ def make_tcr_logo(
 
     width = vj_logo_width + xpad + pwmplusgaps_width + xpad + vj_logo_width
     height = pwm_height + ypad + junction_bars_height
+
+    tcrs = [( va_rep, ja_rep, vb_rep, jb_rep, cdr3a, cdr3b, cdr3a_nucseq_src, cdr3b_nucseq_src ), ...]
+
 
     """
     cmds = []
@@ -420,6 +423,58 @@ def make_default_logo_svg_cmds(
                           show_full_cdr3 )
 
 
+
+
+def make_tcr_logo_svg_commands_for_tcrs(
+        tcrs,
+        chain,
+        organism,
+        upper_left,
+        width_height,
+        tcrdist_calculator=None # so we can avoid recalculating V gene distances over and over again
+):
+    ''' tcrs is a list of tuples: tcrs = [ (atcr1,btcr1), (atcr2,btcr2), ....
+    atcr1 = (va1, ja1, cdr3a1, cdr3a_nucseq1, *)
+    btcr1 = (vb1, jb1, cdr3b1, cdr3b_nucseq1, *)
+
+    upper_left and width_height are tuples (x,y)
+
+    returns the svg cmds
+
+    untested, currently under development
+    '''
+    assert chain in 'AB'
+
+    add_fake_alleles = False
+    show_full_cdr3 = False
+
+    # SILLY backwards compatibility, fill out info that would have been in clones file
+    infos = []
+    for tcr in tcrs:
+        atcr, btcr = tcr
+        info = {}
+        for iab, ab in enumerate('ab'):
+            info[f'cdr3{ab}'] = tcr[iab][2]
+            info[f'cdr3{ab}_nucseq'] = tcr[iab][3]
+            for ivj, vj in enumerate('vj'):
+                gene = tcr[iab][ivj]
+                assert gene in all_genes.all_genes[organism]
+                for tag in 'gene genes rep reps'.split():
+                    info[f'{vj}{ab}_{tag}'] = gene
+                info[f'{vj}{ab}_countreps'] = all_genes.all_genes[organism][gene].count_rep
+        infos.append(info)
+
+    if tcrdist_calculator is None:
+        tcrdist_calculator = tcr_distances.TcrDistCalculator(organism)
+
+    cmds = make_default_logo_svg_cmds( upper_left, width, height, organism, infos, chain,
+                                       tcrdist_calculator = tcrdist_calculator,
+                                       add_fake_alleles = add_fake_alleles, show_full_cdr3 = show_full_cdr3 )
+
+
+    return cmds
+
+
 def make_tcr_logo_for_tcrs(
         tcrs,
         chain,
@@ -434,16 +489,8 @@ def make_tcr_logo_for_tcrs(
     assert chain in 'AB'
     assert pngfile.endswith('.png')
 
-
     add_fake_alleles = False
     show_full_cdr3 = False
-    outfile_prefix = None
-
-    #junction_bars = True
-
-
-    #df = pd.read_csv( clones_file, sep='\t' )
-    #infos = [ x._asdict() for x in df.itertuples() ]
 
     # backwards compatibility, fill out info that would have been in clones file
     infos = []

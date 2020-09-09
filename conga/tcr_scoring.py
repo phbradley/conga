@@ -268,6 +268,7 @@ def make_tcr_score_table(adata, scorenames):
     organism = adata.uns['organism']
 
     tcrs = pp.retrieve_tcrs_from_adata(adata)
+    clusters_tcr = np.array(adata.obs['clusters_tcr'])
 
     organism_genes = all_genes[organism]
     genes = frozenset( organism_genes.keys())
@@ -277,6 +278,9 @@ def make_tcr_score_table(adata, scorenames):
     for name in scorenames:
         if name == 'cdr3len':
             cols.append( [ cdr3len_score_tcr(x) for x in tcrs ])
+        elif name.startswith('tcr_cluster'):
+            num = int(name[11:])
+            cols.append( [ float(x==num) for x in clusters_tcr])
         elif name == 'alphadist':
             cols.append( [ alphadist_score_tcr(x) for x in tcrs ])
         elif name == 'cd8':
