@@ -919,7 +919,23 @@ def find_hotspot_features(
     inds = np.argsort(H)[::-1] # decreasing
 
     # the simple estimate for the variance of H is the total number of neighbors
-    H /= np.sqrt(num_clones*num_nbrs)
+    #H /= np.sqrt(num_clones*num_nbrs)
+    # compute the variance
+    nbrs_sets = []
+    for ii in range(num_clones):
+        nbrs_sets.append( frozenset(nbrs[ii]) )
+
+    H_var = 0
+    print('compute H_var')
+    for ii in range(num_clones):
+        assert len(nbrs[ii]) == num_nbrs
+        for jj in nbrs[ii]:
+            if ii in nbrs_sets[jj]:
+                H_var += 2
+            else:
+                H_var += 1
+    print('DONE computing H_var delta=', H_var/(num_clones*num_nbrs))
+    H /= np.sqrt(H_var)
 
     results = []
     for ind in inds:
