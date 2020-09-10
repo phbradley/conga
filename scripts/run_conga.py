@@ -51,6 +51,7 @@ parser.add_argument('--find_distance_correlations', action='store_true')
 parser.add_argument('--find_gex_cluster_degs', action='store_true')
 parser.add_argument('--find_hotspot_features', action='store_true')
 parser.add_argument('--plot_cluster_gene_compositions', action='store_true')
+parser.add_argument('--make_gex_cluster_tcr_trees', action='store_true')
 # configure things
 parser.add_argument('--skip_gex_header', action='store_true')
 parser.add_argument('--skip_gex_header_raw', action='store_true')
@@ -659,6 +660,60 @@ if args.find_gex_cluster_degs: # look at differentially expressed genes in gex c
         pngfile = args.outfile_prefix+'_gex_cluster_bcell_genes_dotplot.png'
         plt.savefig(pngfile, bbox_inches="tight")
         print('made:', pngfile)
+
+if args.make_gex_cluster_tcr_trees:
+    width = 800
+    height = 1000
+    xpad = 25
+    organism = adata.uns['organism']
+
+    precomputed = False
+    #read the raw tcrdist distances (could instead use the kpca euclidean dists)
+    #distfile = args.clones_file
+
+    clusters_gex = np.array(adata.obs['clusters_gex'])
+
+    num_clusters = np.max(clusters_gex)+1
+    tcrs = conga.preprocess.retrieve_tcrs_from_adata(adata)
+
+    num_clones = adata.shape[0]
+    scores = np.sqrt( np.maximum( 0.0, -1*np.log( 100*adata.obs['conga_scores']/num_clones)))
+
+    tcrdist = conga.tcrdist.tcr_distances.TcrDistCalculator(organism)
+
+    x_offset = 0
+    all_cmds = []
+
+    #color_score_range = [-1*np.log(10), -1*np.log(1e-5)]
+    color_score_range = [np.min(scores), np.max(scores)]
+    print('color_score_range:', color_score_range)
+
+    for clust in range(num_clusters):
+        cmask = (clusters_gex==clust)
+        csize = np.sum(cmask)
+        #cinds = np.nonzero(cmask)[0]
+
+        ctcrs   = [x for x,y in zip(  tcrs, cmask) if y]
+        cscores = [x for x,y in zip(scores, cmask) if y]
+
+        if not precomputed:
+            print('computing tcrdist distances:', clust, csize)
+            cdists = np.array([ tcrdist(x,y) for x in ctcrs for y in ctcrs]).reshape(csize,csize)
+        else:
+            assert False # tmp hack
+
+        cmds = conga.tcrdist.make_tcr_trees.make_tcr_tree_svg_commands(
+            ctcrs, organism, [x_offset,0], [width,height], cdists, max_tcrs_for_trees=400, tcrdist_calculator=tcrdist,
+            color_scores=cscores, color_score_range = color_score_range)
+
+        x_offset += width + xpad
+
+        all_cmds.extend(cmds)
+
+    svgfile = args.outfile_prefix+'_gex_cluster_tcrdist_trees.svg'
+    conga.svg_basic.create_file(all_cmds, x_offset-xpad, height, svgfile, create_png=True )
+    print('making:', svgfile[:-3]+'png')
+
 
 # just out of curiosity:
 conga.correlations.check_nbr_graphs_indegree_bias(all_nbrs)
