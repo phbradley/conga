@@ -322,6 +322,7 @@ def Node_labels(tree,sizes,node_position,use_sizes_as_weights=False):
 def Canvas_tree(tree, names, sizes, upper_left, lower_right, branch_width_fraction, plotter, label_singletons = False,
                 label_internal_nodes = True, font=None, score_range_for_coloring=None,
                 vertical_line_width = 1, show_colorful_rmsd_bar = False, rmsd_bar_label_stepsize=1,
+                rmsd_bar_label_fontsize=10,
                 force_min_rmsd=None ):
     ## score_range_for_coloring is a tuple:(mn,mx)
     if score_range_for_coloring: assert len(score_range_for_coloring) == 2
@@ -445,7 +446,7 @@ def Canvas_tree(tree, names, sizes, upper_left, lower_right, branch_width_fracti
 
 
     for i in range(int(floor(min_rmsd+1)), 1+int(floor(tree[2])), rmsd_bar_label_stepsize):
-        plotter.make_text( str(i), [Transform(i),y0], 20)
+        plotter.make_text( str(i), [Transform(i),y0], rmsd_bar_label_fontsize)
 
 
     #plotter.make_text( 'Colors: from blue (%7.2f) to red (%7.2f)'%(min_score,max_score),

@@ -7,6 +7,8 @@ from sklearn.utils import sparsefuncs
 from sklearn.decomposition import KernelPCA
 import numpy as np
 import scipy
+from scipy.cluster import hierarchy
+from scipy.spatial.distance import squareform
 from anndata import AnnData
 import sys
 from sys import exit
@@ -148,21 +150,13 @@ def setup_X_igex( adata ):
     X_igex = adata.raw[:,indices].X.toarray()
     return X_igex, good_genes
 
-def read_dataset(
-        gex_data,
-        gex_data_type,
-        clones_file,
-        make_var_names_unique = True,
-        keep_cells_without_tcrs = False
+
+def read_adata(
+        gex_data, # filename
+        gex_data_type # string describing file type
 ):
-    ''' returns adata
-
-    stores the tcr-dist kPCA info in adata.obsm under the key 'X_pca_tcr'
-    stores the tcr info in adata.obs under multiple keys (see store_tcrs_in_adata(...) function)
+    ''' Split this out so that other code can use it. Read GEX data
     '''
-
-    include_tcr_nucseq = True
-
     print('reading:', gex_data, 'of type', gex_data_type)
     if gex_data_type == 'h5ad':
         adata = sc.read_h5ad( gex_data )
@@ -182,8 +176,24 @@ def read_dataset(
 
     if adata.isview: # this is so weird
         adata = adata.copy()
+    return adata
 
-    assert not adata.isview
+def read_dataset(
+        gex_data,
+        gex_data_type,
+        clones_file,
+        make_var_names_unique = True,
+        keep_cells_without_tcrs = False
+):
+    ''' returns adata
+
+    stores the tcr-dist kPCA info in adata.obsm under the key 'X_pca_tcr'
+    stores the tcr info in adata.obs under multiple keys (see store_tcrs_in_adata(...) function)
+    '''
+
+    include_tcr_nucseq = True
+
+    adata = read_adata(gex_data, gex_data_type)
 
     if make_var_names_unique:
         adata.var_names_make_unique() # added
@@ -773,7 +783,8 @@ def make_tcrdist_kernel_pcs_file_from_clones_file(
         n_components_in=50,
         verbose = False,
         outfile = None,
-        distfile = None
+        input_distfile = None,
+        output_distfile = None
 ):
     if outfile is None: # this is the name expected by read_dataset above (with n_components_in==50)
         outfile = '{}_AB.dist_{}_kpcs'.format(clones_file[:-4], n_components_in)
@@ -787,11 +798,14 @@ def make_tcrdist_kernel_pcs_file_from_clones_file(
     ids = [ l.clone_id for l in df.itertuples() ]
 
 
-    ## read distances
-    print(f'compute tcrdist distance matrix for {len(tcrs)} clonotypes')
-    D= np.array( [ tcrdist_calculator(x,y) for x in tcrs for y in tcrs ] ).reshape( (len(tcrs), len(tcrs)) )
+    if input_distfile is None: ## tcr distances
+        print(f'compute tcrdist distance matrix for {len(tcrs)} clonotypes')
+        D = np.array( [ tcrdist_calculator(x,y) for x in tcrs for y in tcrs ] ).reshape( (len(tcrs), len(tcrs)) )
+    else:
+        print(f'reload tcrdist distance matrix for {len(tcrs)} clonotypes')
+        D = np.loadtxt(input_distfile)
 
-    if distfile is not None:
+    if output_distfile is not None:
         np.savetxt( distfile, D.astype(float), fmt='%.1f')
 
     n_components = min( n_components_in, D.shape[0] )
@@ -818,4 +832,81 @@ def make_tcrdist_kernel_pcs_file_from_clones_file(
     out.close()
     return
 
+
+def condense_clones_file_and_barcode_mapping_file_by_tcrdist(
+        old_clones_file,
+        new_clones_file,
+        tcrdist_threshold,
+        organism,
+        output_distfile=None
+):
+
+    tcrdist_calculator = TcrDistCalculator(organism)
+
+    df = pd.read_csv(old_clones_file, sep='\t')
+
+    # in conga we usually also have cdr3_nucseq but we don't need it for tcrdist; we also don't need the jgene but hey
+    tcrs = [ ( ( l.va_gene, l.ja_gene, l.cdr3a ), ( l.vb_gene, l.jb_gene, l.cdr3b ) ) for l in df.itertuples() ]
+    ids = [ l.clone_id for l in df.itertuples() ]
+
+
+    print(f'compute tcrdist distance matrix for {len(tcrs)} clonotypes')
+    D = np.array( [ tcrdist_calculator(x,y) for x in tcrs for y in tcrs ] ).reshape( (len(tcrs), len(tcrs)) )
+
+
+    all_barcodes = pd.read_csv(old_clones_file+'.barcode_mapping.tsv', sep='\t')
+    all_barcodes.set_index('clone_id', inplace=True)
+    all_barcodes = all_barcodes['barcodes']
+    assert type(all_barcodes) is pd.Series
+    N = D.shape[0]
+    assert df.shape[0] == N
+
+    DT = squareform(D, force='tovector')
+
+    # single linkage clustering of the distance matrix: any clonotypes with dist<tcrdist_threshold
+    #  should end up in the same cluster
+    Z = hierarchy.single(DT)
+
+    clusters = hierarchy.fcluster(Z, t=tcrdist_threshold, criterion='distance')
+    clusters_set = sorted(set(clusters))
+
+    new_clones_dfl = []
+    new_bcmap_dfl = []
+
+    cluster_centers = []
+    for c in clusters_set:
+        # choose a representative clone based on distance
+        cmask = clusters==c
+        members = np.nonzero(cmask)[0]
+        assert len(members) == np.sum(cmask)
+        if len(members) == 1:
+            center = members[0]
+        else:
+            cdist = D[cmask,:][:,cmask]
+            dists = np.sum(cdist,axis=1)/(len(members)-1)
+            icenter = np.argmin(dists)
+            center = members[icenter]
+            print('center_avgdist: {:3d} {:7.2f} avg {:7.2f}'\
+                  .format(len(members), dists[icenter], np.mean(dists)))
+        cluster_centers.append(center)
+        cdf = df[cmask]
+        center_df = pd.Series( df.iloc[center] )
+        clone_size = sum(x.clone_size for _,x in cdf.iterrows())
+        center_df.clone_size = clone_size
+        new_clones_dfl.append( center_df)
+        cbarcodes = []
+        for _,row in cdf.iterrows():
+            cbarcodes.extend( all_barcodes[row.clone_id].split(',') )
+        assert len(cbarcodes) == clone_size
+        new_bcmap_dfl.append( dict(clone_id=center_df.clone_id, barcodes=','.join(cbarcodes)))
+
+    new_clones_df = pd.DataFrame(new_clones_dfl)
+    new_bcmap_df = pd.DataFrame(new_bcmap_dfl)['clone_id barcodes'.split()] # ensure order?
+
+    new_clones_df.to_csv(new_clones_file, sep='\t', index=False)
+    new_bcmap_df.to_csv(new_clones_file+'.barcode_mapping.tsv', sep='\t', index=False)
+
+    if output_distfile is not None:
+        new_D = D[cluster_centers,:][:,cluster_centers]
+        np.savetxt( output_distfile, new_D.astype(float), fmt='%.1f')
 

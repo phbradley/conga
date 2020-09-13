@@ -34,7 +34,7 @@ parser.add_argument('--bad_barcodes_file')
 parser.add_argument('--checkpoint', action='store_true')
 parser.add_argument('--restart')
 parser.add_argument('--make_unfiltered_logos', action='store_true')
-parser.add_argument('--make_avggood_logos', action='store_true')
+#parser.add_argument('--make_avggood_logos', action='store_true') # see old versions on github
 parser.add_argument('--make_avgfull_logos', action='store_true')
 parser.add_argument('--make_clone_plots', action='store_true')
 parser.add_argument('--write_proj_info', action='store_true')
@@ -497,6 +497,88 @@ if args.graph_vs_graph and args.graph_vs_tcr_features and args.graph_vs_gex_feat
 
 
 ## some extra analyses
+if args.make_gex_cluster_tcr_trees:
+    width = 800
+    height = 1000
+    xpad = 25
+    organism = adata.uns['organism']
+
+    precomputed = False
+    #read the raw tcrdist distances (could instead use the kpca euclidean dists)
+    #distfile = args.clones_file
+
+    clusters_gex = np.array(adata.obs['clusters_gex'])
+
+    num_clusters = np.max(clusters_gex)+1
+    tcrs = conga.preprocess.retrieve_tcrs_from_adata(adata)
+
+    num_clones = adata.shape[0]
+    conga_scores = np.array(adata.obs['conga_scores'])
+    scores = np.sqrt( np.maximum( 0.0, -1*np.log10( 100*conga_scores/num_clones)))
+
+    tcrdist = conga.tcrdist.tcr_distances.TcrDistCalculator(organism)
+
+    x_offset = 0
+    all_cmds = []
+
+    #color_score_range = [-1*np.log(10), -1*np.log(1e-5)]
+    color_score_range = [0, 3.0]
+    print('color_score_range:', color_score_range)
+
+    for clust in range(num_clusters):
+        cmask = (clusters_gex==clust)
+        csize = np.sum(cmask)
+        #cinds = np.nonzero(cmask)[0]
+
+        ctcrs   = [x for x,y in zip(  tcrs, cmask) if y]
+        cscores = [x for x,y in zip(scores, cmask) if y]
+
+        if not precomputed:
+            print('computing tcrdist distances:', clust, csize)
+            cdists = np.array([ tcrdist(x,y) for x in ctcrs for y in ctcrs]).reshape(csize,csize)
+        else:
+            assert False # tmp hack
+
+        cmds = conga.tcrdist.make_tcr_trees.make_tcr_tree_svg_commands(
+            ctcrs, organism, [x_offset,0], [width,height], cdists, max_tcrs_for_trees=400, tcrdist_calculator=tcrdist,
+            color_scores=cscores, color_score_range = color_score_range, title='GEX cluster {}'.format(clust))
+
+        x_offset += width + xpad
+
+        all_cmds.extend(cmds)
+
+    svgfile = args.outfile_prefix+'_gex_cluster_tcrdist_trees.svg'
+    print('making:', svgfile[:-3]+'png')
+    conga.svg_basic.create_file(all_cmds, x_offset-xpad, height, svgfile, create_png=True )
+
+
+    if True: # also make a tree of tcrs with conga score < threshold (10?)
+        threshold = 10.
+        # recalibrate the scores
+        scores = np.sqrt( np.maximum( 0.0, -1*np.log10( conga_scores/threshold)))
+        color_score_range = [0, 3.0] #max(3.0, np.max(scores))]
+        cmask = (conga_scores<=threshold)
+        csize = np.sum(cmask)
+        if csize >= threshold and csize >= 2:
+
+            ctcrs   = [x for x,y in zip(  tcrs, cmask) if y]
+            cscores = [x for x,y in zip(scores, cmask) if y]
+
+            if not precomputed:
+                print('computing tcrdist distances:', clust, csize)
+                cdists = np.array([ tcrdist(x,y) for x in ctcrs for y in ctcrs]).reshape(csize,csize)
+            else:
+                assert False # tmp hack
+
+            cmds = conga.tcrdist.make_tcr_trees.make_tcr_tree_svg_commands(
+                ctcrs, organism, [0,0], [width,height], cdists, max_tcrs_for_trees=400, tcrdist_calculator=tcrdist,
+                color_scores=cscores, color_score_range = color_score_range,
+                title='conga_score_threshold {:.1f}'.format(threshold))
+
+            svgfile = args.outfile_prefix+'_conga_score_lt_{:.1f}_tcrdist_tree.svg'.format(threshold)
+            print('making:', svgfile[:-3]+'png')
+            conga.svg_basic.create_file(cmds, width, height, svgfile, create_png=True )
+
 if args.cluster_vs_cluster:
     tcrs = conga.preprocess.retrieve_tcrs_from_adata(adata)
     clusters_gex = np.array(adata.obs['clusters_gex'])
@@ -508,59 +590,6 @@ if args.cluster_vs_cluster:
 if args.plot_cluster_gene_compositions:
     pngfile = args.outfile_prefix+'_cluster_gene_compositions.png'
     conga.plotting.plot_cluster_gene_compositions(adata, pngfile)
-
-if args.find_hotspot_features:
-    # My hacky and probably buggy first implementation of the HotSpot method:
-    #
-    # "Identifying Informative Gene Modules Across Modalities of Single Cell Genomics"
-    # David DeTomaso, Nir Yosef
-    # https://www.biorxiv.org/content/10.1101/2020.02.06.937805v1
-
-    #all_hotspot_gene_pvalues = {}
-
-    for nbr_frac in args.nbr_fracs:
-        nbrs_gex, nbrs_tcr = all_nbrs[nbr_frac]
-        print('find_hotspot_genes for nbr_frac', nbr_frac)
-        gex_results = conga.correlations.find_hotspot_genes(adata, nbrs_tcr, pval_threshold=0.05)
-        gex_results['feature_type'] = 'gex'
-
-        print('find_hotspot_tcr_features for nbr_frac', nbr_frac)
-        tcr_results = conga.correlations.find_hotspot_tcr_features(adata, nbrs_gex, pval_threshold=0.05)
-        tcr_results['feature_type'] = 'tcr'
-
-        for tag, results in [ ['gex', gex_results],
-                              ['tcr', tcr_results],
-                              ['combo', pd.concat([gex_results, tcr_results]) ] ]:
-            if results.shape[0]<1:
-                continue
-
-            for plot_tag, plot_nbrs in [['gex',nbrs_gex], ['tcr',nbrs_tcr]]:
-                if tag == plot_tag:
-                    continue
-                # 2D UMAPs colored by nbr-averaged feature values
-                pngfile = '{}_hotspot_{}_features_{:.3f}_nbrs_{}_umap.png'\
-                          .format(args.outfile_prefix, tag, nbr_frac, plot_tag)
-                print('making:', pngfile)
-                conga.plotting.plot_hotspot_genes(adata, plot_tag, results, pngfile, nbrs=plot_nbrs,
-                                                  compute_nbr_averages=True)
-
-                if results.shape[0]<2:
-                    continue # clustermap not interesting...
-
-                ## clustermap of features versus cells
-                pngfile = '{}_{:.3f}_nbrs_{}_hotspot_features_vs_{}_clustermap.png'\
-                          .format(args.outfile_prefix, nbr_frac, tag, plot_tag)
-                features = list(results.feature)
-                feature_labels = ['{:9.1e} {} {}'.format(x,y,z)
-                                  for x,y,z in zip(results.pvalue_adj, results.feature_type, results.feature)]
-                if plot_tag=='gex':
-                    conga.plotting.plot_interesting_features_vs_gex_clustermap(
-                        adata, features, pngfile, nbrs=plot_nbrs, compute_nbr_averages=True,
-                        feature_labels=feature_labels, feature_types = list(results.feature_type))
-                else:
-                    conga.plotting.plot_interesting_features_vs_tcr_clustermap(
-                        adata, features, pngfile, nbrs=plot_nbrs, compute_nbr_averages=True,
-                        feature_labels=feature_labels, feature_types = list(results.feature_type))
 
 
 if args.find_gex_cluster_degs: # look at differentially expressed genes in gex clusters
@@ -641,6 +670,7 @@ if args.find_gex_cluster_degs: # look at differentially expressed genes in gex c
 
     if adata.uns['organism'] == 'human_ig':
         # list of B cell marker genes from "Human germinal centres engage memory and naive B cells after influenza vaccination" Turner...Ellebedy, Nature 2020: https://doi.org/10.1038/s41586-020-2711-0
+        # note that they say acivated B cells are distinguished by *lack* of CR2
         genes_lines = """GC-Bs BCL6, RGS13, MEF2B, STMN1, ELL3, SERPINA9
         PBs XBP1, IRF4, SEC11C, FKBP11, JCHAIN, PRDM1
         naive TCL1A, IL4R, CCR7, IGHM, IGHD
@@ -661,58 +691,61 @@ if args.find_gex_cluster_degs: # look at differentially expressed genes in gex c
         plt.savefig(pngfile, bbox_inches="tight")
         print('made:', pngfile)
 
-if args.make_gex_cluster_tcr_trees:
-    width = 800
-    height = 1000
-    xpad = 25
-    organism = adata.uns['organism']
 
-    precomputed = False
-    #read the raw tcrdist distances (could instead use the kpca euclidean dists)
-    #distfile = args.clones_file
 
-    clusters_gex = np.array(adata.obs['clusters_gex'])
+if args.find_hotspot_features:
+    # My hacky and probably buggy first implementation of the HotSpot method:
+    #
+    # "Identifying Informative Gene Modules Across Modalities of Single Cell Genomics"
+    # David DeTomaso, Nir Yosef
+    # https://www.biorxiv.org/content/10.1101/2020.02.06.937805v1
 
-    num_clusters = np.max(clusters_gex)+1
-    tcrs = conga.preprocess.retrieve_tcrs_from_adata(adata)
+    #all_hotspot_gene_pvalues = {}
 
-    num_clones = adata.shape[0]
-    scores = np.sqrt( np.maximum( 0.0, -1*np.log( 100*adata.obs['conga_scores']/num_clones)))
+    for nbr_frac in args.nbr_fracs:
+        nbrs_gex, nbrs_tcr = all_nbrs[nbr_frac]
+        print('find_hotspot_genes for nbr_frac', nbr_frac)
+        gex_results = conga.correlations.find_hotspot_genes(adata, nbrs_tcr, pval_threshold=0.05)
+        gex_results['feature_type'] = 'gex'
 
-    tcrdist = conga.tcrdist.tcr_distances.TcrDistCalculator(organism)
+        print('find_hotspot_tcr_features for nbr_frac', nbr_frac)
+        tcr_results = conga.correlations.find_hotspot_tcr_features(adata, nbrs_gex, pval_threshold=0.05)
+        tcr_results['feature_type'] = 'tcr'
 
-    x_offset = 0
-    all_cmds = []
+        for tag, results in [ ['gex', gex_results],
+                              ['tcr', tcr_results],
+                              ['combo', pd.concat([gex_results, tcr_results]) ] ]:
+            if results.shape[0]<1:
+                continue
 
-    #color_score_range = [-1*np.log(10), -1*np.log(1e-5)]
-    color_score_range = [np.min(scores), np.max(scores)]
-    print('color_score_range:', color_score_range)
+            for plot_tag, plot_nbrs in [['gex',nbrs_gex], ['tcr',nbrs_tcr]]:
+                if tag == plot_tag:
+                    continue
+                # 2D UMAPs colored by nbr-averaged feature values
+                pngfile = '{}_hotspot_{}_features_{:.3f}_nbrs_{}_umap.png'\
+                          .format(args.outfile_prefix, tag, nbr_frac, plot_tag)
+                print('making:', pngfile)
+                conga.plotting.plot_hotspot_genes(adata, plot_tag, results, pngfile, nbrs=plot_nbrs,
+                                                  compute_nbr_averages=True)
 
-    for clust in range(num_clusters):
-        cmask = (clusters_gex==clust)
-        csize = np.sum(cmask)
-        #cinds = np.nonzero(cmask)[0]
+                if results.shape[0]<2:
+                    continue # clustermap not interesting...
 
-        ctcrs   = [x for x,y in zip(  tcrs, cmask) if y]
-        cscores = [x for x,y in zip(scores, cmask) if y]
+                ## clustermap of features versus cells
+                pngfile = '{}_{:.3f}_nbrs_{}_hotspot_features_vs_{}_clustermap.png'\
+                          .format(args.outfile_prefix, nbr_frac, tag, plot_tag)
+                features = list(results.feature)
+                feature_labels = ['{:9.1e} {} {}'.format(x,y,z)
+                                  for x,y,z in zip(results.pvalue_adj, results.feature_type, results.feature)]
+                if plot_tag=='gex':
+                    conga.plotting.plot_interesting_features_vs_gex_clustermap(
+                        adata, features, pngfile, nbrs=plot_nbrs, compute_nbr_averages=True,
+                        feature_labels=feature_labels, feature_types = list(results.feature_type))
+                else:
+                    conga.plotting.plot_interesting_features_vs_tcr_clustermap(
+                        adata, features, pngfile, nbrs=plot_nbrs, compute_nbr_averages=True,
+                        feature_labels=feature_labels, feature_types = list(results.feature_type))
 
-        if not precomputed:
-            print('computing tcrdist distances:', clust, csize)
-            cdists = np.array([ tcrdist(x,y) for x in ctcrs for y in ctcrs]).reshape(csize,csize)
-        else:
-            assert False # tmp hack
-
-        cmds = conga.tcrdist.make_tcr_trees.make_tcr_tree_svg_commands(
-            ctcrs, organism, [x_offset,0], [width,height], cdists, max_tcrs_for_trees=400, tcrdist_calculator=tcrdist,
-            color_scores=cscores, color_score_range = color_score_range)
-
-        x_offset += width + xpad
-
-        all_cmds.extend(cmds)
-
-    svgfile = args.outfile_prefix+'_gex_cluster_tcrdist_trees.svg'
-    conga.svg_basic.create_file(all_cmds, x_offset-xpad, height, svgfile, create_png=True )
-    print('making:', svgfile[:-3]+'png')
 
 
 # just out of curiosity:

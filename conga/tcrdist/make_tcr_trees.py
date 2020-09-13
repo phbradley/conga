@@ -24,6 +24,7 @@ def make_tcr_tree_svg_commands(
         max_tcrs_for_trees=300, # otherwise the actual svg tree gets too tall/dense
         color_scores=None,
         color_score_range=None,
+        title=''
 ):
     ''' tcrs is a list of tuples: tcrs = [ (atcr1,btcr1), (atcr2,btcr2), ....
     atcr1 = (va1, ja1, cdr3a1, cdr3a_nucseq1, *)
@@ -158,6 +159,24 @@ def make_tcr_tree_svg_commands(
     print('num_tcrs:',len(tcrs),'num_clusters:',len(centers),'fake_num_tcrs',sum(sizes),\
         'fake_num_clusters:',len(sizes))
 
+    cmds = []
+    toplabel_fontsize = 15
+    toplabel_xpos=upper_left[0]+xmargin
+    toplabel_ypos=upper_left[1]+ymargin+0.9*toplabel_fontsize # x,y passed to make_text is the lower_left corner
+    if title:
+        cmds.append( tcrdist_svg_basic.make_text(title, (toplabel_xpos, toplabel_ypos),
+                                                 toplabel_fontsize, font_family=font_family))
+        toplabel_ypos += toplabel_fontsize
+    cmds.append( tcrdist_svg_basic.make_text('{} xcrs {} clusters'.format(len(tcrs), len(centers)),
+                                             (toplabel_xpos, toplabel_ypos),
+                                             toplabel_fontsize, font_family=font_family))
+    toplabel_ypos += toplabel_fontsize
+    cmds.append( tcrdist_svg_basic.make_text('color_range: {:.2f}-{:.2f}'\
+                                             .format(color_score_range[0], color_score_range[1]),
+                                             (toplabel_xpos, toplabel_ypos),
+                                             toplabel_fontsize, font_family=font_family))
+
+
     percentile = -1 # I believe this means average the scores when coloring a branch of the tree
 
     tree = score_trees_devel.Make_tree( all_center_dists, len(names),
@@ -177,7 +196,7 @@ def make_tcr_tree_svg_commands(
         tree, names, sizes, tree_p0, tree_p1, branch_width_fraction,
         plotter, label_internal_nodes = False,
         score_range_for_coloring = color_score_range,
-        rmsd_bar_label_stepsize=25, force_min_rmsd=74 )
+        rmsd_bar_label_stepsize=75, force_min_rmsd=74 )
 
     max_rmsd_for_glyphs = 3.0*radius
 
@@ -269,9 +288,9 @@ def make_tcr_tree_svg_commands(
         else:
             break
 
-    cmds = glyph_cmds[:]
+    cmds.extend(glyph_cmds)
 
-    min_glyph_loc = tree_p0[1] + glyph_height/2
+    min_glyph_loc = toplabel_ypos + glyph_height/2
     max_glyph_loc = tree_p1[1] - glyph_height/2
 
     #glyph_location = dict( [ (e,max(min_glyph_loc,min(max_glyph_loc,e[2]))) for e in glyph_edges ] )
@@ -327,7 +346,7 @@ def make_tcr_tree_svg_commands(
         real_size = glyph_edge[3]
         loc = glyph_location[glyph_edge]
         ## silly xloc, was hard-coded to 5
-        cmds.append( tcrdist_svg_basic.make_text('%3d'%real_size, ( upper_left[0]+xmargin-5, loc+glyph_height/4.) , 20,
+        cmds.append( tcrdist_svg_basic.make_text('%3d'%real_size, ( upper_left[0]+xmargin-5, loc+glyph_height/2.) , 15,
                                                  font_family=font_family))
 
 

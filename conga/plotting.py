@@ -1457,6 +1457,8 @@ def get_raw_feature_scores( feature, adata, feature_type=None):
             print('WARNING nndists_gex not in adata.obs!')
             nndists_gex = np.zeros(adata.shape[0])
         return np.log1p(np.argsort(-1*nndists_gex))
+    elif feature == 'clone_sizes': # note that we are taking log1p for compatibility with the code in correlations.py
+        return np.log1p(np.array(adata.obs['clone_sizes']))
     elif feature_type == 'gex' or (feature_type==None and feature in adata.raw.var_names):
         # will this be slow? creating list every time... probably OK for plotting routines
         return adata.raw.X[:, list(adata.raw.var_names).index(feature)].toarray()[:,0]
