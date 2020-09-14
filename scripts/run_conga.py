@@ -418,6 +418,9 @@ if args.graph_vs_gex_features: #################################################
 
 
 if args.graph_vs_tcr_features: #######################################################################################
+    clusters_gex = np.array(adata.obs['clusters_gex'])
+    clusters_tcr = np.array(adata.obs['clusters_tcr'])
+
     pval_threshold = 1.
     results = []
     tcr_score_names = list(args.gex_nbrhood_tcr_score_names)
@@ -664,6 +667,8 @@ if args.find_gex_cluster_degs: # look at differentially expressed genes in gex c
 conga.correlations.check_nbr_graphs_indegree_bias(all_nbrs)
 
 if args.find_distance_correlations:
+    clusters_gex = np.array(adata.obs['clusters_gex'])
+    clusters_tcr = np.array(adata.obs['clusters_tcr'])
     pvalues, rvalues = conga.correlations.compute_distance_correlations(adata)
     results = []
     for ii, (pval, rval) in enumerate(zip(rvalues, pvalues)):
