@@ -569,7 +569,7 @@ if args.make_tcrdist_trees: # make tcrdist trees for each of the gex clusters, a
     tcrs = conga.preprocess.retrieve_tcrs_from_adata(adata)
 
     num_clones = adata.shape[0]
-    if 'conga_scores' in adata.obs_names:
+    if 'conga_scores' in adata.obs_keys():
         conga_scores = np.array(adata.obs['conga_scores'])
         scores = np.sqrt( np.maximum( 0.0, -1*np.log10( 100*conga_scores/num_clones)))
     else:
