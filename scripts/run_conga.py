@@ -82,8 +82,7 @@ if args.restart: # these are incompatible with restarting
                  args.bad_barcodes_file or
                  args.filter_ribo_norm_low_cells or
                  args.exclude_vgene_strings or
-                 args.shuffle_tcr_kpcs or
-                 args.exclude_mait_and_inkt_cells)
+                 args.shuffle_tcr_kpcs )
 
 logfile = args.outfile_prefix+'_log.txt'
 outlog = open(logfile, 'w')
@@ -192,6 +191,25 @@ else:
         assert args.organism
         adata.uns['organism'] = args.organism
 
+    if args.exclude_mait_and_inkt_cells and not args.exclude_gex_clusters:
+        # should move this code into a helper function in conga!
+        organism = adata.uns['organism']
+        tcrs = conga.preprocess.retrieve_tcrs_from_adata(adata)
+        if organism == 'human':
+            mask = [ not (conga.tcr_scoring.is_human_mait_alpha_chain(x[0]) or
+                          conga.tcr_scoring.is_human_inkt_tcr(x)) for x in tcrs ]
+        elif organism == 'mouse':
+            mask = [ not (conga.tcr_scoring.is_mouse_mait_alpha_chain(x[0]) or
+                          conga.tcr_scoring.is_mouse_inkt_alpha_chain(x[0])) for x in tcrs ]
+        else:
+            print('ERROR: --exclude_mait_and_inkt_cells option is only compatible with a/b tcrs')
+            print('ERROR:   but organism is not "human" or "mouse"')
+            sys.exit(1)
+        print('excluding {} mait/inkt cells from dataset of size {}'\
+              .format(adata.shape[0]-np.sum(mask), adata.shape[0]))
+        adata = adata[mask].copy()
+        # need to redo the cluster/tsne/umap
+        adata = conga.preprocess.cluster_and_tsne_and_umap( adata )
 
 if args.exclude_gex_clusters:
     xl = args.exclude_gex_clusters
@@ -202,6 +220,23 @@ if args.exclude_gex_clusters:
     print('exclude_gex_clusters: exclude {} cells in {} clusters: {}'.format(np.sum(mask), len(xl), xl))
     sys.stdout.flush()
     adata = adata[~mask,:].copy()
+
+    if args.exclude_mait_and_inkt_cells:
+        organism = adata.uns['organism']
+        tcrs = conga.preprocess.retrieve_tcrs_from_adata(adata)
+        if organism == 'human':
+            mask = [ not (conga.tcr_scoring.is_human_mait_alpha_chain(x[0]) or
+                          conga.tcr_scoring.is_human_inkt_tcr(x)) for x in tcrs ]
+        elif organism == 'mouse':
+            mask = [ not (conga.tcr_scoring.is_mouse_mait_alpha_chain(x[0]) or
+                          conga.tcr_scoring.is_mouse_inkt_alpha_chain(x[0])) for x in tcrs ]
+        else:
+            print('ERROR: --exclude_mait_and_inkt_cells option is only compatible with a/b tcrs')
+            print('ERROR:   but organism is not "human" or "mouse"')
+            sys.exit(1)
+        print('excluding {} mait/inkt cells from dataset of size {}'\
+              .format(adata.shape[0]-np.sum(mask), adata.shape[0]))
+        adata = adata[mask].copy()
 
     adata = conga.preprocess.cluster_and_tsne_and_umap( adata )
 
@@ -314,6 +349,8 @@ if args.graph_vs_graph: ########################################################
 
 
 if args.graph_vs_gex_features: #######################################################################################
+    clusters_gex = np.array(adata.obs['clusters_gex'])
+    clusters_tcr = np.array(adata.obs['clusters_tcr'])
 
     ## first use the TCRdist kPCA nbr graph:
     pval_threshold = 1.
@@ -691,6 +728,15 @@ if args.find_gex_cluster_degs: # look at differentially expressed genes in gex c
         plt.savefig(pngfile, bbox_inches="tight")
         print('made:', pngfile)
 
+    # show some of our marker genes
+    organism = adata.uns['organism']
+    genes = conga.plotting.default_logo_genes[organism] + conga.plotting.default_gex_header_genes[organism]
+    genes = sorted(set(x for x in genes if x in adata.raw.var_names))
+    sc.pl.dotplot(adata, var_names=genes, groupby=obs_tag, show=False)
+    pngfile = args.outfile_prefix+'_gex_cluster_marker_genes_dotplot.png'
+    plt.savefig(pngfile, bbox_inches="tight")
+    print('made:', pngfile)
+
 
 
 if args.find_hotspot_features:
@@ -752,6 +798,8 @@ if args.find_hotspot_features:
 conga.correlations.check_nbr_graphs_indegree_bias(all_nbrs)
 
 if args.find_distance_correlations:
+    clusters_gex = np.array(adata.obs['clusters_gex'])
+    clusters_tcr = np.array(adata.obs['clusters_tcr'])
     pvalues, rvalues = conga.correlations.compute_distance_correlations(adata)
     results = []
     for ii, (pval, rval) in enumerate(zip(rvalues, pvalues)):

@@ -33,6 +33,8 @@ df = pd.read_csv(args.samples, sep='\t')
 
 all_data = []
 
+add_batch_suffix = (df.shape[0]>1)
+
 for ii, row in df.iterrows():
     bcmap_file = row.clones_file+'.barcode_mapping.tsv'
     assert exists(bcmap_file)
@@ -41,15 +43,15 @@ for ii, row in df.iterrows():
     bcmap_df = pd.read_csv(bcmap_file, sep='\t')
     adata = conga.preprocess.read_adata(row.gex_data, row.gex_data_type)
 
-    suffix = '-'+str(ii)
-    clones_df.clone_id += suffix
-
-    bcmap_df.clone_id += '-'+str(ii)
-    new_barcodes = []
-    for bcs in bcmap_df.barcodes:
-        barcodes = bcs.split(',')
-        new_barcodes.append(','.join([x+suffix for x in barcodes]))
-    bcmap_df.barcodes = new_barcodes
+    if add_batch_suffix:
+        suffix = '-'+str(ii)
+        clones_df.clone_id += suffix
+        bcmap_df.clone_id += suffix
+        new_barcodes = []
+        for bcs in bcmap_df.barcodes:
+            barcodes = bcs.split(',')
+            new_barcodes.append(','.join([x+suffix for x in barcodes]))
+        bcmap_df.barcodes = new_barcodes
 
     all_data.append( [clones_df, bcmap_df, adata ] )
     print(adata.shape, row.gex_data)
@@ -57,7 +59,10 @@ for ii, row in df.iterrows():
 
 new_clones_df = pd.concat([x[0] for x in all_data])
 new_bcmap_df = pd.concat([x[1] for x in all_data])
-new_adata = all_data[0][2].concatenate(*[x[2] for x in all_data[1:]])
+if len(all_data)==1:
+    new_adata = all_data[0][2] # no batch obs key or batch suffix!
+else:
+    new_adata = all_data[0][2].concatenate(*[x[2] for x in all_data[1:]])
 
 # this all assumes that when scanpy concatenates it adds '-N' to the Nth datasets barcodes
 if args.condense_clonotypes_by_tcrdist:
