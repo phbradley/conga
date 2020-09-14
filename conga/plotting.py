@@ -1542,6 +1542,8 @@ def plot_interesting_features_vs_tcr_clustermap(
         show_VJ_gene_segment_colorbars = True,
         min_vmax = 0.4,
         max_vmax = 0.8,
+        max_redundant_features = None,
+        redundancy_threshold = 0.9, # correlation
 ):
     ''' Makes a seaborn clustermap: cols are cells, sorted by hierarchical clustering w tcrdist
     rows are the genes, ordered by clustermap correlation
@@ -1596,6 +1598,50 @@ def plot_interesting_features_vs_tcr_clustermap(
             scores = ( scores + scores[ nbrs ].sum(axis=1) )/(num_neighbors+1)
 
         A[ii,:] = scores
+
+    if max_redundant_features is not None:
+        feature_nbrs = {}
+
+        # filter features by correlation
+        # will subset: features, feature_types, feature_labels, A, nrows
+        C = 1-distance.squareform(distance.pdist(A, metric='correlation'), force='tomatrix')
+        feature_nbr_counts = [0]*len(features)
+        feature_mask = np.full(len(features), True)
+        for ii,f1 in enumerate(features):
+            # am I too close to a previous feature?
+            for jj in range(ii-1):
+                if feature_types is None or feature_types[ii] == feature_types[jj]:
+                    if C[ii,jj] > redundancy_threshold:
+                        print('close:', C[ii,jj], f1, features[jj])
+                        feature_nbr_counts[jj] += 1
+                        if feature_nbr_counts[jj] > max_redundant_features:
+                            feature_mask[ii] = False
+                            feature_nbrs.setdefault(features[jj],[]).append(f1)
+                            print('too many close:', feature_nbr_counts[jj], features[jj])
+                            break
+        if np.sum(feature_mask)<len(features): # have to exclude some
+            # write out the feature neighbors for inspection
+            dfl = []
+            for f, nbrs in feature_nbrs.items():
+                dfl.append(OrderedDict(feature=f, neighbors=','.join(nbrs)))
+            df = pd.DataFrame(dfl)
+            df.to_csv(pngfile+'_filtered_feature_info.tsv', sep='\t', index=False)
+
+            #
+            A = A[feature_mask,:]
+            features = np.array(features)[feature_mask]
+            if feature_types is not None:
+                feature_types = np.array(feature_types)[feature_mask]
+            new_feature_labels = []
+            for old_label, nbr_count, m in zip(feature_labels, feature_nbr_counts, feature_mask):
+                if m:
+                    if nbr_count>max_redundant_features:
+                        new_feature_labels.append('{} [+{}]'.format(old_label, nbr_count-max_redundant_features))
+                    else:
+                        new_feature_labels.append(old_label)
+            feature_labels = new_feature_labels[:]
+            nrows = len(features)
+
 
 
     ## add some cell colors
