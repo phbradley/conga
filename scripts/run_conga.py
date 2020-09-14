@@ -746,8 +746,6 @@ if args.find_hotspot_features:
     # David DeTomaso, Nir Yosef
     # https://www.biorxiv.org/content/10.1101/2020.02.06.937805v1
 
-    #all_hotspot_gene_pvalues = {}
-
     for nbr_frac in args.nbr_fracs:
         nbrs_gex, nbrs_tcr = all_nbrs[nbr_frac]
         print('find_hotspot_genes for nbr_frac', nbr_frac)
@@ -758,9 +756,14 @@ if args.find_hotspot_features:
         tcr_results = conga.correlations.find_hotspot_tcr_features(adata, nbrs_gex, pval_threshold=0.05)
         tcr_results['feature_type'] = 'tcr'
 
+        combo_results = pd.concat([gex_results, tcr_results])
+        if combo_results.shape[0]:
+            tsvfile = '{}_hotspot_features_{:.3f}_nbrs.tsv'.format(args.outfile_prefix, nbr_frac)
+            combo_results.to_csv(tsvfile, sep='\t', index=False)
+
         for tag, results in [ ['gex', gex_results],
                               ['tcr', tcr_results],
-                              ['combo', pd.concat([gex_results, tcr_results]) ] ]:
+                              ['combo', combo_results] ]:
             if results.shape[0]<1:
                 continue
 
@@ -783,6 +786,7 @@ if args.find_hotspot_features:
                 features = list(results.feature)
                 feature_labels = ['{:9.1e} {} {}'.format(x,y,z)
                                   for x,y,z in zip(results.pvalue_adj, results.feature_type, results.feature)]
+
                 if plot_tag=='gex':
                     conga.plotting.plot_interesting_features_vs_gex_clustermap(
                         adata, features, pngfile, nbrs=plot_nbrs, compute_nbr_averages=True,
@@ -791,6 +795,27 @@ if args.find_hotspot_features:
                     conga.plotting.plot_interesting_features_vs_tcr_clustermap(
                         adata, features, pngfile, nbrs=plot_nbrs, compute_nbr_averages=True,
                         feature_labels=feature_labels, feature_types = list(results.feature_type))
+
+                # now a more compact version where we filter out redundant features
+                pngfile = '{}_{:.3f}_nbrs_{}_hotspot_features_vs_{}_clustermap_lessredundant.png'\
+                          .format(args.outfile_prefix, nbr_frac, tag, plot_tag)
+                redundancy_threshold = 0.9 # duplicate if linear correlation > 0.9
+                if len(features)>60:
+                    max_redundant_features = 0 # ie anything 1 or higher ==> no duplicates
+                elif len(features)>30:
+                    max_redundant_features = 1 # at most 1 duplicate
+                else:
+                    max_redundant_features = 2 # at most 2 duplicates
+                if plot_tag=='gex':
+                    conga.plotting.plot_interesting_features_vs_gex_clustermap(
+                        adata, features, pngfile, nbrs=plot_nbrs, compute_nbr_averages=True,
+                        feature_labels=feature_labels, feature_types = list(results.feature_type),
+                        max_redundant_features=max_redundant_features, redundancy_threshold=redundancy_threshold)
+                else:
+                    conga.plotting.plot_interesting_features_vs_tcr_clustermap(
+                        adata, features, pngfile, nbrs=plot_nbrs, compute_nbr_averages=True,
+                        feature_labels=feature_labels, feature_types = list(results.feature_type),
+                        max_redundant_features=max_redundant_features, redundancy_threshold=redundancy_threshold)
 
 
 
