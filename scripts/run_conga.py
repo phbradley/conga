@@ -40,6 +40,7 @@ parser.add_argument('--make_clone_plots', action='store_true')
 parser.add_argument('--write_proj_info', action='store_true')
 parser.add_argument('--filter_ribo_norm_low_cells', action='store_true')
 # the main modes of operation
+parser.add_argument('--all', action='store_true', help='Run all reasonable analyses')
 parser.add_argument('--graph_vs_graph', action='store_true')
 parser.add_argument('--graph_vs_tcr_features', action='store_true')
 parser.add_argument('--graph_vs_gex_features', action='store_true')
@@ -51,7 +52,8 @@ parser.add_argument('--find_distance_correlations', action='store_true')
 parser.add_argument('--find_gex_cluster_degs', action='store_true')
 parser.add_argument('--find_hotspot_features', action='store_true')
 parser.add_argument('--plot_cluster_gene_compositions', action='store_true')
-parser.add_argument('--make_gex_cluster_tcr_trees', action='store_true')
+parser.add_argument('--make_tcrdist_trees', action='store_true')
+parser.add_argument('--make_gex_cluster_tcr_trees', action='store_true') # same as --make_tcrdist_trees, save for compat
 # configure things
 parser.add_argument('--skip_gex_header', action='store_true')
 parser.add_argument('--skip_gex_header_raw', action='store_true')
@@ -71,6 +73,22 @@ parser.add_argument('--shuffle_gex_nbrs', action='store_true') # for debugging
 parser.add_argument('--exclude_vgene_strings', type=str, nargs='*')
 
 args = parser.parse_args()
+
+if args.make_gex_cluster_tcr_trees:
+    args.make_tcrdist_trees=True
+
+if args.all:
+    all_modes = """graph_vs_graph
+    graph_vs_gex_features
+    graph_vs_tcr_features
+    cluster_vs_cluster
+    find_hotspot_features
+    find_gex_cluster_degs
+    make_tcrdist_trees""".split()
+
+    for mode in all_modes:
+        print('--all implies --'+mode)
+        setattr(args, mode, True)
 
 ## check consistency of args
 if args.find_pmhc_nbrhood_overlaps or args.calc_clone_pmhc_pvals:
@@ -534,7 +552,8 @@ if args.graph_vs_graph and args.graph_vs_tcr_features and args.graph_vs_gex_feat
 
 
 ## some extra analyses
-if args.make_gex_cluster_tcr_trees:
+if args.make_tcrdist_trees: # make tcrdist trees for each of the gex clusters, and for conga hits with score < 10
+    #
     width = 800
     height = 1000
     xpad = 25
@@ -550,8 +569,11 @@ if args.make_gex_cluster_tcr_trees:
     tcrs = conga.preprocess.retrieve_tcrs_from_adata(adata)
 
     num_clones = adata.shape[0]
-    conga_scores = np.array(adata.obs['conga_scores'])
-    scores = np.sqrt( np.maximum( 0.0, -1*np.log10( 100*conga_scores/num_clones)))
+    if 'conga_scores' in adata.obs_names:
+        conga_scores = np.array(adata.obs['conga_scores'])
+        scores = np.sqrt( np.maximum( 0.0, -1*np.log10( 100*conga_scores/num_clones)))
+    else:
+        scores = np.zeros((adata.shape[0],))
 
     tcrdist = conga.tcrdist.tcr_distances.TcrDistCalculator(organism)
 
