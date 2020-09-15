@@ -1537,6 +1537,8 @@ def plot_interesting_features_vs_tcr_clustermap(
         nbrs = None,
         compute_nbr_averages=False,
         feature_labels = None,
+        feature_scores = None,
+        feature_scores_cmap = 'viridis',
         show_gex_cluster_colorbar = False,
         show_tcr_cluster_colorbar = True,
         show_VJ_gene_segment_colorbars = True,
@@ -1544,6 +1546,7 @@ def plot_interesting_features_vs_tcr_clustermap(
         max_vmax = 0.8,
         max_redundant_features = None,
         redundancy_threshold = 0.9, # correlation
+        extra_feature_colors = None,
 ):
     ''' Makes a seaborn clustermap: cols are cells, sorted by hierarchical clustering w tcrdist
     rows are the genes, ordered by clustermap correlation
@@ -1579,6 +1582,7 @@ def plot_interesting_features_vs_tcr_clustermap(
 
     A = np.zeros((nrows, ncols))
 
+    print('filling the score array for', len(features), 'features')
     for ii,feature in enumerate(features):
         scores = get_raw_feature_scores( feature, adata, feature_types if feature_types is None else feature_types[ii])
         # is_gex_feature = feature in var_names and ( feature_types is None or feature_types[ii]=='gex')
@@ -1598,6 +1602,8 @@ def plot_interesting_features_vs_tcr_clustermap(
             scores = ( scores + scores[ nbrs ].sum(axis=1) )/(num_neighbors+1)
 
         A[ii,:] = scores
+
+    tiny_lines = None
 
     if max_redundant_features is not None:
         feature_nbrs = {}
@@ -1623,9 +1629,13 @@ def plot_interesting_features_vs_tcr_clustermap(
             # write out the feature neighbors for inspection
             dfl = []
             for f, nbrs in feature_nbrs.items():
-                dfl.append(OrderedDict(feature=f, neighbors=','.join(nbrs)))
+                dfl.append(OrderedDict(feature=f, redundant_neighbors=','.join(nbrs), num_redundant_neighbors=len(nbrs)))
             df = pd.DataFrame(dfl)
+            df.sort_values('num_redundant_neighbors', inplace=True, ascending=False)
             df.to_csv(pngfile+'_filtered_feature_info.tsv', sep='\t', index=False)
+            tiny_lines = []
+            for l in df.itertuples():
+                tiny_lines.extend( [x+'\n' for x in [l.feature+':']+ l.redundant_neighbors.split(',')+[''] ] )
 
             #
             A = A[feature_mask,:]
@@ -1641,6 +1651,10 @@ def plot_interesting_features_vs_tcr_clustermap(
                         new_feature_labels.append(old_label)
             feature_labels = new_feature_labels[:]
             nrows = len(features)
+            if feature_scores is not None:
+                feature_scores = np.array(feature_scores)[feature_mask]
+            if extra_feature_colors is not None:
+                extra_feature_colors = np.array(extra_feature_colors)[feature_mask]
 
 
 
@@ -1672,6 +1686,25 @@ def plot_interesting_features_vs_tcr_clustermap(
         num_to_show = 10 # in the text written at the top
         colorbar_sorted_tuples.extend( [ x[:num_to_show] for x in sorted_gene_colors ] )
 
+    # add some row colors
+    colorbar_row_colors = []
+    if feature_scores is not None:
+        cm = plt.get_cmap(feature_scores_cmap)
+        vmin, vmax = min(feature_scores), max(feature_scores)
+        if vmax==vmin: vmax +=.001
+        normed_scores = [ (x-vmin)/(vmax-vmin) for x in feature_scores]
+        colorbar_row_colors.append( [ cm(x) for x in normed_scores])
+
+    if feature_types is not None:
+        type2color = {'tcr':'C0', 'gex':'C1'}
+        colorbar_row_colors.append( [ type2color.get(x,'black') for x in feature_types] )
+
+    if extra_feature_colors is not None:
+        colorbar_row_colors.append(extra_feature_colors)
+
+    if not colorbar_row_colors:
+        colorbar_row_colors = None
+
     if feature_types is None:
         mx = np.max(np.abs(A))
     else:
@@ -1691,7 +1724,8 @@ def plot_interesting_features_vs_tcr_clustermap(
     #dendrogram_inches = 2.
     #dendrogram_ratio = (dendrogram_inches/fig_height, dendrogram_inches/fig_width)
     cm = sns.clustermap(A, col_linkage=cells_linkage, metric='correlation', cmap='coolwarm', vmin=-mx, vmax=mx,
-                        col_colors=colorbar_colors, figsize=(fig_width,fig_height))#, dendrogram_ratio=dendrogram_ratio)
+                        col_colors=colorbar_colors, row_colors=colorbar_row_colors,
+                        figsize=(fig_width,fig_height))#, dendrogram_ratio=dendrogram_ratio)
     row_indices = cm.dendrogram_row.reordered_ind
     row_labels = [feature_labels[x] for x in row_indices]
     cm.ax_heatmap.set_yticks( 0.5+np.arange(nrows))
@@ -1714,6 +1748,27 @@ def plot_interesting_features_vs_tcr_clustermap(
             ax.text(float(jj)/len(sorted_tuples), 1.0 - (ii*line_height_inches+0.05)/col_dendro_height,
                     gene, va='top', ha='left', fontsize=fontsize, color=color, transform=ax.transAxes)
 
+    # show the tiny_lines
+    if tiny_lines is not None:
+        ax = cm.ax_row_dendrogram
+        row_dendro_width = fig_width * (ax.get_position().x1 - ax.get_position().x0 )
+        row_dendro_height = fig_height * (ax.get_position().y1 - ax.get_position().y0 )
+
+        max_lines = int(row_dendro_height / 0.08)
+        col_width_frac = 0.45 / row_dendro_width
+        x_offset = 0
+        tiny_fontsize=5
+        ax.text(0.0, 1.0, 'Correlated\nfeatures\nomitted:', va='bottom', ha='left', fontsize=tiny_fontsize,
+                transform=ax.transAxes, zorder=-1, color='black')
+        while tiny_lines:
+            ax.text(x_offset, 1.0, ''.join(tiny_lines[:max_lines]), va='top', ha='left', fontsize=tiny_fontsize,
+                    transform=ax.transAxes, zorder=-1, color='blue')
+            x_offset += col_width_frac
+            tiny_lines = tiny_lines[max_lines:]
+            if tiny_lines and x_offset+col_width_frac/2>1.0:
+                ax.text(x_offset, 1.0, '...', va='top', ha='left', fontsize=tiny_fontsize,transform=ax.transAxes)
+                break
+
     print('saving', pngfile)
 
     cm.savefig(pngfile, dpi=200)
@@ -1734,6 +1789,8 @@ def plot_interesting_features_vs_gex_clustermap(
         nbrs = None,
         compute_nbr_averages=False,
         feature_labels = None,
+        feature_scores = None,
+        feature_scores_cmap = 'viridis',
         show_gex_cluster_colorbar = True,
         show_tcr_cluster_colorbar = False,
         show_VJ_gene_segment_colorbars = False,
@@ -1741,6 +1798,7 @@ def plot_interesting_features_vs_gex_clustermap(
         max_vmax = 0.8,
         max_redundant_features = None,
         redundancy_threshold = 0.9, # correlation
+        extra_feature_colors = None,
 ):
     ''' Makes a seaborn clustermap: cols are cells, sorted by hierarchical clustering w gex-pca-euclidean dist
     rows are the features, ordered by clustermap correlation
@@ -1798,6 +1856,8 @@ def plot_interesting_features_vs_gex_clustermap(
         A[ii,:] = scores
 
 
+    tiny_lines = None
+
     if max_redundant_features is not None:
         feature_nbrs = {}
 
@@ -1822,9 +1882,15 @@ def plot_interesting_features_vs_gex_clustermap(
             # write out the feature neighbors for inspection
             dfl = []
             for f, nbrs in feature_nbrs.items():
-                dfl.append(OrderedDict(feature=f, neighbors=','.join(nbrs)))
+                dfl.append(OrderedDict(feature=f, redundant_neighbors=','.join(nbrs), num_redundant_neighbors=len(nbrs)))
             df = pd.DataFrame(dfl)
+            df.sort_values('num_redundant_neighbors', inplace=True, ascending=False)
             df.to_csv(pngfile+'_filtered_feature_info.tsv', sep='\t', index=False)
+            tiny_lines = []
+            for l in df.itertuples():
+                tiny_lines.extend( [x+'\n' for x in [l.feature+':']+ l.redundant_neighbors.split(',')+[''] ] )
+
+            #
 
             #
             A = A[feature_mask,:]
@@ -1840,6 +1906,10 @@ def plot_interesting_features_vs_gex_clustermap(
                         new_feature_labels.append(old_label)
             feature_labels = new_feature_labels[:]
             nrows = len(features)
+            if feature_scores is not None:
+                feature_scores = np.array(feature_scores)[feature_mask]
+            if extra_feature_colors is not None:
+                extra_feature_colors = np.array(extra_feature_colors)[feature_mask]
 
 
 
@@ -1873,6 +1943,24 @@ def plot_interesting_features_vs_gex_clustermap(
         num_to_show = 10 # in the text written at the top
         colorbar_sorted_tuples.extend( [ x[:num_to_show] for x in sorted_gene_colors ] )
 
+    # add some row colors
+    colorbar_row_colors = []
+    if feature_scores is not None:
+        cm = plt.get_cmap(feature_scores_cmap)
+        vmin, vmax = min(feature_scores), max(feature_scores)
+        if vmax==vmin: vmax +=.001
+        normed_scores = [ (x-vmin)/(vmax-vmin) for x in feature_scores]
+        colorbar_row_colors.append( [ cm(x) for x in normed_scores])
+
+    if feature_types is not None:
+        type2color = {'tcr':'C0', 'gex':'C1'}
+        colorbar_row_colors.append( [ type2color.get(x,'black') for x in feature_types] )
+
+    if extra_feature_colors is not None:
+        colorbar_row_colors.append(extra_feature_colors)
+
+    if not colorbar_row_colors:
+        colorbar_row_colors = None
 
     #gene_colors_df = pd.DataFrame(OrderedDict(zip(colorbar_names, colorbar_colors)))
 
@@ -1896,7 +1984,8 @@ def plot_interesting_features_vs_gex_clustermap(
     #dendrogram_inches = 2.
     #dendrogram_ratio = (dendrogram_inches/fig_height, dendrogram_inches/fig_width)
     cm = sns.clustermap(A, col_linkage=cells_linkage, metric='correlation', cmap='coolwarm', vmin=-mx, vmax=mx,
-                        col_colors=colorbar_colors, figsize=(fig_width,fig_height))#, dendrogram_ratio=dendrogram_ratio)
+                        col_colors=colorbar_colors, row_colors=colorbar_row_colors,
+                        figsize=(fig_width,fig_height))#, dendrogram_ratio=dendrogram_ratio)
     row_indices = cm.dendrogram_row.reordered_ind
     row_labels = [feature_labels[x] for x in row_indices]
     cm.ax_heatmap.set_yticks( 0.5+np.arange(nrows))
@@ -1918,6 +2007,28 @@ def plot_interesting_features_vs_gex_clustermap(
             gene, color = sorted_tuples[jj]
             ax.text(float(jj)/len(sorted_tuples), 1.0 - (ii*line_height_inches+0.05)/col_dendro_height,
                     gene, va='top', ha='left', fontsize=fontsize, color=color, transform=ax.transAxes)
+
+    # show the tiny_lines
+    if tiny_lines is not None:
+        ax = cm.ax_row_dendrogram
+        row_dendro_width = fig_width * (ax.get_position().x1 - ax.get_position().x0 )
+        row_dendro_height = fig_height * (ax.get_position().y1 - ax.get_position().y0 )
+
+        max_lines = int(row_dendro_height / 0.08)
+        col_width_frac = 0.45 / row_dendro_width
+        x_offset = 0
+        tiny_fontsize=5
+        ax.text(0.0, 1.0, 'Correlated\nfeatures\nomitted:', va='bottom', ha='left', fontsize=tiny_fontsize,
+                transform=ax.transAxes, zorder=-1, color='black')
+        while tiny_lines:
+            ax.text(x_offset, 1.0, ''.join(tiny_lines[:max_lines]), va='top', ha='left', fontsize=tiny_fontsize,
+                    transform=ax.transAxes, zorder=-1, color='blue')
+            x_offset += col_width_frac
+            tiny_lines = tiny_lines[max_lines:]
+            if tiny_lines and x_offset+col_width_frac/2>1.0:
+                ax.text(x_offset, 1.0, '...', va='top', ha='left', fontsize=tiny_fontsize,transform=ax.transAxes)
+                break
+
 
     print('saving', pngfile)
 

@@ -1031,7 +1031,7 @@ def find_hotspot_tcr_features(
     organism_genes = all_genes[organism]
     counts = Counter( [ organism_genes[x[i_ab][j_vj]].count_rep
                         for x in tcrs for i_ab in range(2) for j_vj in range(2)] )
-    count_reps = [x for x,y in counts.most_common() if y>min_gene_count ]
+    count_reps = [x for x,y in counts.most_common() if y >= min_gene_count ]
 
     features = tcr_scoring.all_tcr_scorenames + count_reps + ['tcr_cluster{}'.format(x) for x in range(num_clusters)]
     score_table = tcr_scoring.make_tcr_score_table(adata, features)
