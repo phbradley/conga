@@ -117,7 +117,7 @@ genomics datasets can be found in the `examples/` directory:
 clonotype data, and [`examples/run_all.bash`](examples/run_all.bash) which calls
 `scripts/run_conga.py` on the three datasets. Here we discuss some of the
 key outputs. For details on the algorithm and additional details on the plots,
-refer to our [BioRxiv preprint](https://www.biorxiv.org/content/10.1101/2020.06.04.134536v1).
+refer to our [bioRxiv preprint](https://www.biorxiv.org/content/10.1101/2020.06.04.134536v1).
 Here we focus on images, but the results of the different analysis
 modes are also saved in a variety of tab-separated-values (`*.tsv`) files.
 
