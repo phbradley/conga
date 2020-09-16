@@ -92,6 +92,18 @@ clustering algorithm seems to give slightly 'better' results than the newer `lei
 ie finds a few more GEX/TCR associations, probably because there seem to be fewer, larger clusters.
 If the `louvain` package is installed `conga` will use that.
 
+# migrating Seurat data to CoNGA
+We recommend using the write10XCounts function from the DropletUtils package for
+converting Seurat objects into 10x format for importing into CoNGA/scanpy.
+```
+require(Seurat)
+require(DropletUtils)
+hs1 <- readRDS('~/vdj_v1_hs_V1_sc_5gex.rds')
+# write out for conga
+write10xCounts(x = hs1@assays$RNA@counts, path = './hs1_mtx/')
+# import the hs1_mtx directory into CoNGA using the '10x_mtx' option
+```
+
 # Updates
 * 2020-09-04: (EXPERIMENTAL) Added support for bcrs and for gamma-delta TCRs. Right now `conga` uses the
 `'organism'` specifier to communicate the data type: `human` and `mouse` mean alpha-beta TCRs;
