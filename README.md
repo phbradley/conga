@@ -10,7 +10,7 @@ the next few months. Questions and requests can be directed to `pbradley` at `fr
 Further details on `conga` can be found in the preprint entitled
 **"Linking T cell receptor sequence to transcriptional profiles with clonotype neighbor graph analysis (CoNGA)"**
 by Stefan A. Schattgen, Kate Guion, Jeremy Chase Crawford, Aisha Souquette, Alvaro Martinez Barrio, Michael J.T. Stubbington,
-Paul G. Thomas, and Philip Bradley, accessible on the BioRxiv server
+Paul G. Thomas, and Philip Bradley, accessible on the bioRxiv server
 [here](https://www.biorxiv.org/content/10.1101/2020.06.04.134536v1).
 
 # Running
@@ -105,7 +105,9 @@ The `conga` image-making pipeline requires an svg to png conversion. There seem 
 options for doing this, with the best choice being somewhat platform dependent. We've had good luck with
 ImageMagick `convert` (on linux) and Inkscape (on mac). The conversion is handled in the file
 `conga/convert_svg_to_png.py`, so you can modify that file if things are not working and you have
-a tool installed; `conga` may not be looking in the right place.
+a tool installed; `conga` may not be looking in the right place. Also if the fonts
+in the TCR/BCR logos look bad you could try switching the MONOSPACE_FONT_FAMILY
+variable in that python file (see comments at the top of the file).
 
 If you are having trouble and are using anaconda/miniconda, you could try
 `conda install -c conda-forge imagemagick` in the relevant conda environment.
@@ -129,7 +131,6 @@ modes are also saved in a variety of tab-separated-values (`*.tsv`) files.
 
 # SETUP
 /home/pbradley/anaconda2/envs/scanpy_new/bin/python /home/pbradley/gitrepos/conga/scripts/setup_10x_for_conga.py --organism human --filtered_contig_annotations_csvfile ./conga_example_datasets/vdj_v1_hs_pbmc3_t_filtered_contig_annotations.csv
-
 
 # RUN
 /home/pbradley/anaconda2/envs/scanpy_new/bin/python /home/pbradley/gitrepos/conga/scripts/run_conga.py --all --organism human --clones_file ./conga_example_datasets/vdj_v1_hs_pbmc3_t_filtered_contig_annotations_tcrdist_clones.tsv --gex_data ./conga_example_datasets/vdj_v1_hs_pbmc3_5gex_filtered_gene_bc_matrices_h5.h5 --gex_data_type 10x_h5 --outfile_prefix tcr_hs_pbmc
