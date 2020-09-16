@@ -7,6 +7,7 @@ from sys import stderr, exit
 #
 PATH_TO_INKSCAPE='/Applications/Inkscape.app/Contents/Resources/bin/inkscape'
 
+# if the fonts in the tcr logos look bad, try uncommenting one of the other three lines below this one
 #MONOSPACE_FONT_FAMILY = 'monospace'
 #MONOSPACE_FONT_FAMILY = 'courier'
 MONOSPACE_FONT_FAMILY = 'DejaVu Sans Mono'
