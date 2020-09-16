@@ -7,6 +7,12 @@ recently added support for gamma delta TCRs and for B cells, too.
 `conga` is in active development right now so the interface may change in
 the next few months. Questions and requests can be directed to `pbradley` at `fredhutch` dot `org`.
 
+Further details on `conga` can be found in the preprint entitled
+**"Linking T cell receptor sequence to transcriptional profiles with clonotype neighbor graph analysis (CoNGA)"**
+by Stefan A. Schattgen, Kate Guion, Jeremy Chase Crawford, Aisha Souquette, Alvaro Martinez Barrio, Michael J.T. Stubbington,
+Paul G. Thomas, and Philip Bradley, accessible on the BioRxiv server
+[here](https://www.biorxiv.org/content/10.1101/2020.06.04.134536v1).
+
 # Running
 
 Running `conga` on a single-cell dataset is a two- (or more) step process, as outlined below.
@@ -44,6 +50,7 @@ be much faster to perform subsequent re-analysis or downstream analysis by "rest
 python conga/scripts/run_conga.py --restart tmp_hs_pbmc_final.h5ad --graph_vs_tcr_features --graph_vs_gex_features --outfile_prefix tmp_hs_pbmc_restart
 ```
 
+See the examples section below for more details.
 
 # Installation
 
@@ -83,7 +90,7 @@ pip install scanpy
 Preliminary results suggest that, at least with default clustering parameters, the older `louvain`
 clustering algorithm seems to give slightly 'better' results than the newer `leiden` algorithm,
 ie finds a few more GEX/TCR associations, probably because there seem to be fewer, larger clusters.
-If the `louvain` package is installed `conga` will use that. 
+If the `louvain` package is installed `conga` will use that.
 
 # Updates
 * 2020-09-04: (EXPERIMENTAL) Added support for bcrs and for gamma-delta TCRs. Right now `conga` uses the
@@ -98,7 +105,189 @@ The `conga` image-making pipeline requires an svg to png conversion. There seem 
 options for doing this, with the best choice being somewhat platform dependent. We've had good luck with
 ImageMagick `convert` (on linux) and Inkscape (on mac). The conversion is handled in the file
 `conga/convert_svg_to_png.py`, so you can modify that file if things are not working and you have
-a tool installed; `conga` may not be looking in the right place. 
+a tool installed; `conga` may not be looking in the right place.
 
 If you are having trouble and are using anaconda/miniconda, you could try
 `conda install -c conda-forge imagemagick` in the relevant conda environment.
+
+# Examples
+Shell scripts for running `conga` on three publicly available 10X
+genomics datasets can be found in the `examples/` directory:
+[`examples/setup_all.bash`](examples/setup_all.bash) which preprocesses the
+clonotype data, and [`examples/run_all.bash`](examples/run_all.bash) which calls
+`scripts/run_conga.py` on the four datasets. Here we discuss some of the
+key outputs. For details on the algorithm and additional details on the plots,
+refer to our [BioRxiv preprint](https://www.biorxiv.org/content/10.1101/2020.06.04.134536v1).
+Here we focus on images, but the results of the different analysis
+modes are also saved in a variety of tab-separated-values (`*.tsv`) files.
+
+## Human PBMC dataset
+
+```
+# DOWNLOAD FROM:
+# https://support.10xgenomics.com/single-cell-vdj/datasets/3.1.0/vdj_v1_hs_pbmc3
+
+# SETUP
+/home/pbradley/anaconda2/envs/scanpy_new/bin/python /home/pbradley/gitrepos/conga/scripts/setup_10x_for_conga.py --organism human --filtered_contig_annotations_csvfile ./conga_example_datasets/vdj_v1_hs_pbmc3_t_filtered_contig_annotations.csv
+
+
+# RUN
+/home/pbradley/anaconda2/envs/scanpy_new/bin/python /home/pbradley/gitrepos/conga/scripts/run_conga.py --all --organism human --clones_file ./conga_example_datasets/vdj_v1_hs_pbmc3_t_filtered_contig_annotations_tcrdist_clones.tsv --gex_data ./conga_example_datasets/vdj_v1_hs_pbmc3_5gex_filtered_gene_bc_matrices_h5.h5 --gex_data_type 10x_h5 --outfile_prefix tcr_hs_pbmc
+
+```
+A good place to start is with the summary image, which will be named something
+like `OUTFILE_PREFIX_summary.png` where `OUTFILE_PREFIX` was the `--outfile_prefix`
+command line argument passed to `run_conga.py`. This image shows 2D projections of the
+clonotypes in the dataset, based on distances in gene expression (GEX) space in
+the top row and in TCR/BCR space in the bottom row. The left panels are colored
+by clonotype clusters (GEX clusters on top and TCR clusters on the bottom);
+the middle panels are colored by CoNGA score, which reflects overlap
+between the GEX and TCR neighbor graphs on a per-clonotype basis; and the right
+panels are overlaid with the top graph-vs-feature hits: TCR features that are
+enriched in GEX graph neighborhoods on top, and genes that are differentially
+expressed in TCR graph neighborhoods on the bottom.
+
+![summary](_images/tcr_hs_pbmc_summary.png)
+
+To gain greater insight into the clonotypes with significant CoNGA scores,
+the software groups them by their joint GEX and TCR cluster assignments and
+displays logos that summarize gene expression and TCR V/J gene usage and CDR3
+sequence features for groups with size above a threshold (by default, at least
+5 clonotypes and .1% of the overall dataset size). These logos are shown in the
+plot `OUTFILE_PREFIX_bicluster_logos.png`. In this image the top panels are
+show the clusters, conga scores, and conga hits (clonotypes with conga score<1)
+in the GEX (left 3 panels) and TCR/BCR (right 3 panels) 2D lanscapes. Below
+them are shown a sequence of thumbnail GEX projection scatter plots colored by
+selected (and user configurable) marker genes; the top set are colored by raw
+(normalized for cell reads and log+1 transformed) expression and in the bottom
+set those values are Z-standardized and averaged over GEX graph neighborhoods,
+to smooth and highlight overall trends. Below the snapshots are the rows of
+cluster-pair (or 'bicluster') logos.
+
+![clusters](_images/tcr_hs_pbmc_bicluster_logos.png)
+
+The results of the graph-vs-features analysis are summarized in a number of graphs
+with names that include text like `graph_vs_XXX_features`. For example, the
+top few TCR/GEX feature hits are shown projected onto the other landscape
+(ie, TCR features onto the GEX landscape and GEX features onto the TCR landscape)
+in plots that end in `_panels.png`, like the
+`OUTFILE_PREFIX_gex_nbr_graph_vs_tcr_features_panels.png` shown below, where we can
+see MAIT-cell features as well as features that differ between CD4 and CD8 T cells
+(charge, TRBV20 and TRAJ30 usage). You can identify the CD4/CD8 cells by looking
+at the CD4/CD8a/CD8b gene thumbnails in the cluster logos plot above.  
+
+![gex_graph_vs_tcr_features](_images/tcr_hs_pbmc_gex_nbr_graph_vs_tcr_features_panels.png)
+
+In addition to the graph-vs-feature analysis described in the preprint,
+we recently implemented a first, experimental version of the
+[HotSpot](https://github.com/YosefLab/Hotspot) method
+developed by the Yosef lab
+([bioRxiv preprint](https://www.biorxiv.org/content/10.1101/2020.02.06.937805v1)).
+Hotspot identifies numerical features that respect a given neighbor graph
+structure, so we can use it to identify GEX features that correlate with
+the TCR similarity graph and TCR/BCR features that correlate with the the
+GEX similarity graph. These features are saved to `tsv` files and visualized
+in a number of images, including `seaborn clustermap` plots if you have the
+`seaborn` package installed. For example the image with the rather long
+name
+`OUTFILE_PREFIX_0.100_nbrs_combo_hotspot_features_vs_gex_clustermap_lessredundant.png`
+shows the top combined GEX and TCR features (rows) versus clonotypes (columns), where the
+clonotypes (columns) are ordered based on a hierarchical clustering dendrogram
+built using GEX similarity (`_vs_gex_clustermap` in filename) and the scores
+are averaged over GEX neighborhoods
+(so that visible trends need to be consistent the GEX graph structure, and to smooth
+noise). Features that are highly correlated with another, more significant
+feature are filtered out and listed in the tiny blue text on the left (`_lessredundant` in
+the filename). In this plot we can see MAIT, CD4, and CD8 groupings and many of the
+same features as in the graph-vs-features analysis above. Since we have only
+implemented the simplest model right now, the P-values may not be completely
+trustworthy, and we suggest focusing on the results from larger neighbor
+graphs (here we are showing the results for the graph with 0.1 neighbor fraction,
+`_0.100_nbrs` in the filename,
+ie where each clonotype is connected to the nearest 10 percent of the dataset).
+
+![clustermap](_images/tcr_hs_pbmc_0.100_nbrs_combo_hotspot_features_vs_gex_clustermap_lessredundant.png)
+
+## Mouse PBMC dataset
+
+```
+# DOWNLOAD FROM:
+# https://support.10xgenomics.com/single-cell-vdj/datasets/3.0.0/vdj_v1_mm_balbc_pbmc_5gex
+
+# SETUP
+/home/pbradley/anaconda2/envs/scanpy_new/bin/python /home/pbradley/gitrepos/conga/scripts/setup_10x_for_conga.py --organism mouse --filtered_contig_annotations_csvfile ./conga_example_datasets/vdj_v1_mm_balbc_pbmc_t_filtered_contig_annotations.csv
+
+# RUN
+/home/pbradley/anaconda2/envs/scanpy_new/bin/python /home/pbradley/gitrepos/conga/scripts/run_conga.py --all --organism mouse --clones_file ./conga_example_datasets/vdj_v1_mm_balbc_pbmc_t_filtered_contig_annotations_tcrdist_clones.tsv --gex_data ./conga_example_datasets/vdj_v1_mm_balbc_pbmc_5gex_filtered_gene_bc_matrices_h5.h5 --gex_data_type 10x_h5 --outfile_prefix tcr_mm_pbmc
+```
+
+The summary image, where we can see a tight cluster of conga hits that turn out
+to be iNKT cells (inkt TCR feature enriched in top right panel), some CD8-enriched
+genes (TRAV16N and TRBV29), and the EphB6 gene which turns out to be correlated
+with usage of the TRBV31 gene:
+![summary](_images/tcr_mm_pbmc_summary.png)
+
+Here the cluster logo image shows iNKT cells and some CD8-positive clusters that
+likely reflect TCR sequence features shared by CD8s.
+
+![biclusters](_images/tcr_mm_pbmc_bicluster_logos.png)
+
+The top few GEX features that are enriched in TCR neighborhoods: some iNKT genes
+and the EphB6 gene showing localized expression in the TCR landscape projection
+(in the TRBV31 expressing clonotypes).
+
+![gex_features](_images/tcr_mm_pbmc_tcr_nbr_graph_vs_gex_features_panels.png)
+
+In the hotspot clustermap showing GEX features versus TCR-arranged clonotypes we
+can see the correlation between EphB6 and TRBV31 nicely:
+
+![hotspot](_images/tcr_mm_pbmc_0.100_nbrs_combo_hotspot_features_vs_tcr_clustermap_lessredundant.png)
+
+
+## Human Melanoma B cell dataset
+
+```
+# DOWNLOAD FROM:
+# https://support.10xgenomics.com/single-cell-vdj/datasets/4.0.0/sc5p_v1p1_hs_melanoma_10k
+
+# SETUP
+/home/pbradley/anaconda2/envs/scanpy_new/bin/python /home/pbradley/gitrepos/conga/scripts/setup_10x_for_conga.py --organism human_ig --filtered_contig_annotations_csvfile ./conga_example_datasets/sc5p_v1p1_hs_melanoma_10k_b_filtered_contig_annotations.csv --condense_clonotypes_by_tcrdist --tcrdist_threshold_for_condensing 50
+
+# RUN
+/home/pbradley/anaconda2/envs/scanpy_new/bin/python /home/pbradley/gitrepos/conga/scripts/run_conga.py --all --organism human_ig --clones_file ./conga_example_datasets/sc5p_v1p1_hs_melanoma_10k_b_filtered_contig_annotations_tcrdist_clones_condensed.tsv --gex_data ./conga_example_datasets/sc5p_v1p1_hs_melanoma_10k_filtered_feature_bc_matrix.h5 --gex_data_type 10x_h5 --outfile_prefix bcr_hs_melanoma
+```
+
+Two features to note in the commands above: (1) we are passing `--organism human_ig`
+to let conga know we are working with BCR data, (2) in the setup command we
+added the flags `--condense_clonotypes_by_tcrdist --tcrdist_threshold_for_condensing 50`,
+which trigger merging of 10X clonotypes whose TCRdist (actually BCR dist) is
+less than or equal to 50 (ie, we do single-linkage clustering and cut the tree
+at a distance threshold of 50). Here the goal is to merge clonally related
+families so that GEX/BCR covariation that we detect reflects the correlation
+across independent rearrangements. The user could instead apply a more
+sophisticated clone identification procedure and modify the `raw_clonotype_id`
+column in the contigs csv file, which is where conga gets the clonotype info.
+
+The summary image, where we can see that most of the conga hits are in GEX cluster
+2; that there are differences in CDR3 length across the landscape; and some
+specific genes that are differentially expressed in TCR graph neighborhoods
+(TNFRSF13B, B2M, CRIP1).
+![summary](_images/bcr_hs_melanoma_summary.png)
+
+Logos for the clusters of conga hits, with one cluster of 'naive' clonotypes
+with long CDRH3s and high TCL1A expression.
+
+![biclusters](_images/bcr_hs_melanoma_bicluster_logos.png)
+
+In the hotspot clustermap showing GEX features versus TCR-arranged clonotypes we
+can see a breakdown between naive and non-naive features, where IGHJ6 and CDR3 length
+are correlated with genes like TCL1A and class II HLA genes, and IGHJ4 is enriched
+in the non-naives.
+
+![hotspot](_images/bcr_hs_melanoma_0.100_nbrs_combo_hotspot_features_vs_tcr_clustermap_lessredundant.png)
+
+CoNGA also makes a tree of all the clonotypes with a conga score less than a
+loose threshold value of 10, where we can look for sequence clustering. The branches
+are colored by average transformed conga score:
+
+![tcrdist_tree](_images/bcr_hs_melanoma_conga_score_lt_10.0_tcrdist_tree.png)
