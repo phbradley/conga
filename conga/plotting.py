@@ -386,7 +386,7 @@ def make_logo_plots(
         fracs = np.sum(X>1e-3, axis=0) / float(len(nodes))
 
         fracs = [ 0 if x is None else fracs[x] for x in logo_gene_indices ]
-        means = np.array([ 0 if x is None else means[x] for x in logo_gene_indices ])
+        means = np.array([ 0.0 if x is None else means[x] for x in logo_gene_indices ])
         all_scores[clp] = [ len(nodes), fracs, means ]
 
     # if any of the means are bigger than max_expn_for_gene_logo, downscale that column
@@ -1529,26 +1529,28 @@ def plot_hotspot_genes(
 
 
 
-def plot_interesting_features_vs_tcr_clustermap(
+def plot_interesting_features_vs_clustermap(
         adata,
         features,
         pngfile,
+        dist_tag, # gex or tcr
         feature_types = None, # list of either 'gex','tcr'
         nbrs = None,
         compute_nbr_averages=False,
         feature_labels = None,
         feature_scores = None,
         feature_scores_cmap = 'viridis',
-        show_gex_cluster_colorbar = False,
-        show_tcr_cluster_colorbar = True,
-        show_VJ_gene_segment_colorbars = True,
-        min_vmax = 0.4,
-        max_vmax = 0.8,
+        show_gex_cluster_colorbar = None,
+        show_tcr_cluster_colorbar = None,
+        show_VJ_gene_segment_colorbars = None,
+        min_vmax = 0.45,
+        max_vmax = 0.45,
         max_redundant_features = None,
         redundancy_threshold = 0.9, # correlation
         extra_feature_colors = None,
+        rescale_factor_for_self_features = 0.33,
 ):
-    ''' Makes a seaborn clustermap: cols are cells, sorted by hierarchical clustering w tcrdist
+    ''' Makes a seaborn clustermap: cols are cells, sorted by hierarchical clustering wrt X_pca_{dist_tag}
     rows are the genes, ordered by clustermap correlation
     '''
     try:
@@ -1556,6 +1558,17 @@ def plot_interesting_features_vs_tcr_clustermap(
     except:
         print('ERROR seaborn is not installed')
         return
+
+    assert dist_tag in ['gex','tcr']
+
+    if show_gex_cluster_colorbar is None:
+        show_gex_cluster_colorbar = dist_tag=='gex'
+
+    if show_tcr_cluster_colorbar is None:
+        show_tcr_cluster_colorbar = dist_tag=='tcr'
+
+    if show_VJ_gene_segment_colorbars is None:
+        show_VJ_gene_segment_colorbars = dist_tag=='tcr'
 
     if feature_labels is None:
         feature_labels = features[:]
@@ -1566,18 +1579,18 @@ def plot_interesting_features_vs_tcr_clustermap(
     #genes = [ x for x in genes if x in var_names]
 
     if len(features)<2:
-        print('too few features for clustermap:', len(genes))
+        print('too few features for clustermap:', len(features))
         return
 
     nrows = len(features)
     ncols = adata.shape[0]
 
     # compute linkage of cells based on tcr
-    X = adata.obsm['X_pca_tcr'] # the kernal pca components
-    print('computing pairwise X_pca_tcr distances', X.shape)
+    X = adata.obsm['X_pca_'+dist_tag] # the kernal pca components
+    print(f'computing pairwise X_pca_{dist_tag} distances, {X.shape}')
     Y = distance.pdist(X, metric='euclidean')
 
-    print('computing linkage matrix from pairwise X_pca_tcr distances')
+    print(f'computing linkage matrix from pairwise X_pca_{dist_tag} distances')
     cells_linkage = hierarchy.linkage(Y, method='ward')
 
     A = np.zeros((nrows, ncols))
@@ -1601,6 +1614,10 @@ def plot_interesting_features_vs_tcr_clustermap(
             num_neighbors = nbrs.shape[1] # this will not work for ragged nbr arrays (but we could change it to work)
             scores = ( scores + scores[ nbrs ].sum(axis=1) )/(num_neighbors+1)
 
+        if feature_types is not None:
+            if feature_types[ii] == dist_tag:
+                scores *= rescale_factor_for_self_features # lighten these up a bit since they will be nbr correlated
+
         A[ii,:] = scores
 
     tiny_lines = None
@@ -1617,7 +1634,7 @@ def plot_interesting_features_vs_tcr_clustermap(
             # am I too close to a previous feature?
             for jj in range(ii-1):
                 if feature_types is None or feature_types[ii] == feature_types[jj]:
-                    if C[ii,jj] > redundancy_threshold:
+                    if C[ii,jj] > redundancy_threshold and feature_mask[jj]:
                         print('close:', C[ii,jj], f1, features[jj])
                         feature_nbr_counts[jj] += 1
                         if feature_nbr_counts[jj] > max_redundant_features:
@@ -1718,14 +1735,57 @@ def plot_interesting_features_vs_tcr_clustermap(
     mx = min(max_vmax, max(min_vmax, mx))
 
     print('making clustermap; num_features=', len(features))
-    fig_width = 10
-    fig_height = max(5.0, len(features)*0.2 )
+    xmargin = 0.1
+    ymargin = 0.1
+    col_dendro_height = 2.5 #inches
+    col_colors_height = len(colorbar_colors)*0.2
+    heatmap_height = len(features)*0.15
+    row_dendro_width = 2.5 #inches
+    row_colors_width = 0.1 if colorbar_row_colors is None else len(colorbar_row_colors)*0.3
+    heatmap_width = 7.5
+    fig_width = 2*xmargin + row_dendro_width + row_colors_width + heatmap_width
+    fig_height = 2*ymargin + col_dendro_height + col_colors_height + heatmap_height
+
+    x0 = xmargin/fig_width
+    x1 = (xmargin+row_dendro_width)/fig_width
+    x2 = (xmargin+row_dendro_width+row_colors_width)/fig_width
+    x3 = (fig_width-xmargin)/fig_width
+
+    y0 = ymargin/fig_height
+    y1 = (ymargin+heatmap_height)/fig_height
+    y2 = (ymargin+heatmap_height+col_colors_height)/fig_height
+    y3 = (fig_height-ymargin)/fig_height
+
     # not present in older version of seaborn:
     #dendrogram_inches = 2.
     #dendrogram_ratio = (dendrogram_inches/fig_height, dendrogram_inches/fig_width)
     cm = sns.clustermap(A, col_linkage=cells_linkage, metric='correlation', cmap='coolwarm', vmin=-mx, vmax=mx,
                         col_colors=colorbar_colors, row_colors=colorbar_row_colors,
                         figsize=(fig_width,fig_height))#, dendrogram_ratio=dendrogram_ratio)
+
+    # print(dir(cm))
+    # def show_pos(ax, tag):
+    #     if ax is None:
+    #         return
+    #     pos = ax.get_position()
+    #     print(f'axis lower_left: {pos.x0:7.3f} {pos.y0:7.3f} upper right: {pos.x1:7.3f} {pos.y1:7.3f}  {tag}')
+
+    # show_pos(cm.ax_heatmap, 'heatmap')
+    # show_pos(cm.ax_col_dendrogram, 'col_dendro')
+    # show_pos(cm.ax_col_colors, 'col_colors')
+    # show_pos(cm.ax_row_dendrogram, 'row_dendro')
+    # show_pos(cm.ax_row_colors, 'row_colors')
+    # show_pos(cm.cax, 'cax')
+
+    cm.ax_row_dendrogram.set_position([x0,y0,x1-x0,y1-y0])
+    if cm.ax_row_colors is not None:
+        cm.ax_row_colors.set_position([x1,y0,x2-x1,y1-y0])
+    cm.ax_heatmap.set_position([x2,y0,x3-x2,y1-y0])
+    if cm.ax_col_colors is not None:
+        cm.ax_col_colors.set_position([x2,y1,x3-x2,y2-y1])
+    cm.ax_col_dendrogram.set_position([x2,y2,x3-x2,y3-y2])
+    cm.cax.set_position([x0,(fig_height-ymargin-1.5)/fig_height,0.3/fig_width,1.5/fig_height])
+
     row_indices = cm.dendrogram_row.reordered_ind
     row_labels = [feature_labels[x] for x in row_indices]
     cm.ax_heatmap.set_yticks( 0.5+np.arange(nrows))
@@ -1755,7 +1815,7 @@ def plot_interesting_features_vs_tcr_clustermap(
         row_dendro_height = fig_height * (ax.get_position().y1 - ax.get_position().y0 )
 
         max_lines = int(row_dendro_height / 0.08)
-        col_width_frac = 0.45 / row_dendro_width
+        col_width_frac = 0.33 / row_dendro_width
         x_offset = 0
         tiny_fontsize=5
         ax.text(0.0, 1.0, 'Correlated\nfeatures\nomitted:', va='bottom', ha='left', fontsize=tiny_fontsize,
@@ -1770,269 +1830,261 @@ def plot_interesting_features_vs_tcr_clustermap(
                 break
 
     print('saving', pngfile)
-
     cm.savefig(pngfile, dpi=200)
 
-    if False: # debugging
-        col_indices = cm.dendrogram_col.reordered_ind
-        for ind, ii in enumerate(col_indices[:25]):
-            print(ind, tcrs[ii][0][:3], tcrs[ii][1][:3],
-                  gene_colors[0][ii], gene_colors[1][ii], gene_colors[2][ii], gene_colors[3][ii] )
-            #gene_colors_df.loc[ii])
+
+# def plot_interesting_features_vs_gex_clustermap(
+#         adata,
+#         features,
+#         pngfile,
+#         feature_types = None, # list of either 'gex','tcr'
+#         nbrs = None,
+#         compute_nbr_averages=False,
+#         feature_labels = None,
+#         feature_scores = None,
+#         feature_scores_cmap = 'viridis',
+#         show_gex_cluster_colorbar = True,
+#         show_tcr_cluster_colorbar = False,
+#         show_VJ_gene_segment_colorbars = False,
+#         min_vmax = 0.4,
+#         max_vmax = 0.8,
+#         max_redundant_features = None,
+#         redundancy_threshold = 0.9, # correlation
+#         extra_feature_colors = None,
+# ):
+#     ''' Makes a seaborn clustermap: cols are cells, sorted by hierarchical clustering w gex-pca-euclidean dist
+#     rows are the features, ordered by clustermap correlation
+#     '''
+#     try:
+#         import seaborn as sns
+#     except:
+#         print('ERROR seaborn is not installed')
+#         return
 
 
-def plot_interesting_features_vs_gex_clustermap(
-        adata,
-        features,
-        pngfile,
-        feature_types = None, # list of either 'gex','tcr'
-        nbrs = None,
-        compute_nbr_averages=False,
-        feature_labels = None,
-        feature_scores = None,
-        feature_scores_cmap = 'viridis',
-        show_gex_cluster_colorbar = True,
-        show_tcr_cluster_colorbar = False,
-        show_VJ_gene_segment_colorbars = False,
-        min_vmax = 0.4,
-        max_vmax = 0.8,
-        max_redundant_features = None,
-        redundancy_threshold = 0.9, # correlation
-        extra_feature_colors = None,
-):
-    ''' Makes a seaborn clustermap: cols are cells, sorted by hierarchical clustering w gex-pca-euclidean dist
-    rows are the features, ordered by clustermap correlation
-    '''
-    try:
-        import seaborn as sns
-    except:
-        print('ERROR seaborn is not installed')
-        return
+#     if len(features)<2:
+#         print('too few features for clustermap:', len(features))
+#         return
+
+#     if feature_labels is None:
+#         feature_labels = features[:]
+
+#     # for the clustermap:
+#     nrows = len(features)
+#     ncols = adata.shape[0]
+
+#     # compute linkage of cells based on gex
+#     X = adata.obsm['X_pca_gex'] # the pca components
+#     print('computing pairwise X_pca_gex distances', X.shape)
+#     Y = distance.pdist(X, metric='euclidean')
+
+#     print('computing linkage matrix from pairwise X_pca_gex distances')
+#     cells_linkage = hierarchy.linkage(Y, method='ward')
+
+#     A = np.zeros((nrows, ncols))
+
+#     var_names = list(adata.raw.var_names)
+
+#     for ii,feature in enumerate(features):
+#         scores = get_raw_feature_scores(feature, adata, feature_types if feature_types is None else feature_types[ii])
+#         # is_gex_feature = feature in var_names and ( feature_types is None or feature_types[ii]=='gex')
+#         # if is_gex_feature:
+#         #     scores = adata.raw.X[:, var_names.index(feature)].toarray()[:,0]
+#         # else:
+#         #     scores = tcr_scoring.make_tcr_score_table(adata, [feature])[:,0].astype(float)
+#         mn, std = np.mean(scores), np.std(scores)
+#         scores -= mn
+#         if std!=0:
+#             scores /= std
+#         else:
+#             print('WHOAH stddev of {} is {} {}'.format(feature, std, mn, scores))
+#             sys.stderr.write('ERROR problem in conga.plotting.plot_interesting_features_vs_gex_clustermap')
+#             return ######################### EARLY RETURN!!!!
+
+#         if compute_nbr_averages:
+#             num_neighbors = nbrs.shape[1] # this will not work for ragged nbr arrays (but we could change it to work)
+#             scores = ( scores + scores[ nbrs ].sum(axis=1) )/(num_neighbors+1)
+
+#         A[ii,:] = scores
 
 
-    if len(features)<2:
-        print('too few features for clustermap:', len(features))
-        return
+#     tiny_lines = None
 
-    if feature_labels is None:
-        feature_labels = features[:]
+#     if max_redundant_features is not None:
+#         feature_nbrs = {}
 
-    # for the clustermap:
-    nrows = len(features)
-    ncols = adata.shape[0]
+#         # filter features by correlation
+#         # will subset: features, feature_types, feature_labels, A, nrows
+#         C = 1-distance.squareform(distance.pdist(A, metric='correlation'), force='tomatrix')
+#         feature_nbr_counts = [0]*len(features)
+#         feature_mask = np.full(len(features), True)
+#         for ii,f1 in enumerate(features):
+#             # am I too close to a previous feature?
+#             for jj in range(ii-1):
+#                 if feature_types is None or feature_types[ii] == feature_types[jj]:
+#                     if C[ii,jj] > redundancy_threshold and feature_mask[jj]:
+#                         print('close:', C[ii,jj], f1, features[jj])
+#                         feature_nbr_counts[jj] += 1
+#                         if feature_nbr_counts[jj] > max_redundant_features:
+#                             feature_mask[ii] = False
+#                             feature_nbrs.setdefault(features[jj],[]).append(f1)
+#                             print('too many close:', feature_nbr_counts[jj], features[jj])
+#                             break
+#         if np.sum(feature_mask)<len(features): # have to exclude some
+#             # write out the feature neighbors for inspection
+#             dfl = []
+#             for f, nbrs in feature_nbrs.items():
+#                 dfl.append(OrderedDict(feature=f, redundant_neighbors=','.join(nbrs), num_redundant_neighbors=len(nbrs)))
+#             df = pd.DataFrame(dfl)
+#             df.sort_values('num_redundant_neighbors', inplace=True, ascending=False)
+#             df.to_csv(pngfile+'_filtered_feature_info.tsv', sep='\t', index=False)
+#             tiny_lines = []
+#             for l in df.itertuples():
+#                 tiny_lines.extend( [x+'\n' for x in [l.feature+':']+ l.redundant_neighbors.split(',')+[''] ] )
 
-    # compute linkage of cells based on gex
-    X = adata.obsm['X_pca_gex'] # the pca components
-    print('computing pairwise X_pca_gex distances', X.shape)
-    Y = distance.pdist(X, metric='euclidean')
+#             #
 
-    print('computing linkage matrix from pairwise X_pca_gex distances')
-    cells_linkage = hierarchy.linkage(Y, method='ward')
-
-    A = np.zeros((nrows, ncols))
-
-    var_names = list(adata.raw.var_names)
-
-    for ii,feature in enumerate(features):
-        scores = get_raw_feature_scores(feature, adata, feature_types if feature_types is None else feature_types[ii])
-        # is_gex_feature = feature in var_names and ( feature_types is None or feature_types[ii]=='gex')
-        # if is_gex_feature:
-        #     scores = adata.raw.X[:, var_names.index(feature)].toarray()[:,0]
-        # else:
-        #     scores = tcr_scoring.make_tcr_score_table(adata, [feature])[:,0].astype(float)
-        mn, std = np.mean(scores), np.std(scores)
-        scores -= mn
-        if std!=0:
-            scores /= std
-        else:
-            print('WHOAH stddev of {} is {} {}'.format(feature, std, mn, scores))
-            sys.stderr.write('ERROR problem in conga.plotting.plot_interesting_features_vs_gex_clustermap')
-            return ######################### EARLY RETURN!!!!
-
-        if compute_nbr_averages:
-            num_neighbors = nbrs.shape[1] # this will not work for ragged nbr arrays (but we could change it to work)
-            scores = ( scores + scores[ nbrs ].sum(axis=1) )/(num_neighbors+1)
-
-        A[ii,:] = scores
-
-
-    tiny_lines = None
-
-    if max_redundant_features is not None:
-        feature_nbrs = {}
-
-        # filter features by correlation
-        # will subset: features, feature_types, feature_labels, A, nrows
-        C = 1-distance.squareform(distance.pdist(A, metric='correlation'), force='tomatrix')
-        feature_nbr_counts = [0]*len(features)
-        feature_mask = np.full(len(features), True)
-        for ii,f1 in enumerate(features):
-            # am I too close to a previous feature?
-            for jj in range(ii-1):
-                if feature_types is None or feature_types[ii] == feature_types[jj]:
-                    if C[ii,jj] > redundancy_threshold:
-                        print('close:', C[ii,jj], f1, features[jj])
-                        feature_nbr_counts[jj] += 1
-                        if feature_nbr_counts[jj] > max_redundant_features:
-                            feature_mask[ii] = False
-                            feature_nbrs.setdefault(features[jj],[]).append(f1)
-                            print('too many close:', feature_nbr_counts[jj], features[jj])
-                            break
-        if np.sum(feature_mask)<len(features): # have to exclude some
-            # write out the feature neighbors for inspection
-            dfl = []
-            for f, nbrs in feature_nbrs.items():
-                dfl.append(OrderedDict(feature=f, redundant_neighbors=','.join(nbrs), num_redundant_neighbors=len(nbrs)))
-            df = pd.DataFrame(dfl)
-            df.sort_values('num_redundant_neighbors', inplace=True, ascending=False)
-            df.to_csv(pngfile+'_filtered_feature_info.tsv', sep='\t', index=False)
-            tiny_lines = []
-            for l in df.itertuples():
-                tiny_lines.extend( [x+'\n' for x in [l.feature+':']+ l.redundant_neighbors.split(',')+[''] ] )
-
-            #
-
-            #
-            A = A[feature_mask,:]
-            features = np.array(features)[feature_mask]
-            if feature_types is not None:
-                feature_types = np.array(feature_types)[feature_mask]
-            new_feature_labels = []
-            for old_label, nbr_count, m in zip(feature_labels, feature_nbr_counts, feature_mask):
-                if m:
-                    if nbr_count>max_redundant_features:
-                        new_feature_labels.append('{} [+{}]'.format(old_label, nbr_count-max_redundant_features))
-                    else:
-                        new_feature_labels.append(old_label)
-            feature_labels = new_feature_labels[:]
-            nrows = len(features)
-            if feature_scores is not None:
-                feature_scores = np.array(feature_scores)[feature_mask]
-            if extra_feature_colors is not None:
-                extra_feature_colors = np.array(extra_feature_colors)[feature_mask]
+#             #
+#             A = A[feature_mask,:]
+#             features = np.array(features)[feature_mask]
+#             if feature_types is not None:
+#                 feature_types = np.array(feature_types)[feature_mask]
+#             new_feature_labels = []
+#             for old_label, nbr_count, m in zip(feature_labels, feature_nbr_counts, feature_mask):
+#                 if m:
+#                     if nbr_count>max_redundant_features:
+#                         new_feature_labels.append('{} [+{}]'.format(old_label, nbr_count-max_redundant_features))
+#                     else:
+#                         new_feature_labels.append(old_label)
+#             feature_labels = new_feature_labels[:]
+#             nrows = len(features)
+#             if feature_scores is not None:
+#                 feature_scores = np.array(feature_scores)[feature_mask]
+#             if extra_feature_colors is not None:
+#                 extra_feature_colors = np.array(extra_feature_colors)[feature_mask]
 
 
 
 
-    ## add some cell colors
-    organism = adata.uns['organism']
+#     ## add some cell colors
+#     organism = adata.uns['organism']
 
-    colorbar_names, colorbar_colors, colorbar_sorted_tuples = [], [], []
+#     colorbar_names, colorbar_colors, colorbar_sorted_tuples = [], [], []
 
-    if show_gex_cluster_colorbar:
-        clusters_gex = np.array(adata.obs['clusters_gex'])
-        num_clusters_gex = np.max(clusters_gex)+1
-        cluster_color_dict = get_integers_color_dict(num_clusters_gex)
-        colorbar_names.append( 'gex_cluster')
-        colorbar_colors.append( [cluster_color_dict[x] for x in clusters_gex] )
-        colorbar_sorted_tuples.append( [ ('gexclus'+str(x), cluster_color_dict[x]) for x in range(num_clusters_gex)])
+#     if show_gex_cluster_colorbar:
+#         clusters_gex = np.array(adata.obs['clusters_gex'])
+#         num_clusters_gex = np.max(clusters_gex)+1
+#         cluster_color_dict = get_integers_color_dict(num_clusters_gex)
+#         colorbar_names.append( 'gex_cluster')
+#         colorbar_colors.append( [cluster_color_dict[x] for x in clusters_gex] )
+#         colorbar_sorted_tuples.append( [ ('gexclus'+str(x), cluster_color_dict[x]) for x in range(num_clusters_gex)])
 
-    if show_tcr_cluster_colorbar:
-        clusters_tcr = np.array(adata.obs['clusters_tcr'])
-        num_clusters_tcr = np.max(clusters_tcr)+1
-        cluster_color_dict = get_integers_color_dict(num_clusters_tcr)
-        colorbar_names.append( 'tcr_cluster')
-        colorbar_colors.append( [cluster_color_dict[x] for x in clusters_tcr] )
-        colorbar_sorted_tuples.append( [ ('tcrclus'+str(x), cluster_color_dict[x]) for x in range(num_clusters_tcr)])
+#     if show_tcr_cluster_colorbar:
+#         clusters_tcr = np.array(adata.obs['clusters_tcr'])
+#         num_clusters_tcr = np.max(clusters_tcr)+1
+#         cluster_color_dict = get_integers_color_dict(num_clusters_tcr)
+#         colorbar_names.append( 'tcr_cluster')
+#         colorbar_colors.append( [cluster_color_dict[x] for x in clusters_tcr] )
+#         colorbar_sorted_tuples.append( [ ('tcrclus'+str(x), cluster_color_dict[x]) for x in range(num_clusters_tcr)])
 
-    if show_VJ_gene_segment_colorbars:
-        tcrs = preprocess.retrieve_tcrs_from_adata(adata)
-        gene_colors, sorted_gene_colors = assign_colors_to_conga_tcrs(tcrs, organism, return_sorted_color_tuples=True)
-        colorbar_names.extend('VA JA VB JB'.split())
-        colorbar_colors.extend(gene_colors)
-        num_to_show = 10 # in the text written at the top
-        colorbar_sorted_tuples.extend( [ x[:num_to_show] for x in sorted_gene_colors ] )
+#     if show_VJ_gene_segment_colorbars:
+#         tcrs = preprocess.retrieve_tcrs_from_adata(adata)
+#         gene_colors, sorted_gene_colors = assign_colors_to_conga_tcrs(tcrs, organism, return_sorted_color_tuples=True)
+#         colorbar_names.extend('VA JA VB JB'.split())
+#         colorbar_colors.extend(gene_colors)
+#         num_to_show = 10 # in the text written at the top
+#         colorbar_sorted_tuples.extend( [ x[:num_to_show] for x in sorted_gene_colors ] )
 
-    # add some row colors
-    colorbar_row_colors = []
-    if feature_scores is not None:
-        cm = plt.get_cmap(feature_scores_cmap)
-        vmin, vmax = min(feature_scores), max(feature_scores)
-        if vmax==vmin: vmax +=.001
-        normed_scores = [ (x-vmin)/(vmax-vmin) for x in feature_scores]
-        colorbar_row_colors.append( [ cm(x) for x in normed_scores])
+#     # add some row colors
+#     colorbar_row_colors = []
+#     if feature_scores is not None:
+#         cm = plt.get_cmap(feature_scores_cmap)
+#         vmin, vmax = min(feature_scores), max(feature_scores)
+#         if vmax==vmin: vmax +=.001
+#         normed_scores = [ (x-vmin)/(vmax-vmin) for x in feature_scores]
+#         colorbar_row_colors.append( [ cm(x) for x in normed_scores])
 
-    if feature_types is not None:
-        type2color = {'tcr':'C0', 'gex':'C1'}
-        colorbar_row_colors.append( [ type2color.get(x,'black') for x in feature_types] )
+#     if feature_types is not None:
+#         type2color = {'tcr':'C0', 'gex':'C1'}
+#         colorbar_row_colors.append( [ type2color.get(x,'black') for x in feature_types] )
 
-    if extra_feature_colors is not None:
-        colorbar_row_colors.append(extra_feature_colors)
+#     if extra_feature_colors is not None:
+#         colorbar_row_colors.append(extra_feature_colors)
 
-    if not colorbar_row_colors:
-        colorbar_row_colors = None
+#     if not colorbar_row_colors:
+#         colorbar_row_colors = None
 
-    #gene_colors_df = pd.DataFrame(OrderedDict(zip(colorbar_names, colorbar_colors)))
+#     #gene_colors_df = pd.DataFrame(OrderedDict(zip(colorbar_names, colorbar_colors)))
 
-    if feature_types is None:
-        mx = np.max(np.abs(A))
-    else:
-        # try to only use other-type features for setting max
-        mask = [ x=='tcr' for x in feature_types]
-        if np.sum(mask):
-            mx = np.max(np.abs(A[mask,:]))
-        else:
-            mx = np.max(np.abs(A))
+#     if feature_types is None:
+#         mx = np.max(np.abs(A))
+#     else:
+#         # try to only use other-type features for setting max
+#         mask = [ x=='tcr' for x in feature_types]
+#         if np.sum(mask):
+#             mx = np.max(np.abs(A[mask,:]))
+#         else:
+#             mx = np.max(np.abs(A))
 
-    mx = min(max_vmax, max(min_vmax, mx))
-    #mx = np.max(np.abs(A))
+#     mx = min(max_vmax, max(min_vmax, mx))
+#     #mx = np.max(np.abs(A))
 
-    print('making clustermap; num_features=', len(features))
-    fig_width = 10
-    fig_height = max(5.0, len(features)*0.2 )
-    # not present in older version of seaborn:
-    #dendrogram_inches = 2.
-    #dendrogram_ratio = (dendrogram_inches/fig_height, dendrogram_inches/fig_width)
-    cm = sns.clustermap(A, col_linkage=cells_linkage, metric='correlation', cmap='coolwarm', vmin=-mx, vmax=mx,
-                        col_colors=colorbar_colors, row_colors=colorbar_row_colors,
-                        figsize=(fig_width,fig_height))#, dendrogram_ratio=dendrogram_ratio)
-    row_indices = cm.dendrogram_row.reordered_ind
-    row_labels = [feature_labels[x] for x in row_indices]
-    cm.ax_heatmap.set_yticks( 0.5+np.arange(nrows))
-    cm.ax_heatmap.set_yticklabels( row_labels, rotation='horizontal', fontdict={'fontsize':8} )
-    cm.ax_heatmap.set_xticks([])
-    cm.ax_heatmap.set_xticklabels([])
+#     print('making clustermap; num_features=', len(features))
+#     fig_width = 10
+#     fig_height = max(5.0, len(features)*0.2 )
+#     # not present in older version of seaborn:
+#     #dendrogram_inches = 2.
+#     #dendrogram_ratio = (dendrogram_inches/fig_height, dendrogram_inches/fig_width)
+#     cm = sns.clustermap(A, col_linkage=cells_linkage, metric='correlation', cmap='coolwarm', vmin=-mx, vmax=mx,
+#                         col_colors=colorbar_colors, row_colors=colorbar_row_colors,
+#                         figsize=(fig_width,fig_height))#, dendrogram_ratio=dendrogram_ratio)
+#     row_indices = cm.dendrogram_row.reordered_ind
+#     row_labels = [feature_labels[x] for x in row_indices]
+#     cm.ax_heatmap.set_yticks( 0.5+np.arange(nrows))
+#     cm.ax_heatmap.set_yticklabels( row_labels, rotation='horizontal', fontdict={'fontsize':8} )
+#     cm.ax_heatmap.set_xticks([])
+#     cm.ax_heatmap.set_xticklabels([])
 
-    # show the top couple V/J genes and their colors
-    ax = cm.ax_col_dendrogram
-    col_dendro_width = fig_width * (ax.get_position().x1 - ax.get_position().x0 )
-    col_dendro_height = fig_height * (ax.get_position().y1 - ax.get_position().y0 )
+#     # show the top couple V/J genes and their colors
+#     ax = cm.ax_col_dendrogram
+#     col_dendro_width = fig_width * (ax.get_position().x1 - ax.get_position().x0 )
+#     col_dendro_height = fig_height * (ax.get_position().y1 - ax.get_position().y0 )
 
-    line_height_inches = 0.09
-    fontsize=7
-    for ii, sorted_tuples in enumerate(colorbar_sorted_tuples):
-        ax.text(-0.01, 1.0 - (ii*line_height_inches+0.05)/col_dendro_height,
-                colorbar_names[ii], va='top', ha='right', fontsize=fontsize, color='k', transform=ax.transAxes)
-        for jj in range(len(sorted_tuples)):
-            gene, color = sorted_tuples[jj]
-            ax.text(float(jj)/len(sorted_tuples), 1.0 - (ii*line_height_inches+0.05)/col_dendro_height,
-                    gene, va='top', ha='left', fontsize=fontsize, color=color, transform=ax.transAxes)
+#     line_height_inches = 0.09
+#     fontsize=7
+#     for ii, sorted_tuples in enumerate(colorbar_sorted_tuples):
+#         ax.text(-0.01, 1.0 - (ii*line_height_inches+0.05)/col_dendro_height,
+#                 colorbar_names[ii], va='top', ha='right', fontsize=fontsize, color='k', transform=ax.transAxes)
+#         for jj in range(len(sorted_tuples)):
+#             gene, color = sorted_tuples[jj]
+#             ax.text(float(jj)/len(sorted_tuples), 1.0 - (ii*line_height_inches+0.05)/col_dendro_height,
+#                     gene, va='top', ha='left', fontsize=fontsize, color=color, transform=ax.transAxes)
 
-    # show the tiny_lines
-    if tiny_lines is not None:
-        ax = cm.ax_row_dendrogram
-        row_dendro_width = fig_width * (ax.get_position().x1 - ax.get_position().x0 )
-        row_dendro_height = fig_height * (ax.get_position().y1 - ax.get_position().y0 )
+#     # show the tiny_lines
+#     if tiny_lines is not None:
+#         ax = cm.ax_row_dendrogram
+#         row_dendro_width = fig_width * (ax.get_position().x1 - ax.get_position().x0 )
+#         row_dendro_height = fig_height * (ax.get_position().y1 - ax.get_position().y0 )
 
-        max_lines = int(row_dendro_height / 0.08)
-        col_width_frac = 0.45 / row_dendro_width
-        x_offset = 0
-        tiny_fontsize=5
-        ax.text(0.0, 1.0, 'Correlated\nfeatures\nomitted:', va='bottom', ha='left', fontsize=tiny_fontsize,
-                transform=ax.transAxes, zorder=-1, color='black')
-        while tiny_lines:
-            ax.text(x_offset, 1.0, ''.join(tiny_lines[:max_lines]), va='top', ha='left', fontsize=tiny_fontsize,
-                    transform=ax.transAxes, zorder=-1, color='blue')
-            x_offset += col_width_frac
-            tiny_lines = tiny_lines[max_lines:]
-            if tiny_lines and x_offset+col_width_frac/2>1.0:
-                ax.text(x_offset, 1.0, '...', va='top', ha='left', fontsize=tiny_fontsize,transform=ax.transAxes)
-                break
+#         max_lines = int(row_dendro_height / 0.08)
+#         col_width_frac = 0.45 / row_dendro_width
+#         x_offset = 0
+#         tiny_fontsize=5
+#         ax.text(0.0, 1.0, 'Correlated\nfeatures\nomitted:', va='bottom', ha='left', fontsize=tiny_fontsize,
+#                 transform=ax.transAxes, zorder=-1, color='black')
+#         while tiny_lines:
+#             ax.text(x_offset, 1.0, ''.join(tiny_lines[:max_lines]), va='top', ha='left', fontsize=tiny_fontsize,
+#                     transform=ax.transAxes, zorder=-1, color='blue')
+#             x_offset += col_width_frac
+#             tiny_lines = tiny_lines[max_lines:]
+#             if tiny_lines and x_offset+col_width_frac/2>1.0:
+#                 ax.text(x_offset, 1.0, '...', va='top', ha='left', fontsize=tiny_fontsize,transform=ax.transAxes)
+#                 break
 
 
-    print('saving', pngfile)
+#     print('saving', pngfile)
 
-    cm.savefig(pngfile, dpi=200)
+#     cm.savefig(pngfile, dpi=200)
 
 def plot_cluster_gene_compositions(
         adata,
