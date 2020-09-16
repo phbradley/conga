@@ -25,13 +25,6 @@ cmd="nice $PYTHON $SCRIPT --organism human --filtered_contig_annotations_csvfile
 echo "Running:" $cmd
 $cmd > setup2.log 2> setup2.err &
 
-# Human NSCLC B cells -- use 10x clonotype definitions
-CONTIGS="${DATADIR}vdj_v1_hs_nsclc_b_filtered_contig_annotations.csv"
-
-cmd="nice $PYTHON $SCRIPT --organism human_ig --filtered_contig_annotations_csvfile $CONTIGS"
-echo "Running:" $cmd
-$cmd > setup3.log 2> setup3.err &
-
 # Human melanoma B cells -- use stricter tcrdist based clonotypes
 CONTIGS="${DATADIR}sc5p_v1p1_hs_melanoma_10k_b_filtered_contig_annotations.csv"
 

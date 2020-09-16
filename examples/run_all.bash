@@ -37,16 +37,6 @@ echo ; echo $cmd
 $cmd > ${OUTPREFIX}.log 2> ${OUTPREFIX}.err &
 
 
-# Human NSCLC B cells, 10x clonotype definitions
-OUTPREFIX="bcr_hs_nsclc"
-CLONES="${DATADIR}vdj_v1_hs_nsclc_b_filtered_contig_annotations_tcrdist_clones.tsv"
-GEX="${DATADIR}vdj_v1_hs_nsclc_5gex_filtered_gene_bc_matrices_h5.h5"
-
-cmd="nice $PYTHON $SCRIPT --all --organism human_ig --clones_file $CLONES --gex_data $GEX --gex_data_type 10x_h5 --outfile_prefix $OUTPREFIX"
-echo ; echo $cmd
-$cmd > ${OUTPREFIX}.log 2> ${OUTPREFIX}.err &
-
-
 # Human melanoma B cells, 10x clonotype definitions
 OUTPREFIX="bcr_hs_melanoma"
 CLONES="${DATADIR}sc5p_v1p1_hs_melanoma_10k_b_filtered_contig_annotations_tcrdist_clones_condensed.tsv"
