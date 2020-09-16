@@ -53,13 +53,11 @@ parser.add_argument('--find_gex_cluster_degs', action='store_true')
 parser.add_argument('--find_hotspot_features', action='store_true')
 parser.add_argument('--plot_cluster_gene_compositions', action='store_true')
 parser.add_argument('--make_tcrdist_trees', action='store_true')
-parser.add_argument('--make_gex_cluster_tcr_trees', action='store_true') # same as --make_tcrdist_trees, save for compat
 # configure things
 parser.add_argument('--skip_gex_header', action='store_true')
 parser.add_argument('--skip_gex_header_raw', action='store_true')
 parser.add_argument('--skip_gex_header_nbrZ', action='store_true')
 parser.add_argument('--verbose_nbrs', action='store_true')
-parser.add_argument('--include_vj_genes_as_tcr_features', action='store_true')
 parser.add_argument('--skip_tcr_scores_in_gex_header', action='store_true')
 parser.add_argument('--tenx_agbt', action='store_true')
 parser.add_argument('--include_alphadist_in_tcr_feature_logos', action='store_true')
@@ -73,9 +71,6 @@ parser.add_argument('--shuffle_gex_nbrs', action='store_true') # for debugging
 parser.add_argument('--exclude_vgene_strings', type=str, nargs='*')
 
 args = parser.parse_args()
-
-if args.make_gex_cluster_tcr_trees:
-    args.make_tcrdist_trees=True
 
 if args.all:
     all_modes = """graph_vs_graph
@@ -477,13 +472,13 @@ if args.graph_vs_tcr_features: #################################################
     pval_threshold = 1.
     results = []
     tcr_score_names = list(args.gex_nbrhood_tcr_score_names)
-    if args.include_vj_genes_as_tcr_features:
+    if True: #args.include_vj_genes_as_tcr_features: # (used to be an option)
         min_gene_count = 5
         tcrs = conga.preprocess.retrieve_tcrs_from_adata(adata)
         organism_genes = conga.tcrdist.all_genes.all_genes[adata.uns['organism']]
         counts = Counter( [ organism_genes[x[i_ab][j_vj]].count_rep
                             for x in tcrs for i_ab in range(2) for j_vj in range(2)] )
-        count_reps = [x for x,y in counts.most_common() if y>min_gene_count ]
+        count_reps = [x for x,y in counts.most_common() if y>=min_gene_count ]
         tcr_score_names += count_reps
 
     for nbr_frac in args.nbr_fracs:
@@ -569,7 +564,7 @@ if args.make_tcrdist_trees: # make tcrdist trees for each of the gex clusters, a
     tcrs = conga.preprocess.retrieve_tcrs_from_adata(adata)
 
     num_clones = adata.shape[0]
-    if 'conga_scores' in adata.obs_names:
+    if 'conga_scores' in adata.obs_keys():
         conga_scores = np.array(adata.obs['conga_scores'])
         scores = np.sqrt( np.maximum( 0.0, -1*np.log10( 100*conga_scores/num_clones)))
     else:
@@ -808,15 +803,19 @@ if args.find_hotspot_features:
                 features = list(results.feature)
                 feature_labels = ['{:9.1e} {} {}'.format(x,y,z)
                                   for x,y,z in zip(results.pvalue_adj, results.feature_type, results.feature)]
+                min_pval = 1e-299 # dont want log10 of 0.0
+                feature_scores = [np.sqrt(-1*np.log10(max(min_pval, x.pvalue_adj))) for x in results.itertuples()]
 
                 if plot_tag=='gex':
                     conga.plotting.plot_interesting_features_vs_gex_clustermap(
                         adata, features, pngfile, nbrs=plot_nbrs, compute_nbr_averages=True,
-                        feature_labels=feature_labels, feature_types = list(results.feature_type))
+                        feature_labels=feature_labels, feature_types = list(results.feature_type),
+                        feature_scores = feature_scores )
                 else:
                     conga.plotting.plot_interesting_features_vs_tcr_clustermap(
                         adata, features, pngfile, nbrs=plot_nbrs, compute_nbr_averages=True,
-                        feature_labels=feature_labels, feature_types = list(results.feature_type))
+                        feature_labels=feature_labels, feature_types = list(results.feature_type),
+                        feature_scores = feature_scores )
 
                 # now a more compact version where we filter out redundant features
                 pngfile = '{}_{:.3f}_nbrs_{}_hotspot_features_vs_{}_clustermap_lessredundant.png'\
@@ -832,12 +831,14 @@ if args.find_hotspot_features:
                     conga.plotting.plot_interesting_features_vs_gex_clustermap(
                         adata, features, pngfile, nbrs=plot_nbrs, compute_nbr_averages=True,
                         feature_labels=feature_labels, feature_types = list(results.feature_type),
-                        max_redundant_features=max_redundant_features, redundancy_threshold=redundancy_threshold)
+                        max_redundant_features=max_redundant_features, redundancy_threshold=redundancy_threshold,
+                        feature_scores=feature_scores)
                 else:
                     conga.plotting.plot_interesting_features_vs_tcr_clustermap(
                         adata, features, pngfile, nbrs=plot_nbrs, compute_nbr_averages=True,
                         feature_labels=feature_labels, feature_types = list(results.feature_type),
-                        max_redundant_features=max_redundant_features, redundancy_threshold=redundancy_threshold)
+                        max_redundant_features=max_redundant_features, redundancy_threshold=redundancy_threshold,
+                        feature_scores=feature_scores)
 
 
 
