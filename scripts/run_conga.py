@@ -423,8 +423,8 @@ if args.graph_vs_gex_features: #################################################
             pngfile = '{}_all_tcr_graph_genes_clustermap.png'.format(args.outfile_prefix)
             nbr_frac = max(args.nbr_fracs)
             gex_nbrs, tcr_nbrs = all_nbrs[nbr_frac]
-            conga.plotting.plot_interesting_features_vs_tcr_clustermap(
-                adata, genes, pngfile, nbrs=tcr_nbrs, compute_nbr_averages=True, feature_labels=gene_labels)
+            conga.plotting.plot_interesting_features_vs_clustermap(
+                adata, genes, pngfile, 'tcr', nbrs=tcr_nbrs, compute_nbr_averages=True, feature_labels=gene_labels)
 
 
     ## now make another fake nbr graph defined by TCR gene segment usage
@@ -806,16 +806,10 @@ if args.find_hotspot_features:
                 min_pval = 1e-299 # dont want log10 of 0.0
                 feature_scores = [np.sqrt(-1*np.log10(max(min_pval, x.pvalue_adj))) for x in results.itertuples()]
 
-                if plot_tag=='gex':
-                    conga.plotting.plot_interesting_features_vs_gex_clustermap(
-                        adata, features, pngfile, nbrs=plot_nbrs, compute_nbr_averages=True,
-                        feature_labels=feature_labels, feature_types = list(results.feature_type),
-                        feature_scores = feature_scores )
-                else:
-                    conga.plotting.plot_interesting_features_vs_tcr_clustermap(
-                        adata, features, pngfile, nbrs=plot_nbrs, compute_nbr_averages=True,
-                        feature_labels=feature_labels, feature_types = list(results.feature_type),
-                        feature_scores = feature_scores )
+                conga.plotting.plot_interesting_features_vs_clustermap(
+                    adata, features, pngfile, plot_tag, nbrs=plot_nbrs, compute_nbr_averages=True,
+                    feature_labels=feature_labels, feature_types = list(results.feature_type),
+                    feature_scores = feature_scores )
 
                 # now a more compact version where we filter out redundant features
                 pngfile = '{}_{:.3f}_nbrs_{}_hotspot_features_vs_{}_clustermap_lessredundant.png'\
@@ -827,18 +821,11 @@ if args.find_hotspot_features:
                     max_redundant_features = 1 # at most 1 duplicate
                 else:
                     max_redundant_features = 2 # at most 2 duplicates
-                if plot_tag=='gex':
-                    conga.plotting.plot_interesting_features_vs_gex_clustermap(
-                        adata, features, pngfile, nbrs=plot_nbrs, compute_nbr_averages=True,
-                        feature_labels=feature_labels, feature_types = list(results.feature_type),
-                        max_redundant_features=max_redundant_features, redundancy_threshold=redundancy_threshold,
-                        feature_scores=feature_scores)
-                else:
-                    conga.plotting.plot_interesting_features_vs_tcr_clustermap(
-                        adata, features, pngfile, nbrs=plot_nbrs, compute_nbr_averages=True,
-                        feature_labels=feature_labels, feature_types = list(results.feature_type),
-                        max_redundant_features=max_redundant_features, redundancy_threshold=redundancy_threshold,
-                        feature_scores=feature_scores)
+                conga.plotting.plot_interesting_features_vs_clustermap(
+                    adata, features, pngfile, plot_tag, nbrs=plot_nbrs, compute_nbr_averages=True,
+                    feature_labels=feature_labels, feature_types = list(results.feature_type),
+                    max_redundant_features=max_redundant_features, redundancy_threshold=redundancy_threshold,
+                    feature_scores=feature_scores)
 
 
 
