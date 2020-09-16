@@ -120,7 +120,9 @@ graph (see examples in the Examples section below).
 `human_gd` and `mouse_gd` mean gamma-deltas; `human_ig` means B cell data (not setup for mouse
 yet but let us know if that's of interest to you, for example by opening an Issue on github).
 Hacking the organism field like this allows us to put all the gene sequence information into a single,
-enlarged database file (`conga/tcrdist/db/combo_xcrs.tsv`).
+enlarged database file (`conga/tcrdist/db/combo_xcrs.tsv`). We still haven't updated all the
+image labels and filenames, so even though you are analyzing BCR data your plots will probably
+still say TCR in a few places...
 
 # svg to png
 The `conga` image-making pipeline requires an svg to png conversion. There seem to be a variety of
@@ -228,6 +230,10 @@ trustworthy, and we suggest focusing on the results from larger neighbor
 graphs (here we are showing the results for the graph with 0.1 neighbor fraction,
 `_0.100_nbrs` in the filename,
 ie where each clonotype is connected to the nearest 10 percent of the dataset).
+The colors along the top of the matrix show the GEX cluster assignments of
+each clonotype. The two columns of colors along the left-hand side of the matrix
+show (left column) the P-value and (right column) the feature type (GEX vs TCR)
+of the feature corresponding to that row.
 
 ![clustermap](_images/tcr_hs_pbmc_0.100_nbrs_combo_hotspot_features_vs_gex_clustermap_lessredundant.png)
 
@@ -261,8 +267,11 @@ and the EphB6 gene showing localized expression in the TCR landscape projection
 
 ![gex_features](_images/tcr_mm_pbmc_tcr_nbr_graph_vs_gex_features_panels.png)
 
-In the hotspot clustermap showing GEX features versus TCR-arranged clonotypes we
-can see the correlation between EphB6 and TRBV31 nicely:
+In the hotspot clustermap showing features versus TCR-arranged clonotypes we
+can see the correlation between EphB6 and TRBV31 nicely. The color rows along the
+top of the matrix show (from top to bottom) the TCR cluster assignment and the
+TRAV, TRAJ, TRBV, and TRBJ gene segment usage patterns (color key for the top
+few genes is shown at the top of the column dendrogram).
 
 ![hotspot](_images/tcr_mm_pbmc_0.100_nbrs_combo_hotspot_features_vs_tcr_clustermap_lessredundant.png)
 
@@ -302,7 +311,7 @@ with long CDRH3s and high TCL1A expression.
 
 ![biclusters](_images/bcr_hs_melanoma_bicluster_logos.png)
 
-In the hotspot clustermap showing GEX features versus TCR-arranged clonotypes we
+In the hotspot clustermap showing features versus TCR-arranged clonotypes we
 can see a breakdown between naive and non-naive features, where IGHJ6 and CDR3 length
 are correlated with genes like TCL1A and class II HLA genes, and IGHJ4 is enriched
 in the non-naives.
