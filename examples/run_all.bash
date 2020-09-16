@@ -37,7 +37,7 @@ echo ; echo $cmd
 $cmd > ${OUTPREFIX}.log 2> ${OUTPREFIX}.err &
 
 
-# Human melanoma B cells, 10x clonotype definitions
+# Human melanoma B cells, merged clonotype definitions based on distance
 OUTPREFIX="bcr_hs_melanoma"
 CLONES="${DATADIR}sc5p_v1p1_hs_melanoma_10k_b_filtered_contig_annotations_tcrdist_clones_condensed.tsv"
 GEX="${DATADIR}sc5p_v1p1_hs_melanoma_10k_filtered_feature_bc_matrix.h5"
