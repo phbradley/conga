@@ -115,7 +115,7 @@ Shell scripts for running `conga` on three publicly available 10X
 genomics datasets can be found in the `examples/` directory:
 [`examples/setup_all.bash`](examples/setup_all.bash) which preprocesses the
 clonotype data, and [`examples/run_all.bash`](examples/run_all.bash) which calls
-`scripts/run_conga.py` on the four datasets. Here we discuss some of the
+`scripts/run_conga.py` on the three datasets. Here we discuss some of the
 key outputs. For details on the algorithm and additional details on the plots,
 refer to our [BioRxiv preprint](https://www.biorxiv.org/content/10.1101/2020.06.04.134536v1).
 Here we focus on images, but the results of the different analysis
@@ -288,6 +288,8 @@ in the non-naives.
 
 CoNGA also makes a tree of all the clonotypes with a conga score less than a
 loose threshold value of 10, where we can look for sequence clustering. The branches
-are colored by average transformed conga score:
+are colored by a transformed version of the conga score that maps the threshold
+value of 10 to zero (blue) with more significant scores trending toward red at
+a value of 1e-8:
 
 ![tcrdist_tree](_images/bcr_hs_melanoma_conga_score_lt_10.0_tcrdist_tree.png)
