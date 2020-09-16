@@ -4,14 +4,14 @@ import sys
 import os
 import numpy as np
 
-parser = argparse.ArgumentParser()
+parser = argparse.ArgumentParser(description="Merge multiple datasets and generate a single clones_file and gex_data file for subsequent CoNGA analysis. Each individual dataset should be previously setup to run through conga. Use the --samples argument to provide a tsv file with three rows that give, for each dataset, the location of the clones file and gex datafile and the format of the gex data" )
 
 parser.add_argument('--samples', required=True, help='tsvfile with 3 columns, "clones_file" "gex_data" "gex_data_type" corresponding to the arguments for run_conga.py')
 parser.add_argument('--output_clones_file', required=True)
 parser.add_argument('--output_gex_data', required=True, help='The format of this output file will be "h5ad" ie scanpy h5')
-parser.add_argument('--output_distfile', help='Save the tcrdist distance matrix in numpy savetxt format to this file')
+parser.add_argument('--output_distfile', help='(optional) Save the tcrdist distance matrix in numpy savetxt format to this file')
 parser.add_argument('--organism', choices=['mouse', 'human', 'mouse_gd', 'human_gd', 'human_ig'], required=True)
-parser.add_argument('--condense_clonotypes_by_tcrdist', action='store_true')
+parser.add_argument('--condense_clonotypes_by_tcrdist', action='store_true', help='Merge clonotypes with TCRdist distances less than the threshold specified by --tcrdist_threshold_for_condensing. This can be useful for BCR data to merge families of clonally-related cells')
 parser.add_argument('--tcrdist_threshold_for_condensing', type=float, default=50.)
 parser.add_argument('--no_tcrdists', action='store_true', help='Don\'t compute tcrdists or kernel PCs; instead generate a random matrix of kernel PCs. This might be useful for preprocessing very big GEX datasets to isolate subsets of interest')
 
