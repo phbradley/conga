@@ -234,7 +234,12 @@ The colors along the top of the matrix show the GEX cluster assignments of
 each clonotype. The two columns of colors along the left-hand side of the matrix
 show (left column) the P-value and (right column) the feature type (GEX vs TCR)
 of the feature corresponding to that row (P-values and feature types are also 
-given in the row names along the right-hand side of the matrix).
+given in the row names along the right-hand side of the matrix). '[+N]' in the
+row name means that N additional highly-correlated features were filtered out;
+their names will be listed in the tiny blue text along the left-hand side of the
+figure, listed below the name of the representative feature. (Some of these images
+are big and very detailed-- downloading or opening in a separate tab and zooming 
+in may be helpful).
 
 ![clustermap](_images/tcr_hs_pbmc_0.100_nbrs_combo_hotspot_features_vs_gex_clustermap_lessredundant.png)
 
