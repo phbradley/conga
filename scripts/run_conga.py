@@ -469,6 +469,9 @@ if args.graph_vs_gex_features: #################################################
 
 
 if args.graph_vs_tcr_features: #######################################################################################
+    clusters_gex = np.array(adata.obs['clusters_gex'])
+    clusters_tcr = np.array(adata.obs['clusters_tcr'])
+
     pval_threshold = 1.
     results = []
     tcr_score_names = list(args.gex_nbrhood_tcr_score_names)
