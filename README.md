@@ -105,6 +105,16 @@ write10xCounts(x = hs1@assays$RNA@counts, path = './hs1_mtx/')
 ```
 
 # Updates
+* 2020-09-16: (EXPERIMENTAL) Added a preliminary implementation of the
+Hotspot autocorrelation algorithm developed by the Yosef lab, for finding informative features
+in multi-modal data (check out the [github repo](https://github.com/YosefLab/Hotspot)
+and the [bioRxiv preprint](https://www.biorxiv.org/content/10.1101/2020.02.06.937805v1)).
+Hotspot finds numerical features whose pattern of variation across a single-cell
+dataset respects a user-supplied notion of cell-cell similarity (a neighbor graph
+with edge weights). We are using Hotspot to identify genes that respect the TCR
+neighbor graph, and TCR features that respect the gene expression neighbor
+graph (see examples in the Examples section below).
+
 * 2020-09-04: (EXPERIMENTAL) Added support for bcrs and for gamma-delta TCRs. Right now `conga` uses the
 `'organism'` specifier to communicate the data type: `human` and `mouse` mean alpha-beta TCRs;
 `human_gd` and `mouse_gd` mean gamma-deltas; `human_ig` means B cell data (not setup for mouse
