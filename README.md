@@ -233,7 +233,8 @@ ie where each clonotype is connected to the nearest 10 percent of the dataset).
 The colors along the top of the matrix show the GEX cluster assignments of
 each clonotype. The two columns of colors along the left-hand side of the matrix
 show (left column) the P-value and (right column) the feature type (GEX vs TCR)
-of the feature corresponding to that row.
+of the feature corresponding to that row (P-values and feature types are also 
+given in the row names along the right-hand side of the matrix).
 
 ![clustermap](_images/tcr_hs_pbmc_0.100_nbrs_combo_hotspot_features_vs_gex_clustermap_lessredundant.png)
 
