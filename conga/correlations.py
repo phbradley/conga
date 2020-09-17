@@ -13,7 +13,7 @@ from .tcrdist.all_genes import all_genes
 import sys
 import pandas as pd
 from sys import exit
-
+import time #debugging
 
 def find_neighbor_neighbor_interactions(
         adata,
@@ -875,15 +875,22 @@ def find_hotspot_features(
     H = sps.csr_matrix( np.zeros((num_features,)) )
     indegrees = np.zeros((num_clones,))
 
+    last_time = time.time()
     for ii in range(num_clones):
-        if ii%250==0:
-            print('computing H matrix', ii, num_clones)
+        if ii%500==0:
+            elapsed_time = time.time() - last_time
+            if ii:
+                rate = 10*elapsed_time
+            else:
+                rate = 0
+            print(f'computing H matrix {ii:6d} {num_clones:6d} {rate:12.6f}')
             sys.stdout.flush()
+            last_time = time.time()
         X_ii = X[ii,:]
+        ii_nbrs = nbrs[ii]
+        indegrees[ii_nbrs] += 1
+        H += X_ii.multiply( X[ii_nbrs,:].sum(axis=0) )
         assert len(nbrs[ii]) == num_nbrs
-        for jj in nbrs[ii]:
-            H += X_ii.multiply(X[jj,:])
-            indegrees[jj] += 1
 
     # multiply the indegree matrix by the raw X matrix by the means
     indegrees_mat = sps.csr_matrix( indegrees[:, np.newaxis] )
