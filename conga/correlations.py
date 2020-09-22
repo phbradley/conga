@@ -323,6 +323,7 @@ def calc_good_cluster_tcr_features(
     # taken from adata.obs
     clusters_gex = np.array(clusters_gex)
     clusters_tcr = np.array(clusters_tcr)
+    good_mask = np.array(good_mask)
 
     clp_counts = Counter( (x,y) for x,y,z in zip( clusters_gex, clusters_tcr, good_mask ) if z )
     print( clp_counts.most_common())

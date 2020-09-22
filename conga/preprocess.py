@@ -286,9 +286,9 @@ def read_dataset(
 #return or pass in adata?
 def filter_normalize_and_hvg(
         adata,
-        min_genes,
-        n_genes,
-        percent_mito,
+        min_genes=None,
+        n_genes=None,
+        percent_mito=None,
         min_cells=3,
         hvg_min_mean = 0.0125,
         hvg_max_mean=3,
@@ -480,18 +480,25 @@ def cluster_and_tsne_and_umap(
 
     return adata
 
-def filter_and_scale( adata , min_genes = None, n_genes= None, percent_mito= None ):
+def filter_and_scale(
+        adata,
+        min_genes = None,
+        n_genes= None,
+        percent_mito= None
+):
     ## now process as before
-    adata = filter_normalize_and_hvg( adata, min_genes, n_genes , percent_mito , exclude_TR_genes= True, exclude_sexlinked=True)
+    adata = filter_normalize_and_hvg(
+        adata, min_genes=min_genes, n_genes=n_genes, percent_mito=percent_mito,
+        exclude_TR_genes= True, exclude_sexlinked=True)
 
     ## should consider adding cell cycle here:
     sc.pp.regress_out(adata, ['n_counts','percent_mito'])
 
     sc.pp.scale(adata, max_value=10)
 
-    #stash as a layer for gex analysis 
+    #stash as a layer for gex analysis
 
-    adata.layers['scaled'] = sc.pp.scale(adata, max_value=10, copy=True).X 
+    adata.layers['scaled'] = sc.pp.scale(adata, max_value=10, copy=True).X
 
     return adata
 
