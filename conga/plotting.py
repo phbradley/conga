@@ -10,6 +10,7 @@ from . import preprocess as pp
 from . import svg_basic
 from . import util
 from . import preprocess
+from . import correlations
 from . import tcr_scoring
 from .tcrdist.make_tcr_logo import make_tcr_logo_for_tcrs
 from .tcrdist.tcr_distances import TcrDistCalculator
@@ -64,16 +65,18 @@ def get_integers_color_dict( num_categories, cmap=plt.get_cmap('tab20') ):
         C[i] = cmap( float(i)/(num_categories-1))
     return C
 
-def add_categorical_legend( ax, categories, colors, legend_fontsize=None ):
+def add_categorical_legend( ax, categories, colors, legend_fontsize=None, ncol=None ):
     for idx, label in enumerate(categories):
         color = colors[idx]
         # use empty scatter to set labels
         ax.scatter([], [], c=[color], label=label)
+    if ncol is None:
+        ncol=(1 if len(categories) <= 20 # was 14
+              else 2 if len(categories) <= 30 else 3)
     ax.legend(
         frameon=False, loc='center left',
         bbox_to_anchor=(0.98, 0.5),
-        ncol=(1 if len(categories) <= 20 # was 14
-              else 2 if len(categories) <= 30 else 3),
+        ncol=ncol,
         fontsize=legend_fontsize,
         borderpad=0.0,
         handletextpad=0.0)
@@ -82,10 +85,10 @@ def add_categorical_legend( ax, categories, colors, legend_fontsize=None ):
     box = ax.get_position()
     ax.set_position([box.x0, box.y0, box.width * 0.91, box.height])
 
-def add_integers_legend( ax, color_dict ):
+def add_integers_legend( ax, color_dict, ncol=None ):
     categories = [ str(x) for x in sorted( color_dict.keys() ) ]
     colors = [ color_dict[int(x)] for x in categories ]
-    add_categorical_legend( ax, categories, colors )
+    add_categorical_legend( ax, categories, colors, ncol=ncol )
 
 def make_rank_genes_logo_stack( ranks, upper_left, logo_width, max_logo_height,
                                 top_pval_for_max_height = 1e-30,
@@ -224,6 +227,8 @@ def make_logo_plots(
         max_expn_for_gene_logo = 2.5, # or max over the clps, whichever is larger
         show_pmhc_info_in_logos = False,
         nocleanup = False, # dont delete temporary image files (useful for debugging)
+        conga_scores = None,
+        good_score_mask = None,
 
         ## controls for the gene expression thumbnails that come before the actual logos:
         gex_header_genes=None,
@@ -240,7 +245,7 @@ def make_logo_plots(
     * clone sizes (obs: clone_sizes)
     * tcrs (obs)
     * 2d projections: gex and tcr (obsm: X_gex_2d, X_tcr_2d)
-    * conga scores (obs: conga_scores)
+    * conga scores (obs: conga_scores) UNLESS passed in
     * X_igex (obsm: X_igex) and X_igex_genes (uns)
     * rank genes info for each cluster-pair
 
@@ -268,10 +273,12 @@ def make_logo_plots(
     elif clusters_tcr_names is None:
         clusters_tcr_names = [str(x) for x in range(np.max(clusters_tcr)+1)]
 
-    good_score_mask = np.array(list(adata.obs['good_score_mask']))
+    if good_score_mask is None:
+        good_score_mask = np.array(list(adata.obs['good_score_mask']))
     X_gex_2d = adata.obsm['X_gex_2d']
     X_tcr_2d = adata.obsm['X_tcr_2d']
-    conga_scores = np.array(adata.obs['conga_scores'])
+    if conga_scores is None:
+        conga_scores = np.array(adata.obs['conga_scores'])
     X_igex = adata.obsm['X_igex']
     X_igex_genes = list(adata.uns['X_igex_genes']) #for .index
     organism = adata.uns['organism']
@@ -794,7 +801,7 @@ def make_logo_plots(
 
         plt.xlim((1.03,0.0))
         plt.axis('off')
-        plt.text(0.0,0.0, 'Clusters (size>{:d})'.format(min_cluster_size-1),
+        plt.text(0.0,0.0, 'Clusters (size>{:d})'.format(int(min_cluster_size)-1),
                  ha='left', va='top', transform=plt.gca().transAxes)
         leaves = R['leaves'][:] #list( hierarchy.leaves_list( Z ) )
         leaves.reverse() # since we are drawing them downward, but the leaf-order increases upward
@@ -2154,3 +2161,45 @@ def plot_cluster_gene_compositions(
         plt.bar(centers, height=heights, width=0.8, bottom=bottoms, color=colors)
         plt.title(feature_name)
     plt.savefig(pngfile)
+
+
+def make_cluster_logo_plots_figure(
+        adata,
+        scores,
+        max_good_score,
+        nbrs_gex,
+        nbrs_tcr,
+        min_cluster_size,
+        pngfile,
+        **kwargs # passed to make_logo_plots
+):
+    clusters_gex = np.array(adata.obs['clusters_gex'])
+    clusters_tcr = np.array(adata.obs['clusters_tcr'])
+
+    cluster_tcr_score_names = tcr_scoring.all_tcr_scorenames
+
+    good_mask = (scores <= max_good_score)
+
+    bic_counts = Counter( (x,y) for x,y,m in zip(clusters_gex, clusters_tcr, good_mask) if m )
+
+    num_good_biclusters = sum( 1 for x,y in bic_counts.items() if y>=min_cluster_size )
+
+    if num_good_biclusters:
+        # calc tcr sequence features of good cluster pairs
+        good_bicluster_tcr_scores = correlations.calc_good_cluster_tcr_features(
+            adata, good_mask, clusters_gex, clusters_tcr, cluster_tcr_score_names, min_count=min_cluster_size)
+
+        # run rank_genes on most common bics
+        rank_genes_uns_tag = 'rank_genes_good_biclusters'
+        correlations.run_rank_genes_on_good_biclusters(
+            adata, good_mask, clusters_gex, clusters_tcr, min_count=min_cluster_size, key_added= rank_genes_uns_tag)
+
+        make_logo_plots(
+            adata, nbrs_gex, nbrs_tcr, min_cluster_size, pngfile,
+            conga_scores = scores,
+            good_score_mask = good_mask,
+            good_bicluster_tcr_scores = good_bicluster_tcr_scores,
+            rank_genes_uns_tag = rank_genes_uns_tag,
+            **kwargs)
+
+

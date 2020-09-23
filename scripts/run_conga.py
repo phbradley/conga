@@ -66,6 +66,7 @@ import time
 sys.path.append( os.path.dirname( os.path.dirname( os.path.abspath(__file__) ) ) ) # in order to import conga package
 import matplotlib
 matplotlib.use('Agg') # for remote calcs
+import matplotlib.pyplot as plt
 import conga
 import scanpy as sc
 import scanpy.neighbors
@@ -574,7 +575,7 @@ if args.make_tcrdist_trees: # make tcrdist trees for each of the gex clusters, a
 
     num_clones = adata.shape[0]
     if 'conga_scores' in adata.obs_keys():
-        conga_scores = np.array(adata.obs['conga_scores'])
+        conga_scores = np.maximum( 1e-100, np.array(adata.obs['conga_scores']) ) # no zeros!
         scores = np.sqrt( np.maximum( 0.0, -1*np.log10( 100*conga_scores/num_clones)))
     else:
         scores = np.zeros((adata.shape[0],))
@@ -615,7 +616,7 @@ if args.make_tcrdist_trees: # make tcrdist trees for each of the gex clusters, a
     conga.svg_basic.create_file(all_cmds, x_offset-xpad, height, svgfile, create_png=True )
 
 
-    if True: # also make a tree of tcrs with conga score < threshold (10?)
+    if 'conga_scores' in adata.obs_keys(): # also make a tree of tcrs with conga score < threshold (10?)
         threshold = 10.
         # recalibrate the scores
         scores = np.sqrt( np.maximum( 0.0, -1*np.log10( conga_scores/threshold)))
@@ -656,7 +657,6 @@ if args.plot_cluster_gene_compositions:
 
 
 if args.find_gex_cluster_degs: # look at differentially expressed genes in gex clusters
-    import matplotlib.pyplot as plt
     obs_tag = 'genex_clusters'
     adata.obs[obs_tag] = [ str(x) for x in adata.obs['clusters_gex']]#.astype('category')
     key_added = 'degs_for_gex_clusters'
@@ -772,8 +772,75 @@ if args.find_hotspot_features:
     # David DeTomaso, Nir Yosef
     # https://www.biorxiv.org/content/10.1101/2020.02.06.937805v1
 
+    #all_bicluster_pvals = {}
+    all_hotspot_nbrhood_results = []
     for nbr_frac in args.nbr_fracs:
         nbrs_gex, nbrs_tcr = all_nbrs[nbr_frac]
+        print('find_hotspot_nbrhoods for nbr_frac', nbr_frac)
+        nbrhood_results = conga.correlations.find_hotspot_nbrhoods(
+            adata, nbrs_gex, nbrs_tcr, pval_threshold=1.0, also_use_cluster_graphs=False)
+        # the feature_type column is already set in nbrhood_results to {tcr/gex}_nbrs_vs_graph
+        if nbrhood_results.shape[0]: #make some simple plots
+            nbrhood_results['nbr_frac'] = nbr_frac
+            all_hotspot_nbrhood_results.append( nbrhood_results )
+            # nrows, ncols = 4, 6
+            # plt.figure(figsize=(ncols*4, nrows*4))
+            # for ii,(xy_tag, feature_nbr_tag, graph_tag) in enumerate([(x,y,z) for x in ['gex','tcr']
+            #                                                           for y in ['gex','tcr','combo','max']
+            #                                                           for z in ['graph','clust','combo']]):
+            #     mask = np.full((nbrhood_results.shape[0],), False)
+            #     for ftag in ['gex','tcr'] if feature_nbr_tag in ['combo','max'] else [feature_nbr_tag]:
+            #         for gtag in ['graph','clust'] if graph_tag=='combo' else [graph_tag]:
+            #             feature_type = '{}_nbrs_vs_{}'.format(ftag, gtag)
+            #             mask |= nbrhood_results.feature_type==feature_type
+            #     df = nbrhood_results[mask]
+            #     if df.shape[0]==0:
+            #         print('no hits:', feature_nbr_tag, graph_tag)
+            #         continue
+            #     if feature_nbr_tag == 'max':
+            #         all_pvals = {}
+            #         for tag in ['gex','tcr']:
+            #             pvals = np.full((adata.shape[0],),1000.0)
+            #             for l in df.itertuples():
+            #                 if l.feature_type.startswith(tag):
+            #                     pvals[l.clone_index] = min(l.pvalue_adj, pvals[l.clone_index])
+            #             all_pvals[tag] = pvals
+            #         pvals = np.maximum(all_pvals['gex'], all_pvals['tcr'])
+            #     else:
+            #         pvals = np.full((adata.shape[0],),1000.0)
+            #         for l in df.itertuples():
+            #             pvals[l.clone_index] = min(l.pvalue_adj, pvals[l.clone_index])
+            #     colors = np.sqrt( np.maximum(0.0, -1*np.log10(pvals)))
+            #     plt.subplot(nrows, ncols, ii+1)
+            #     reorder = np.argsort(colors)
+            #     xy = adata.obsm['X_{}_2d'.format(xy_tag)] # same umap as feature nbr-type
+            #     vmax = np.sqrt(-1*np.log10(1e-5))
+            #     plt.scatter( xy[reorder,0], xy[reorder,1], c=colors[reorder], vmin=0, vmax=vmax)
+            #     plt.xticks([],[])
+            #     plt.yticks([],[])
+            #     plt.xlabel('{} UMAP1'.format(xy_tag))
+            #     plt.title('{}_nbrs_vs_{} nbrfrac= {:.3f}'.format(feature_nbr_tag, graph_tag, nbr_frac))
+
+            #     if feature_nbr_tag == 'max' and graph_tag == 'graph' and xy_tag=='gex':
+            #         all_bicluster_pvals[nbr_frac] = pvals
+
+
+            # pngfile = '{}_hotspot_nbrhoods_{:.3f}_nbrs.png'.format(args.outfile_prefix, nbr_frac)
+            # print('making:', pngfile)
+            # plt.tight_layout()
+            # plt.savefig(pngfile)
+
+
+        # try making some logo plots. Here we are just using the graph-graph hotspot pvals, max'ed per clone over gex/tcr
+        # min_cluster_size = max( args.min_cluster_size, int(np.round(args.min_cluster_size_fraction * num_clones)))
+        # min_pvals = np.array([num_clones]*num_clones)
+        # for nbr_frac, pvals in all_bicluster_pvals.items():
+        #     min_pvals = np.minimum(min_pvals, pvals)
+
+        # pngfile = '{}_hotspot_nbrhood_biclusters.png'.format(args.outfile_prefix)
+        # conga.plotting.make_cluster_logo_plots_figure(adata, min_pvals, 1.0, nbrs_gex, nbrs_tcr,
+        #                                               min_cluster_size, pngfile)
+
         print('find_hotspot_genes for nbr_frac', nbr_frac)
         gex_results = conga.correlations.find_hotspot_genes(adata, nbrs_tcr, pval_threshold=0.05)
         gex_results['feature_type'] = 'gex'
@@ -807,18 +874,19 @@ if args.find_hotspot_features:
                     continue # clustermap not interesting...
 
                 ## clustermap of features versus cells
-                pngfile = '{}_{:.3f}_nbrs_{}_hotspot_features_vs_{}_clustermap.png'\
-                          .format(args.outfile_prefix, nbr_frac, tag, plot_tag)
                 features = list(results.feature)
                 feature_labels = ['{:9.1e} {} {}'.format(x,y,z)
                                   for x,y,z in zip(results.pvalue_adj, results.feature_type, results.feature)]
                 min_pval = 1e-299 # dont want log10 of 0.0
                 feature_scores = [np.sqrt(-1*np.log10(max(min_pval, x.pvalue_adj))) for x in results.itertuples()]
 
-                conga.plotting.plot_interesting_features_vs_clustermap(
-                    adata, features, pngfile, plot_tag, nbrs=plot_nbrs, compute_nbr_averages=True,
-                    feature_labels=feature_labels, feature_types = list(results.feature_type),
-                    feature_scores = feature_scores )
+                if False: # skip the redundant one
+                    pngfile = '{}_{:.3f}_nbrs_{}_hotspot_features_vs_{}_clustermap.png'\
+                              .format(args.outfile_prefix, nbr_frac, tag, plot_tag)
+                    conga.plotting.plot_interesting_features_vs_clustermap(
+                        adata, features, pngfile, plot_tag, nbrs=plot_nbrs, compute_nbr_averages=True,
+                        feature_labels=feature_labels, feature_types = list(results.feature_type),
+                        feature_scores = feature_scores )
 
                 # now a more compact version where we filter out redundant features
                 pngfile = '{}_{:.3f}_nbrs_{}_hotspot_features_vs_{}_clustermap_lessredundant.png'\
@@ -835,6 +903,48 @@ if args.find_hotspot_features:
                     feature_labels=feature_labels, feature_types = list(results.feature_type),
                     max_redundant_features=max_redundant_features, redundancy_threshold=redundancy_threshold,
                     feature_scores=feature_scores)
+
+    # make a plot summarizing the hotspot nbrhood pvals and also save them to a file
+    if all_hotspot_nbrhood_results:
+        nbrhood_results = pd.concat(all_hotspot_nbrhood_results)
+
+        tcrs = conga.preprocess.retrieve_tcrs_from_adata(adata)
+
+        outfile = '{}_hotspot_nbrhoods.tsv'.format(args.outfile_prefix)
+        for iab, ivj in [ (x,y) for x in range(2) for y in range(3) ]:
+            key = [ 'va ja cdr3a'.split(), 'vb jb cdr3b'.split()][iab][ivj]
+            nbrhood_results[key] = [tcrs[x.clone_index][iab][ivj]
+                                    for x in nbrhood_results.itertuples()]
+        print('making:', outfile)
+        nbrhood_results.to_csv(outfile, sep='\t', index=False)
+
+        num_clones = adata.shape[0]
+        nbrhood_pvals = { 'gex':np.full((num_clones,), num_clones).astype(float),
+                          'tcr':np.full((num_clones,), num_clones).astype(float) }
+        for l in nbrhood_results.itertuples():
+            assert l.feature_type[3:] == '_nbrs_vs_graph'
+            tag = l.feature_type[:3]
+            nbrhood_pvals[tag][l.clone_index] = min(l.pvalue_adj, nbrhood_pvals[tag][l.clone_index])
+
+        plt.figure(figsize=(12,6))
+        for icol, tag in enumerate(['gex','tcr']):
+            plt.subplot(1,2,icol+1)
+            colors = np.sqrt( np.maximum(0.0, -1*np.log10(np.maximum(1e-100, nbrhood_pvals[tag])))) # no log10 of 0.0
+            print('colors:', tag, np.max(colors), list(colors[:100]))
+            reorder = np.argsort(colors)
+            xy = adata.obsm['X_{}_2d'.format(tag)] # same umap as feature nbr-type
+            vmax = np.sqrt(-1*np.log10(1e-5))
+            plt.scatter( xy[reorder,0], xy[reorder,1], c=colors[reorder], vmin=0, vmax=vmax)
+            plt.xticks([],[])
+            plt.yticks([],[])
+            plt.xlabel('{} UMAP1'.format(tag))
+            plt.ylabel('{} UMAP2'.format(tag))
+            plt.title('{} hotspot nbrhood pvalues'.format(tag))
+        plt.tight_layout()
+        pngfile = '{}_hotspot_nbrhoods.png'.format(args.outfile_prefix)
+        print('making:', pngfile)
+        plt.savefig(pngfile)
+
 
 
 

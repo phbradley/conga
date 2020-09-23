@@ -287,9 +287,9 @@ def read_dataset(
 def filter_normalize_and_hvg(
         adata,
         min_genes=200,
-        min_cells=3,
         n_genes=2000,
         percent_mito=0.1,
+        min_cells=3,
         hvg_min_mean = 0.0125,
         hvg_max_mean=3,
         antibody = False,

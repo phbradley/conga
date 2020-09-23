@@ -335,7 +335,7 @@ def calc_good_cluster_tcr_features(
         clp=(cl_gex, cl_tcr)
         if m and clp in good_clps and clp not in seen:
             seen.add(clp)
-            fake_nbrs_gex.append( np.nonzero( (clusters_gex==cl_gex) & (clusters_tcr==cl_tcr) )[0] )
+            fake_nbrs_gex.append( np.nonzero( (clusters_gex==cl_gex) & (clusters_tcr==cl_tcr) &good_mask)[0] )
         else:
             fake_nbrs_gex.append([])
 
@@ -861,7 +861,6 @@ def find_hotspot_features(
     assert type(X) is sps.csr_matrix # right now anyhow; not a strict requirement
 
     num_clones, num_features = X.shape
-    num_nbrs = len(nbrs[0]) # start by assuming that nbrs is NOT a ragged array (fixed nbr num for all clones)
     assert len(features) == num_features
 
     # compute mean and sdev of raw gene expression matrix
@@ -888,9 +887,10 @@ def find_hotspot_features(
             last_time = time.time()
         X_ii = X[ii,:]
         ii_nbrs = nbrs[ii]
+        if len(ii_nbrs)==0:
+            continue
         indegrees[ii_nbrs] += 1
         H += X_ii.multiply( X[ii_nbrs,:].sum(axis=0) )
-        assert len(nbrs[ii]) == num_nbrs
 
     # multiply the indegree matrix by the raw X matrix by the means
     indegrees_mat = sps.csr_matrix( indegrees[:, np.newaxis] )
@@ -911,15 +911,6 @@ def find_hotspot_features(
     mask3 = mask2 & (~mask1) # H nonzero but stddev 0
     print('zeros:', np.sum(mask1), np.sum(mask2), np.sum(mask3))
 
-    if verbose:
-        inds = np.argsort(X_var)
-        Hstd = np.sqrt(num_features*num_nbrs)
-        for ind in inds[:25]:
-            print('std: {} =?= {} H: {} new_H: {} feature: {}'\
-                  .format(X_var[ind], np.var(X[:,ind].toarray()),
-                          H[ind]/Hstd, H[ind]/(Hstd*max(1e-9,X_var[ind])), features[ind]))
-    #print(hiphil)
-
     H /= np.maximum(1e-9, X_var)
 
     H[X_var==0] = 0 # set to zero if stddev is 0
@@ -927,7 +918,6 @@ def find_hotspot_features(
     inds = np.argsort(H)[::-1] # decreasing
 
     # the simple estimate for the variance of H is the total number of neighbors
-    #H /= np.sqrt(num_clones*num_nbrs)
     # compute the variance
     nbrs_sets = []
     for ii in range(num_clones):
@@ -936,13 +926,12 @@ def find_hotspot_features(
     H_var = 0
     print('compute H_var')
     for ii in range(num_clones):
-        assert len(nbrs[ii]) == num_nbrs
         for jj in nbrs[ii]:
             if ii in nbrs_sets[jj]:
                 H_var += 2
             else:
                 H_var += 1
-    print('DONE computing H_var delta=', H_var/(num_clones*num_nbrs))
+
     H /= np.sqrt(H_var)
 
     results = []
@@ -1053,4 +1042,90 @@ def find_hotspot_tcr_features(
 
     return df
 
+
+def find_hotspot_nbrhoods(
+        adata,
+        nbrs_gex,
+        nbrs_tcr,
+        pval_threshold,
+        also_use_cluster_graphs=False
+):
+    """ My hacky first implementation of the HotSpot method:
+    "Identifying Informative Gene Modules Across Modalities of Single Cell Genomics"
+
+    David DeTomaso, Nir Yosef
+    https://www.biorxiv.org/content/10.1101/2020.02.06.937805v1
+
+    pvalues are crude bonferroni corrected
+
+    """
+
+    organism = adata.uns['organism']
+    tcrs = pp.retrieve_tcrs_from_adata(adata)
+    clusters_gex = np.array(adata.obs['clusters_gex'])
+    clusters_tcr = np.array(adata.obs['clusters_tcr'])
+    nbrs_gex_clusters = setup_fake_nbrs_from_clusters_for_graph_vs_features_analysis( clusters_gex )
+    nbrs_tcr_clusters = setup_fake_nbrs_from_clusters_for_graph_vs_features_analysis( clusters_tcr )
+    # create csr_matrix
+    # >>> row = np.array([0, 0, 1, 2, 2, 2])
+    # >>> col = np.array([0, 2, 2, 0, 1, 2])
+    # >>> data = np.array([1, 2, 3, 4, 5, 6])
+    # >>> csr_matrix((data, (row, col)), shape=(3, 3)).toarray()
+    # array([[1, 0, 2],
+    #        [0, 0, 3],
+    #        [4, 5, 6]])
+
+    num_clones = adata.shape[0]
+
+    dfl = []
+    for feature_nbr_tag, feature_nbrs, graph_tag, graph_nbrs in [ ['gex', nbrs_gex, 'graph', nbrs_tcr],
+                                                                  ['gex', nbrs_gex, 'clust', nbrs_tcr_clusters],
+                                                                  ['tcr', nbrs_tcr, 'graph', nbrs_gex],
+                                                                  ['tcr', nbrs_tcr, 'clust', nbrs_gex_clusters]]:
+        if graph_tag == 'clust' and not also_use_cluster_graphs:
+            continue
+
+        rows = [] # list of (1,num_clones) csr_matrix'es
+        for ii in range(num_clones):
+            ii_nbrs = feature_nbrs[ii]
+            num_nbrs = len(ii_nbrs)
+            data = np.full((num_nbrs,),1.0)
+            row_ind = np.full((num_nbrs,),0).astype(int)
+            new_row = sps.csr_matrix((data, (row_ind, ii_nbrs)), shape=(1,num_clones))
+            new_row[0,ii] = 1.
+            rows.append(new_row)
+        X = sps.vstack(rows)
+        assert X.shape == (num_clones, num_clones)
+        # find_hotspot_features expects X to look like the GEX matrix, ie
+        #  shape=(num_clones,num_features) ie the features are the columns
+        # but we set it up with the features (the nbrhoods) as the rows
+        # so we need to transpose
+        X = X.transpose().tocsr()
+
+        feature_names = [str(x) for x in range(num_clones)]
+        #
+        df = find_hotspot_features(X, graph_nbrs, feature_names, pval_threshold)#, verbose=True)
+
+        if df.shape[0] == 0:
+            continue
+
+        feature_type = '{}_nbrs_vs_{}'.format(feature_nbr_tag, graph_tag)
+        df['feature_type'] = feature_type
+        df['clone_index'] = df.feature.astype(int)
+
+        # show the top 100 hits
+        for ii,l in enumerate(df[:100].itertuples()):
+            atcr, btcr = tcrs[l.clone_index]
+            print('hotspot_{}: {:4d} {:9.3f} {:8.1e} {:2d} {:2d} {:4d} {} {} {} {} {} {}'\
+                  .format(feature_type, ii, l.Z, l.pvalue_adj,
+                          clusters_gex[l.clone_index], clusters_tcr[l.clone_index],
+                          l.clone_index,
+                          atcr[0], atcr[1], atcr[2], btcr[0], btcr[1], btcr[2]))
+        dfl.append(df)
+
+    if dfl:
+        df = pd.concat(dfl)
+        return df.drop(columns=['feature']) # feature is just str(clone_index), ie superfluous
+    else:
+        return pd.DataFrame()
 
