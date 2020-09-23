@@ -286,9 +286,9 @@ def read_dataset(
 #return or pass in adata?
 def filter_normalize_and_hvg(
         adata,
-        min_genes=200,
-        n_genes=2000,
-        percent_mito=0.1,
+        min_genes=None,
+        n_genes=None,
+        percent_mito=None,
         min_cells=3,
         hvg_min_mean = 0.0125,
         hvg_max_mean=3,
@@ -301,6 +301,18 @@ def filter_normalize_and_hvg(
     '''Filters cells and genes to find highly variable genes'''
 
     organism = adata.uns['organism']
+
+    if min_genes is None:
+        min_genes=200
+        print('min_genes not set. Using default ' + str(min_genes) )
+
+    if n_genes is None:
+        n_genes=2000
+        print('n_genes not set. Using default ' + str(n_genes) )
+
+    if percent_mito is None:
+        percent_mito=0.1
+        print('percent_mito not set. Using default ' + str(percent_mito) )
 
     ## notes:
     ## * AGTB specific things that we removed
@@ -468,14 +480,25 @@ def cluster_and_tsne_and_umap(
 
     return adata
 
-def filter_and_scale( adata ):
+def filter_and_scale(
+        adata,
+        min_genes = None,
+        n_genes= None,
+        percent_mito= None
+):
     ## now process as before
-    adata = filter_normalize_and_hvg(adata, exclude_TR_genes= True, exclude_sexlinked=True, percent_mito=0.1)
+    adata = filter_normalize_and_hvg(
+        adata, min_genes=min_genes, n_genes=n_genes, percent_mito=percent_mito,
+        exclude_TR_genes= True, exclude_sexlinked=True)
 
     ## should consider adding cell cycle here:
     sc.pp.regress_out(adata, ['n_counts','percent_mito'])
 
     sc.pp.scale(adata, max_value=10)
+
+    #stash as a layer for gex analysis
+
+    adata.layers['scaled'] = sc.pp.scale(adata, max_value=10, copy=True).X
 
     return adata
 
