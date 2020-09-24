@@ -1130,3 +1130,32 @@ def find_hotspot_nbrhoods(
     else:
         return pd.DataFrame()
 
+def find_hotspots( adata, nbrs = None, pval_threshold =  None ):
+
+    # wrapper function combining Hotspot calculations for TCR and GEX. Returns combined df.  
+    # nbrs: specify the nbr_fraction from preprocess.calc_nbrs to look for correlations
+    # pval_threshold: pval for Bonferri test. default is 0.05
+
+    if nbrs is None:
+        print('Specify the neighbors')
+        assert nbrs != None
+        
+    if pval_threshold is None:
+        pval = 0.05
+        print('Using pval_threshold = 0.05')
+    else:
+        pval = pval_threshold
+        print(f'Using pval_threshold = {pval}')
+
+    nbrs_gex, nbrs_tcr = nbrs
+
+    gene_df = find_hotspot_genes(adata , nbrs_tcr, pval_threshold )
+    gene_df['feature_type'] = 'gex'
+
+    tcr_df = find_hotspot_tcr_features(adata , nbrs_gex , pval_threshold  )
+    tcr_df['feature_type'] = 'tcr'
+
+    hotspot_df = pd.concat([gene_df, tcr_df])
+
+    return hotspot_df
+

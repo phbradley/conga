@@ -9,13 +9,13 @@ import math
 from . import preprocess as pp
 from . import svg_basic
 from . import util
-from . import preprocess
 from . import correlations
 from . import tcr_scoring
 from .tcrdist.make_tcr_logo import make_tcr_logo_for_tcrs
 from .tcrdist.tcr_distances import TcrDistCalculator
 from .tcrdist.util import assign_colors_to_conga_tcrs
 from .tcrdist.all_genes import all_genes
+from .tcrdist.make_tcr_trees import make_tcr_tree_svg_commands
 import os
 from os.path import exists
 from collections import Counter, OrderedDict
@@ -23,6 +23,7 @@ import matplotlib.image as mpimg
 from matplotlib.collections import LineCollection
 from scipy.cluster import hierarchy
 from scipy.spatial import distance
+
 
 
 
@@ -1475,9 +1476,9 @@ def get_raw_feature_scores( feature, adata, feature_type=None):
 
 
 
-def plot_hotspot_genes(
+def plot_hotspot_umap(
         adata,
-        xy_tag, # 'gex' or 'tcr'
+        xy_tag, 
         results_df,
         pngfile,
         nbrs = None,
@@ -1485,9 +1486,11 @@ def plot_hotspot_genes(
         nrows=6,
         ncols=4,
 ):
-    """ Expected columns in results_df dataframe: pvalue_adj feature feature_type
-    where feature_type is either 'gex' or 'tcr'
-    need that since some feature strings can be both
+    """ 
+    xy_tag: use 'gex' or 'tcr' to set umap space used for plotting the hotspot features
+    results_df : pandas df of hotspot features to plot. Expected columns are pvalue_adj feature feature_type
+    where feature_type is either 'gex' or 'tcr'. We need that since some feature strings can be both. Output 
+    from correlations.find_hotspots can be fed in directly
     """
     if results_df.shape[0]==0:
         print('no results to plot:', pngfile)
@@ -1509,7 +1512,7 @@ def plot_hotspot_genes(
         plotno+=1
         plt.subplot(nrows, ncols, plotno)
 
-        scores = get_raw_feature_scores( row.feature, adata, row.feature_type )
+        scores = get_raw_feature_scores( row.feature, adata , row.feature_type ) 
         # if row.feature_type == 'gex':
         #     if row.startswith
         #     assert row.feature in var_names
@@ -1565,6 +1568,12 @@ def plot_interesting_features_vs_clustermap(
     except:
         print('ERROR seaborn is not installed')
         return
+
+    try:
+        import fastcluster
+    except:
+        print('fastcluster is not available. Consider installing for faster performance.')
+
 
     assert dist_tag in ['gex','tcr']
 
@@ -1703,7 +1712,7 @@ def plot_interesting_features_vs_clustermap(
         colorbar_sorted_tuples.append( [ ('tcrclus'+str(x), cluster_color_dict[x]) for x in range(num_clusters_tcr)])
 
     if show_VJ_gene_segment_colorbars:
-        tcrs = preprocess.retrieve_tcrs_from_adata(adata)
+        tcrs = pp.retrieve_tcrs_from_adata(adata)
         gene_colors, sorted_gene_colors = assign_colors_to_conga_tcrs(tcrs, organism, return_sorted_color_tuples=True)
         colorbar_names.extend('VA JA VB JB'.split())
         colorbar_colors.extend(gene_colors)
@@ -2202,4 +2211,68 @@ def make_cluster_logo_plots_figure(
             rank_genes_uns_tag = rank_genes_uns_tag,
             **kwargs)
 
+def make_tcrdist_trees( adata , output_prefix = None , group_by = None):
+    
+    # generate TCRdist trees by gene expression cluster
+    # group_by: use 'clusters_gex' or 'clusters_tcr' to generate by trees by respective cluster assignments. 
+    
+    assert output_prefix != None
 
+    if group_by is None or group_by == 'clusters_gex':
+        group_by = 'clusters_gex'
+        tag = 'GEX'
+    elif group_by == 'clusters_tcr':
+        group_by = 'clusters_tcr'
+        tag = 'TCR'
+        
+    width = 800
+    height = 1000
+    xpad = 25
+    organism = adata.uns['organism']
+    precomputed = False
+    clusters = np.array(adata.obs[group_by])
+
+    num_clusters = np.max(clusters)+1
+    tcrs = pp.retrieve_tcrs_from_adata(adata)
+
+    num_clones = adata.shape[0]
+    if 'conga_scores' in adata.obs_keys():
+        conga_scores = np.maximum( 1e-100, np.array(adata.obs['conga_scores']) ) # no zeros!
+        scores = np.sqrt( np.maximum( 0.0, -1*np.log10( 100*conga_scores/num_clones)))
+    else:
+        scores = np.zeros((adata.shape[0],))
+
+    tcrdist = TcrDistCalculator(organism)
+
+    x_offset = 0
+    all_cmds = []
+
+    #color_score_range = [-1*np.log(10), -1*np.log(1e-5)]
+    color_score_range = [0, 3.0]
+    print('color_score_range:', color_score_range)
+
+    for clust in range(num_clusters):
+        cmask = (clusters==clust)
+        csize = np.sum(cmask)
+        #cinds = np.nonzero(cmask)[0]
+
+        ctcrs   = [x for x,y in zip(  tcrs, cmask) if y]
+        cscores = [x for x,y in zip(scores, cmask) if y]
+
+        if not precomputed:
+            print('computing tcrdist distances:', clust, csize)
+            cdists = np.array([ tcrdist(x,y) for x in ctcrs for y in ctcrs]).reshape(csize,csize)
+        else:
+            assert False # tmp hack
+
+        cmds = make_tcr_tree_svg_commands(
+            ctcrs, organism, [x_offset,0], [width,height], cdists, max_tcrs_for_trees=400, tcrdist_calculator=tcrdist,
+            color_scores=cscores, color_score_range = color_score_range, title=f'{tag} cluster {clust}')
+
+        x_offset += width + xpad
+        
+        all_cmds.extend(cmds)
+        
+    svgfile = output_prefix + f'_{tag}_cluster_tcrdist_trees.svg'
+    print('making:', svgfile[:-3]+'png')
+    svg_basic.create_file(all_cmds, x_offset-xpad, height, svgfile, create_png= True )
