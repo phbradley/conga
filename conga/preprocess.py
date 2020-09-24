@@ -183,7 +183,8 @@ def read_dataset(
         gex_data_type,
         clones_file,
         make_var_names_unique = True,
-        keep_cells_without_tcrs = False
+        keep_cells_without_tcrs = False,
+        kpca_file = None
 ):
     ''' returns adata
 
@@ -203,10 +204,11 @@ def read_dataset(
 
     # read the kpcs, etc
     bcmap_file = clones_file+'.barcode_mapping.tsv'
-    kpcs_file = clones_file[:-4]+'_AB.dist_50_kpcs'
+    if kpca_file is None:
+        kpca_file = clones_file[:-4]+'_AB.dist_50_kpcs'
     assert exists(clones_file)
     assert exists(bcmap_file)
-    assert exists(kpcs_file)
+    assert exists(kpca_file)
 
     print('reading:',clones_file)
     tmpdata = open(clones_file,'r')
@@ -229,10 +231,10 @@ def read_dataset(
         tcr2id[ tcr ] = l.clone_id
 
 
-    print('reading:',kpcs_file)
+    print('reading:',kpca_file)
     tcr2kpcs = {}
     lencheck= None
-    for line in open(kpcs_file,'r'):
+    for line in open(kpca_file,'r'):
         l = line.split()
         assert l[0] == 'pc_comps:'
         id = l[1]
@@ -804,6 +806,8 @@ def make_tcrdist_kernel_pcs_file_from_clones_file(
         clones_file,
         organism,
         n_components_in=50,
+        kernel=None, # either None (-->default) or 'gaussian'
+        gaussian_kernel_sdev=100.0, #unused unless kernel=='gaussian'
         verbose = False,
         outfile = None,
         input_distfile = None,
@@ -833,19 +837,26 @@ def make_tcrdist_kernel_pcs_file_from_clones_file(
 
     n_components = min( n_components_in, D.shape[0] )
 
-    print( 'running KernelPCA', D.shape)
+    print(f'running KernelPCA with {kernel} kernel distance matrix shape= {D.shape}')
 
     pca = KernelPCA(kernel='precomputed', n_components=n_components)
 
-    gram = 1 - ( D / D.max() )
+    if kernel is None:
+        gram = 1 - ( D / D.max() )
+    elif kernel == 'gaussian':
+        gram = np.exp(-0.5 * (D/gaussian_kernel_sdev)**2 )
+    else:
+        print('conga.preprocess.make_tcrdist_kernel_pcs_file_from_clones_file:: unrecognized kernel:', kernel)
+        sys.exit(1)
+
     xy = pca.fit_transform(gram)
 
     if verbose: #show the eigenvalues
         for ii in range(n_components):
             print( 'eigenvalue: {:3d} {:.3f}'.format( ii, pca.lambdas_[ii]))
 
-    # this is the kpcs_file that conga.preprocess.read_dataset is expecting:
-    #kpcs_file = clones_file[:-4]+'_AB.dist_50_kpcs'
+    # this is the kpca_file that conga.preprocess.read_dataset is expecting:
+    #kpca_file = clones_file[:-4]+'_AB.dist_50_kpcs'
     print( 'writing TCRdist kernel PCs to outfile:', outfile)
     out = open(outfile,'w')
 

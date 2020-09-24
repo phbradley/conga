@@ -997,6 +997,7 @@ def find_hotspot_genes(
     mask = [ not util.is_vdj_gene(x.feature, organism, include_constant_regions=True) for x in df.itertuples()]
 
     df = df[mask]
+    df['feature_type'] = 'gex'
 
     # show the top 100 hits
     for ii,l in enumerate(df[:100].itertuples()):
@@ -1036,6 +1037,7 @@ def find_hotspot_tcr_features(
     #print('find_hotspot_tcr_features: X=', X)
 
     df = find_hotspot_features(X, nbrs_gex, features, pval_threshold)#, verbose=True)
+    df['feature_type'] = 'tcr'
 
     # show the top 100 hits
     for ii,l in enumerate(df[:100].itertuples()):
