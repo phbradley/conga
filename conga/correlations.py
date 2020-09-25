@@ -1130,22 +1130,16 @@ def find_hotspot_nbrhoods(
     else:
         return pd.DataFrame()
 
-def find_hotspots( adata, nbrs = None, pval_threshold =  None ):
+def find_hotspots( adata, nbrs, pval_threshold = None ):
+    """
+    wrapper function combining Hotspot calculations for TCR and GEX. Returns combined df.
+    nbrs: tuple of (nbrs_gex,nbrs_tcr) from preprocess.calc_nbrs used to look for correlations
+    pval_threshold: pval for Bonferroni test. default is 0.05
+    """
 
-    # wrapper function combining Hotspot calculations for TCR and GEX. Returns combined df.  
-    # nbrs: specify the nbr_fraction from preprocess.calc_nbrs to look for correlations
-    # pval_threshold: pval for Bonferri test. default is 0.05
-
-    if nbrs is None:
-        print('Specify the neighbors')
-        assert nbrs != None
-        
     if pval_threshold is None:
-        pval = 0.05
-        print('Using pval_threshold = 0.05')
-    else:
-        pval = pval_threshold
-        print(f'Using pval_threshold = {pval}')
+        pval_threshold = 0.05
+    print(f'conga.correlations.find_hotspots:: Using pval_threshold = {pval_threshold}')
 
     nbrs_gex, nbrs_tcr = nbrs
 

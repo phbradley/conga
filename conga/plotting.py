@@ -1478,7 +1478,7 @@ def get_raw_feature_scores( feature, adata, feature_type=None):
 
 def plot_hotspot_umap(
         adata,
-        xy_tag, 
+        xy_tag,
         results_df,
         pngfile,
         nbrs = None,
@@ -1486,10 +1486,10 @@ def plot_hotspot_umap(
         nrows=6,
         ncols=4,
 ):
-    """ 
+    """
     xy_tag: use 'gex' or 'tcr' to set umap space used for plotting the hotspot features
     results_df : pandas df of hotspot features to plot. Expected columns are pvalue_adj feature feature_type
-    where feature_type is either 'gex' or 'tcr'. We need that since some feature strings can be both. Output 
+    where feature_type is either 'gex' or 'tcr'. We need that since some feature strings can be both. Output
     from correlations.find_hotspots can be fed in directly
     """
     if results_df.shape[0]==0:
@@ -1512,7 +1512,7 @@ def plot_hotspot_umap(
         plotno+=1
         plt.subplot(nrows, ncols, plotno)
 
-        scores = get_raw_feature_scores( row.feature, adata , row.feature_type ) 
+        scores = get_raw_feature_scores( row.feature, adata , row.feature_type )
         # if row.feature_type == 'gex':
         #     if row.startswith
         #     assert row.feature in var_names
@@ -2211,12 +2211,11 @@ def make_cluster_logo_plots_figure(
             rank_genes_uns_tag = rank_genes_uns_tag,
             **kwargs)
 
-def make_tcrdist_trees( adata , output_prefix = None , group_by = None):
-    
-    # generate TCRdist trees by gene expression cluster
-    # group_by: use 'clusters_gex' or 'clusters_tcr' to generate by trees by respective cluster assignments. 
-    
-    assert output_prefix != None
+def make_tcrdist_trees( adata, output_prefix, group_by = None):
+    """
+    generate TCRdist trees by gene expression cluster
+    group_by: use 'clusters_gex' or 'clusters_tcr' to generate by trees by respective cluster assignments.
+    """
 
     if group_by is None or group_by == 'clusters_gex':
         group_by = 'clusters_gex'
@@ -2224,7 +2223,7 @@ def make_tcrdist_trees( adata , output_prefix = None , group_by = None):
     elif group_by == 'clusters_tcr':
         group_by = 'clusters_tcr'
         tag = 'TCR'
-        
+
     width = 800
     height = 1000
     xpad = 25
@@ -2270,9 +2269,9 @@ def make_tcrdist_trees( adata , output_prefix = None , group_by = None):
             color_scores=cscores, color_score_range = color_score_range, title=f'{tag} cluster {clust}')
 
         x_offset += width + xpad
-        
+
         all_cmds.extend(cmds)
-        
-    svgfile = output_prefix + f'_{tag}_cluster_tcrdist_trees.svg'
+
+    svgfile = f'{output_prefix}_{tag}_cluster_tcrdist_trees.svg'
     print('making:', svgfile[:-3]+'png')
     svg_basic.create_file(all_cmds, x_offset-xpad, height, svgfile, create_png= True )
