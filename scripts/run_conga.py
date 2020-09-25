@@ -15,6 +15,7 @@ parser.add_argument('--outfile_prefix', required=True, help='string that will be
 parser.add_argument('--restart', help='Name of a scanpy h5ad file to restart from; skips preprocessing, clustering, UMAP, etc. Could be the *_final.h5ad file generated at the end of a previous conga run.')
 parser.add_argument('--checkpoint', action='store_true', help='Save a scanpy h5ad checkpoint file after preprocessing')
 parser.add_argument('--rerun_kpca', action='store_true')
+parser.add_argument('--use_exact_tcrdist_nbrs', action='store_true', help='The default is to use the nbrs defined by euclidean distances in the tcrdist kernel pc space. This flag will force a re-computation of all the tcrdist distances')
 parser.add_argument('--kpca_kernel', help='only used if rerun_kpca is True; if not provided will use classic kernel')
 parser.add_argument('--kpca_gaussian_kernel_sdev', default=100.0, type=float,
                     help='only used if rerun_kpca and kpca_kernel==\'gaussian\'')
@@ -294,6 +295,21 @@ nbr_frac_for_nndists = min( x for x in args.nbr_fracs if x*num_clones>=10 or x==
 outlog.write(f'nbr_frac_for_nndists: {nbr_frac_for_nndists}\n')
 all_nbrs, nndists_gex, nndists_tcr = conga.preprocess.calc_nbrs(
     adata, args.nbr_fracs, also_calc_nndists=True, nbr_frac_for_nndists=nbr_frac_for_nndists)
+
+if args.use_exact_tcrdist_nbrs:
+    all_tcrdist_nbrs = conga.preprocess.recalculate_tcrdist_nbrs(adata, args.nbr_fracs)
+    for nbr_frac in args.nbr_fracs:
+        nbrs_gex, old_nbrs_tcr = all_nbrs[nbr_frac]
+        new_nbrs_tcr = all_tcrdist_nbrs[nbr_frac]
+        all_nbrs[nbr_frac] = [nbrs_gex, new_nbrs_tcr]
+
+        # compare nbr overlap
+        overlap, total = 0, 0
+        for nbrs1, nbrs2 in zip(old_nbrs_tcr, new_nbrs_tcr):
+            nbrs2_set = frozenset(nbrs2)
+            overlap += sum(x in nbrs2_set for x in nbrs1)
+            total += len(nbrs1)
+        print(f'use_exact_tcrdist_nbrs: nbr_frac= {nbr_frac} overlap_fraction= {overlap/total:.6f} {overlap} {total}')
 
 if args.shuffle_gex_nbrs:
     reorder = np.random.permutation(num_clones)

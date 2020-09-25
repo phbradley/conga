@@ -749,6 +749,46 @@ def calc_nbrs(
     else:
         return all_nbrs
 
+def recalculate_tcrdist_nbrs(
+        adata,
+        nbr_fracs,
+):
+    ''' returns dict mapping from nbr_frac to nbrs_tcr
+
+    nbrs exclude self and any clones in same atcr group or btcr group
+    '''
+    agroups, bgroups = setup_tcr_groups(adata)
+
+    tcrs = retrieve_tcrs_from_adata(adata)
+
+    tcrdist = TcrDistCalculator(adata.uns['organism'])
+
+    num_clones = adata.shape[0]
+
+    all_nbrs = {}
+    for nbr_frac in nbr_fracs:
+        all_nbrs[nbr_frac] = []
+
+    for ii in range(num_clones):
+        if ii%1000==0:
+            print('recalculate_tcrdist_nbrs:', ii, num_clones)
+            sys.stdout.flush()
+        ii_tcr = tcrs[ii]
+        dists = np.array([ tcrdist(ii_tcr, x) for x in tcrs])
+        dists[ agroups==agroups[ii] ] = 1e3
+        dists[ bgroups==bgroups[ii] ] = 1e3
+        for nbr_frac in nbr_fracs: # could do this more efficiently by going in decreasing order, saving partitions...
+            num_neighbors = max(1, int(nbr_frac*num_clones))
+            ii_nbrs = np.argpartition(dists, num_neighbors-1 )[:num_neighbors]
+            all_nbrs[nbr_frac].append(ii_nbrs)
+
+    for nbr_frac in nbr_fracs:
+        num_neighbors = max(1, int(nbr_frac*num_clones))
+        all_nbrs[nbr_frac] = np.vstack(all_nbrs[nbr_frac])
+        assert all_nbrs[nbr_frac].shape == (num_clones, num_neighbors)
+
+    return all_nbrs
+
 
 def get_vfam(vgene):
     #assert vgene.startswith('TR') and vgene[3]=='V'
@@ -837,7 +877,7 @@ def make_tcrdist_kernel_pcs_file_from_clones_file(
 
     n_components = min( n_components_in, D.shape[0] )
 
-    print(f'running KernelPCA with {kernel} kernel distance matrix shape= {D.shape}')
+    print(f'running KernelPCA with {kernel} kernel distance matrix shape= {D.shape} D.max()= {D.max()}')
 
     pca = KernelPCA(kernel='precomputed', n_components=n_components)
 
