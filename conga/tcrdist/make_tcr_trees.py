@@ -192,11 +192,12 @@ def make_tcr_tree_svg_commands(
 
     ## node_position tells us where the different clusters are located, vertically
     ##
+    force_min_rmsd = min(74.0, max(0.0, tcrdist_clustering_threshold-3.0))
     node_position, Transform, canvas_tree_min_rmsd, canvas_tree_w_factor = score_trees_devel.Canvas_tree(
         tree, names, sizes, tree_p0, tree_p1, branch_width_fraction,
         plotter, label_internal_nodes = False,
         score_range_for_coloring = color_score_range,
-        rmsd_bar_label_stepsize=75, force_min_rmsd=74 )
+        rmsd_bar_label_stepsize=75, force_min_rmsd=force_min_rmsd )
 
     max_rmsd_for_glyphs = 3.0*radius
 
