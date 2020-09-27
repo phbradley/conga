@@ -1,5 +1,6 @@
 #include "types.hh"
 #include "tcrdist.hh"
+#include <random>
 
 // a paired tcr with gene-level (actually allele level) resolution
 // DistanceTCR_g is defined in tcrdist.hh
@@ -129,6 +130,7 @@ int main(int argc, char** argv)
 		knn_indices.reserve(num_nbrs);
 		knn_distances.reserve(num_nbrs);
 
+		minstd_rand0 rng(1); // seed
 		Sizes shuffled_indices;
 		for ( Size i=0; i<num_tcrs; ++i ) shuffled_indices.push_back(i);
 
@@ -137,7 +139,7 @@ int main(int argc, char** argv)
 
 		for ( Size ii=0; ii< num_tcrs; ++ii ) {
 			// for ties, shuffle so we don't get biases based on file order
-			random_shuffle(shuffled_indices.begin(), shuffled_indices.end());
+			shuffle(shuffled_indices.begin(), shuffled_indices.end(), rng);
 			DistanceTCR_g const &atcr( tcrs[ii].first ), &btcr( tcrs[ii].second);
 			{
 				Size i(0);
