@@ -93,7 +93,7 @@ public:
 	check_tcr_string_ok( string const & tcr ) const;
 
 private:
-	char const ab_;
+	// char const ab_;
 	vector< string > v_genes_;
 	vector< string > v_families_;
 
@@ -119,8 +119,7 @@ private:
 TCRdistCalculator::TCRdistCalculator(
 	char const ab, // either 'A' or 'B'
 	string const & db_filename // has info for both chains
-):
-	ab_( ab )
+)
 {
 	runtime_assert( ab=='A' || ab=='B');
 	weight_cdr3_region_ = 3;
