@@ -9,6 +9,7 @@ import numpy as np
 import scipy
 from scipy.cluster import hierarchy
 from scipy.spatial.distance import squareform
+from scipy.sparse import issparse#, csr_matrix
 from anndata import AnnData
 import sys
 from sys import exit
@@ -851,7 +852,8 @@ def make_tcrdist_kernel_pcs_file_from_clones_file(
         verbose = False,
         outfile = None,
         input_distfile = None,
-        output_distfile = None
+        output_distfile = None,
+        force_Dmax = None,
 ):
     if outfile is None: # this is the name expected by read_dataset above (with n_components_in==50)
         outfile = '{}_AB.dist_{}_kpcs'.format(clones_file[:-4], n_components_in)
@@ -877,12 +879,14 @@ def make_tcrdist_kernel_pcs_file_from_clones_file(
 
     n_components = min( n_components_in, D.shape[0] )
 
-    print(f'running KernelPCA with {kernel} kernel distance matrix shape= {D.shape} D.max()= {D.max()}')
+    print(f'running KernelPCA with {kernel} kernel distance matrix shape= {D.shape} D.max()= {D.max()} force_Dmax= {force_Dmax}')
 
     pca = KernelPCA(kernel='precomputed', n_components=n_components)
 
     if kernel is None:
-        gram = 1 - ( D / D.max() )
+        if force_Dmax is None:
+            force_Dmax = D.max()
+        gram = np.maximum(0.0, 1 - ( D / force_Dmax ))
     elif kernel == 'gaussian':
         gram = np.exp(-0.5 * (D/gaussian_kernel_sdev)**2 )
     else:
@@ -983,4 +987,85 @@ def condense_clones_file_and_barcode_mapping_file_by_tcrdist(
     if output_distfile is not None:
         new_D = D[cluster_centers,:][:,cluster_centers]
         np.savetxt( output_distfile, new_D.astype(float), fmt='%.1f')
+
+def calc_tcrdist_nbrs_umap_clusters_cpp(
+        adata,
+        num_nbrs,
+        outfile_prefix,
+        umap_key_added = 'X_tcrdist_2d',
+        cluster_key_added = 'clusters_tcrdist',
+        louvain_resolution = None,
+):
+    tcrs_filename = outfile_prefix+'_tcrs.tsv'
+    adata.obs['va cdr3a vb cdr3b'.split()].to_csv(tcrs_filename, sep='\t', index=False)
+
+    exe = util.path_to_tcrdist_cpp_bin+'find_neighbors'
+
+    if not exists(exe):
+        print('need to compile c++ exe:', exe)
+        exit(1)
+
+    db_filename = '{}tcrdist_info_{}.txt'.format(util.path_to_tcrdist_cpp_db, adata.uns['organism'])
+    if not exists(db_filename):
+        print('need to create database file:', db_filename)
+        exit(1)
+
+    outprefix = outfile_prefix+'_calc_tcrdist'
+    cmd = '{} -f {} -n {} -d {} -o {}'.format(exe, tcrs_filename, num_nbrs, db_filename, outprefix)
+    util.run_command(cmd, verbose=True)
+
+    knn_indices_filename = outprefix+'_knn_indices.txt'
+    knn_distances_filename = outprefix+'_knn_distances.txt'
+
+    if not exists(knn_indices_filename) or not exists(knn_distances_filename):
+        print('find_neighbors failed:', exists(knn_indices_filename), exists(knn_distances_filename))
+        exit(1)
+
+    knn_indices = np.loadtxt(knn_indices_filename, dtype=int)
+    knn_distances = np.loadtxt(knn_distances_filename, dtype=float)
+
+    # distances = sc.neighbors.get_sparse_matrix_from_indices_distances_numpy(
+    #     knn_indices, knn_distances, adata.shape[0], num_nbrs)
+
+    distances, connectivities = sc.neighbors.compute_connectivities_umap(
+        knn_indices, knn_distances, adata.shape[0], num_nbrs)
+
+    if issparse(connectivities):
+        from scipy.sparse.csgraph import connected_components
+        connected_components = connected_components(connectivities)
+        number_connected_components = connected_components[0]
+        print('number_connected_components:', number_connected_components)
+
+    ################
+    # stash the stuff in adata, stolen from scanpy/neighbors/__init__.py
+    #
+    adata.uns['neighbors'] = {}
+    adata.uns['neighbors']['params'] = {'n_neighbors': num_nbrs, 'method': 'umap'}
+    adata.uns['neighbors']['params']['metric'] = 'tcrdist'#metric
+    # if metric_kwds:
+    #     adata.uns['neighbors']['params']['metric_kwds'] = metric_kwds
+    # if use_rep is not None:
+    #     adata.uns['neighbors']['params']['use_rep'] = use_rep
+    # if n_pcs is not None:
+    #     adata.uns['neighbors']['params']['n_pcs'] = n_pcs
+    adata.uns['neighbors']['distances'] = distances
+    adata.uns['neighbors']['connectivities'] = connectivities
+
+    # as far as I can tell, these are used if there are multiple components in the graph...
+    print('putting random pca vectors into adata!!!')
+    fake_pca = np.random.randn(adata.shape[0], 10)
+    adata.obsm['X_pca'] = fake_pca
+
+    print('running umap', adata.shape)
+    sc.tl.umap(adata)
+    print('DONE running umap')
+    adata.obsm[umap_key_added] = adata.obsm['X_umap']
+
+    print('running louvain', adata.shape)
+    resolution = 1.0 if louvain_resolution is None else louvain_resolution
+    sc.tl.louvain(adata, resolution=resolution, key_added=cluster_key_added)
+    adata.obs[cluster_key_added] = np.copy(adata.obs[cluster_key_added]).astype(int)
+    print('DONE running louvain', cluster_key_added)
+
+    del adata.obsm['X_pca'] # delete the fake pcas
 

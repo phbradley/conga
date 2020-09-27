@@ -16,9 +16,13 @@ parser.add_argument('--restart', help='Name of a scanpy h5ad file to restart fro
 parser.add_argument('--checkpoint', action='store_true', help='Save a scanpy h5ad checkpoint file after preprocessing')
 parser.add_argument('--rerun_kpca', action='store_true')
 parser.add_argument('--use_exact_tcrdist_nbrs', action='store_true', help='The default is to use the nbrs defined by euclidean distances in the tcrdist kernel pc space. This flag will force a re-computation of all the tcrdist distances')
+parser.add_argument('--use_tcrdist_umap', action='store_true')
+parser.add_argument('--use_tcrdist_clusters', action='store_true')
 parser.add_argument('--kpca_kernel', help='only used if rerun_kpca is True; if not provided will use classic kernel')
 parser.add_argument('--kpca_gaussian_kernel_sdev', default=100.0, type=float,
                     help='only used if rerun_kpca and kpca_kernel==\'gaussian\'')
+parser.add_argument('--kpca_default_kernel_Dmax', type=float,
+                    help='only used if rerun_kpca and kpca_kernel==None')
 parser.add_argument('--exclude_gex_clusters', type=int, nargs='*')
 parser.add_argument('--exclude_mait_and_inkt_cells', action='store_true')
 parser.add_argument('--min_cluster_size', type=int, default=5)
@@ -135,6 +139,7 @@ if args.restart is None:
             kernel=args.kpca_kernel,
             outfile=args.kpca_file,
             gaussian_kernel_sdev=args.kpca_gaussian_kernel_sdev,
+            force_Dmax=args.kpca_default_kernel_Dmax
         )
 
     adata = conga.preprocess.read_dataset(args.gex_data, args.gex_data_type, args.clones_file,
@@ -283,6 +288,14 @@ if args.exclude_gex_clusters:
 
     if args.checkpoint:
         adata.write_h5ad(args.outfile_prefix+'_checkpoint.h5ad')
+
+
+if args.use_tcrdist_umap or args.use_tcrdist_clusters:
+    umap_key_added = 'X_tcr_2d' if args.use_tcrdist_umap else 'X_tcrdist_2d'
+    cluster_key_added = 'clusters_tcr' if args.use_tcrdist_clusters else 'clusters_tcrdist'
+    num_nbrs = 10
+    conga.preprocess.calc_tcrdist_nbrs_umap_clusters_cpp(
+        adata, num_nbrs, args.outfile_prefix, umap_key_added=umap_key_added, cluster_key_added=cluster_key_added)
 
 ################################################ DONE WITH INITIAL SETUP #########################################
 
