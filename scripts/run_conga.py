@@ -49,6 +49,7 @@ parser.add_argument('--find_gex_cluster_degs', action='store_true')
 parser.add_argument('--find_hotspot_features', action='store_true')
 parser.add_argument('--plot_cluster_gene_compositions', action='store_true')
 parser.add_argument('--make_tcrdist_trees', action='store_true')
+parser.add_argument('--make_hotspot_nbrhood_logos', action='store_true')
 # configure things
 parser.add_argument('--skip_gex_header', action='store_true')
 parser.add_argument('--skip_gex_header_raw', action='store_true')
@@ -994,7 +995,12 @@ if args.find_hotspot_features:
         print('making:', pngfile)
         plt.savefig(pngfile)
 
-
+        if args.make_hotspot_nbrhood_logos:
+            nbrs_gex, nbrs_tcr = all_nbrs[ max(args.nbr_fracs) ]
+            min_cluster_size = max( args.min_cluster_size, int( 0.5 + args.min_cluster_size_fraction * num_clones) )
+            conga.plotting.make_hotspot_nbrhood_logo_figures(adata, nbrs_gex, nbrs_tcr, nbrhood_results,
+                                                             min_cluster_size, args.outfile_prefix,
+                                                             pvalue_threshold=1.0)
 
 
 # just out of curiosity:

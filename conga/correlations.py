@@ -350,7 +350,8 @@ def calc_good_cluster_tcr_features(
         all_tcr_features[clp] = [] # in case results_df doesn't have any rows for this clp
 
     for row in results_df.itertuples():
-        clp = (row.gex_cluster, row.tcr_cluster)
+        #clp = (row.gex_cluster, row.tcr_cluster)
+        clp = (clusters_gex[row.clone_index], clusters_tcr[row.clone_index])
         assert clp in good_clps
         all_tcr_features[clp].append( ( row.mwu_pvalue_adj, row.ttest_stat, row.feature))
 
