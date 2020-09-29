@@ -916,57 +916,128 @@ def condense_clones_file_and_barcode_mapping_file_by_tcrdist(
         new_clones_file,
         tcrdist_threshold,
         organism,
-        output_distfile=None
+        output_distfile=None,
+        force_tcrdist_cpp=False
 ):
 
-    tcrdist_calculator = TcrDistCalculator(organism)
-
     df = pd.read_csv(old_clones_file, sep='\t')
-
-    # in conga we usually also have cdr3_nucseq but we don't need it for tcrdist; we also don't need the jgene but hey
-    tcrs = [ ( ( l.va_gene, l.ja_gene, l.cdr3a ), ( l.vb_gene, l.jb_gene, l.cdr3b ) ) for l in df.itertuples() ]
-    ids = [ l.clone_id for l in df.itertuples() ]
-
-
-    print(f'compute tcrdist distance matrix for {len(tcrs)} clonotypes')
-    D = np.array( [ tcrdist_calculator(x,y) for x in tcrs for y in tcrs ] ).reshape( (len(tcrs), len(tcrs)) )
-
+    N = df.shape[0]
 
     all_barcodes = pd.read_csv(old_clones_file+'.barcode_mapping.tsv', sep='\t')
     all_barcodes.set_index('clone_id', inplace=True)
     all_barcodes = all_barcodes['barcodes']
     assert type(all_barcodes) is pd.Series
-    N = D.shape[0]
-    assert df.shape[0] == N
 
-    DT = squareform(D, force='tovector')
 
-    # single linkage clustering of the distance matrix: any clonotypes with dist<tcrdist_threshold
-    #  should end up in the same cluster
-    Z = hierarchy.single(DT)
+    if output_distfile is None and (force_tcrdist_cpp or (util.tcrdist_cpp_available() and N>5000)):
+        tcrdist_threshold = int(tcrdist_threshold+0.001) # cpp tcrdist threshold is integer
+        exe = util.path_to_tcrdist_cpp_bin+'find_neighbors'
 
-    clusters = hierarchy.fcluster(Z, t=tcrdist_threshold, criterion='distance')
-    clusters_set = sorted(set(clusters))
+        db_filename = '{}tcrdist_info_{}.txt'.format(util.path_to_tcrdist_cpp_db, organism)
+
+        outprefix = old_clones_file+'_calc_tcrdist'
+        cmd = '{} -f {} -t {} -d {} -o {}'.format(exe, old_clones_file, tcrdist_threshold, db_filename, outprefix)
+        util.run_command(cmd, verbose=True)
+
+        nbr_indices_filename = '{}_nbr{}_indices.txt'.format(outprefix, tcrdist_threshold)
+        nbr_distances_filename = '{}_nbr{}_distances.txt'.format(outprefix, tcrdist_threshold)
+
+        if not exists(nbr_indices_filename) or not exists(nbr_distances_filename):
+            print('find_neighbors failed:', exists(nbr_indices_filename), exists(nbr_distances_filename))
+            exit(1)
+
+        all_nbrs = []
+        all_distances = []
+        all_smallest_nbr = []
+        for line1, line2 in zip(open(nbr_indices_filename,'r'), open(nbr_distances_filename,'r')):
+            l1 = line1.split()
+            l2 = line2.split()
+            assert len(l1) == len(l2)
+            ii = len(all_nbrs)
+            all_nbrs.append([ii]+[int(x) for x in l1])
+            all_distances.append([0.]+[float(x) for x in l2])
+            all_smallest_nbr.append(min(all_nbrs[-1]))
+        assert len(all_nbrs) == N
+
+        # now do single linkage clustering
+        all_smallest_nbr = np.array(all_smallest_nbr)
+        while True:
+            updated = False
+            for ii in range(N):
+                nbr = all_smallest_nbr[ii]
+                new_nbr = min(nbr, np.min(all_smallest_nbr[all_nbrs[ii]]))
+                if nbr != new_nbr:
+                    print('update:', nbr, new_nbr)
+                    all_smallest_nbr[ii] = new_nbr
+                    updated = True
+            if not updated:
+                break
+        # define clusters, choose cluster centers
+        clusters = np.array([-1]*N)
+        cluster_centers = []
+        clusters_set = []
+        for ii, nbr in enumerate(all_smallest_nbr):
+            if ii==nbr:
+                cmask = all_smallest_nbr==nbr
+                csize = np.sum(cmask)
+                cluster_number = len(clusters_set)
+                clusters_set.append(cluster_number)
+                clusters[cmask] = cluster_number
+                # choose center
+                min_avgdist = 1e6
+                center = None
+                for jj in np.nonzero(cmask)[0]:
+                    assert all_smallest_nbr[jj] == nbr
+                    avgdist = (np.sum(all_distances[jj]) + (tcrdist_threshold+1.)*(csize-len(all_distances[jj])))/csize
+                    if avgdist<min_avgdist:
+                        min_avgdist = avgdist
+                        center = jj
+                assert center is not None
+                cluster_centers.append(center) # will be parallel with clusters_set
+        assert not np.any(clusters==-1)
+
+    else: # use python tcrdist, compute full distance matrix
+        # in conga we usually also have cdr3_nucseq but we don't need it for tcrdist
+        tcrs = [ ( ( l.va_gene, l.ja_gene, l.cdr3a ), ( l.vb_gene, l.jb_gene, l.cdr3b ) ) for l in df.itertuples() ]
+        tcrdist_calculator = TcrDistCalculator(organism)
+        print(f'compute tcrdist distance matrix for {len(tcrs)} clonotypes')
+        D = np.array( [ tcrdist_calculator(x,y) for x in tcrs for y in tcrs ] ).reshape( (len(tcrs), len(tcrs)) )
+
+        DT = squareform(D, force='tovector')
+
+        # single linkage clustering of the distance matrix: any clonotypes with dist<tcrdist_threshold
+        #  should end up in the same cluster
+        Z = hierarchy.single(DT)
+
+        clusters = hierarchy.fcluster(Z, t=tcrdist_threshold, criterion='distance')
+        clusters_set = sorted(set(clusters))
+
+        cluster_centers = []
+        for c in clusters_set:
+            # choose a representative clone based on distance
+            cmask = clusters==c
+            members = np.nonzero(cmask)[0]
+            assert len(members) == np.sum(cmask)
+            if len(members) == 1:
+                center = members[0]
+            else:
+                cdist = D[cmask,:][:,cmask]
+                dists = np.sum(cdist,axis=1)/(len(members)-1)
+                icenter = np.argmin(dists)
+                center = members[icenter]
+                print('center_avgdist: {:3d} {:7.2f} avg {:7.2f}'\
+                      .format(len(members), dists[icenter], np.mean(dists)))
+            cluster_centers.append(center)
+
+    print('num_clusters:', len(clusters_set))
 
     new_clones_dfl = []
     new_bcmap_dfl = []
 
-    cluster_centers = []
-    for c in clusters_set:
+    for c, center in zip(clusters_set, cluster_centers):
         # choose a representative clone based on distance
         cmask = clusters==c
         members = np.nonzero(cmask)[0]
-        assert len(members) == np.sum(cmask)
-        if len(members) == 1:
-            center = members[0]
-        else:
-            cdist = D[cmask,:][:,cmask]
-            dists = np.sum(cdist,axis=1)/(len(members)-1)
-            icenter = np.argmin(dists)
-            center = members[icenter]
-            print('center_avgdist: {:3d} {:7.2f} avg {:7.2f}'\
-                  .format(len(members), dists[icenter], np.mean(dists)))
-        cluster_centers.append(center)
         cdf = df[cmask]
         center_df = pd.Series( df.iloc[center] )
         clone_size = sum(x.clone_size for _,x in cdf.iterrows())
@@ -995,6 +1066,7 @@ def calc_tcrdist_nbrs_umap_clusters_cpp(
         umap_key_added = 'X_tcrdist_2d',
         cluster_key_added = 'clusters_tcrdist',
         louvain_resolution = None,
+        n_components_umap = 2,
 ):
     tcrs_filename = outfile_prefix+'_tcrs.tsv'
     adata.obs['va cdr3a vb cdr3b'.split()].to_csv(tcrs_filename, sep='\t', index=False)
@@ -1057,7 +1129,7 @@ def calc_tcrdist_nbrs_umap_clusters_cpp(
     adata.obsm['X_pca'] = fake_pca
 
     print('running umap', adata.shape)
-    sc.tl.umap(adata)
+    sc.tl.umap(adata, n_components=n_components_umap)
     print('DONE running umap')
     adata.obsm[umap_key_added] = adata.obsm['X_umap']
 

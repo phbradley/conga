@@ -14,6 +14,9 @@ parser.add_argument('--organism', choices=['mouse', 'human', 'mouse_gd', 'human_
 parser.add_argument('--condense_clonotypes_by_tcrdist', action='store_true', help='Merge clonotypes with TCRdist distances less than the threshold specified by --tcrdist_threshold_for_condensing. This can be useful for BCR data to merge families of clonally-related cells')
 parser.add_argument('--tcrdist_threshold_for_condensing', type=float, default=50.)
 parser.add_argument('--no_tcrdists', action='store_true', help='Don\'t compute tcrdists or kernel PCs; instead generate a random matrix of kernel PCs. This might be useful for preprocessing very big GEX datasets to isolate subsets of interest')
+parser.add_argument('--no_kpcs', action='store_true')
+parser.add_argument('--force_tcrdist_cpp', action='store_true')
+
 
 args = parser.parse_args()
 
@@ -69,10 +72,13 @@ if args.condense_clonotypes_by_tcrdist:
     tmpfile = args.output_clones_file+'.uncondensed.tsv'
     new_clones_df.to_csv(tmpfile, sep='\t', index=False)
     new_bcmap_df.to_csv(tmpfile+'.barcode_mapping.tsv', sep='\t', index=False)
-    input_distfile = args.output_clones_file[:-4]+'_AB.dist'
+    if args.no_kpcs:
+        input_distfile = None
+    else:
+        input_distfile = args.output_clones_file[:-4]+'_AB.dist'
     conga.preprocess.condense_clones_file_and_barcode_mapping_file_by_tcrdist(
         tmpfile, args.output_clones_file, args.tcrdist_threshold_for_condensing, args.organism,
-        output_distfile=input_distfile)
+        output_distfile=input_distfile, force_tcrdist_cpp=args.force_tcrdist_cpp)
 else:
     print('writing', new_clones_df.shape[0], 'clonotypes to merged clones_file', args.output_clones_file)
     new_clones_df.to_csv(args.output_clones_file, sep='\t', index=False)
@@ -98,7 +104,8 @@ if args.no_tcrdists:
         out.write('pc_comps: {} {}\n'\
                   .format( clone_ids[ii], ' '.join( '{:.6f}'.format(x) for x in kpcs[ii,:])))
     out.close()
-
+elif args.no_kpcs:
+    pass
 else: # the usual route
     conga.preprocess.make_tcrdist_kernel_pcs_file_from_clones_file(
         args.output_clones_file, args.organism, input_distfile=input_distfile,

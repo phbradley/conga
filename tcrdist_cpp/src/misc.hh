@@ -129,7 +129,8 @@ float_of( string const & s ) {
 string
 get_v_family_from_v_gene( string const & g )
 {
-	runtime_assert( g.substr(0,2) == "TR" && g[3] == 'V' );
+	runtime_assert( g[3] == 'V' );
+	// runtime_assert( g.substr(0,2) == "TR" && g[3] == 'V' );
 	// runtime_assert( g.substr(0,4) == "TRBV" );
 	Size numlen(0);
 	while ( is_int( g.substr(4,numlen+1) ) )++numlen;

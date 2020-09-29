@@ -19,6 +19,8 @@ path_to_tcrdist_cpp_bin = os.path.dirname( path_to_conga[:-1] )+'/tcrdist_cpp/bi
 path_to_tcrdist_cpp_db = os.path.dirname( path_to_conga[:-1] )+'/tcrdist_cpp/db/'
 assert os.path.isdir( path_to_tcrdist_cpp_bin ) and os.path.isdir( path_to_tcrdist_cpp_db )
 
+def tcrdist_cpp_available():
+    return os.path.exists(path_to_tcrdist_cpp_bin + 'find_neighbors')
 
 FUNNY_MOUSE_TRBV_GENE = '5830405F06Rik' # actually seems to be a tcr v gene transcript or correlate with one
 FUNNY_HUMAN_IG_GENES = ['AC233755.1', 'AC233755.2', # seem to be associated with one or more IGHV genes
