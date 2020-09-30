@@ -949,6 +949,10 @@ if args.find_hotspot_features:
                     print(f'skipping clustermap vs {plot_tag} since no X_pca_{plot_tag} in adata.obsm_keys!')
                     continue
 
+                if adata.shape[0] > 30000: ######################### TEMPORARY HACKING ############################
+                    print('skipping hotspot clustermaps because adata is too big:', adata.shape)
+                    continue
+
                 ## clustermap of features versus cells
                 features = list(results.feature)
                 feature_labels = ['{:9.1e} {} {}'.format(x,y,z)

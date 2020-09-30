@@ -832,7 +832,7 @@ def calc_nbrs(
             continue
 
         print('compute D', tag, adata.shape[0])
-        D = pairwise_distances( adata.obsm[obsm_tag_gex], metric='euclidean' )
+        D = pairwise_distances( adata.obsm[obsm_tag], metric='euclidean' )
         for ii,(a,b) in enumerate(zip(agroups, bgroups)):
             D[ii, (agroups==a) ] = 1e3
             D[ii, (bgroups==b) ] = 1e3
