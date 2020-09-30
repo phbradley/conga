@@ -83,8 +83,27 @@ read_paired_tcrs_from_tsv_file(
 }
 
 
-
-
+Sizes
+read_groups_from_file( string const & filename )
+{
+	ifstream data(filename.c_str());
+	if ( !data.good() ) {
+		cerr<< "unable to open " << filename << endl;
+		exit(1);
+	}
+	Sizes groups;
+	Size g;
+	while ( data.good() ) {
+		data >> g;
+		if ( !data.fail() ) {
+			groups.push_back(g);
+		} else {
+			break;
+		}
+	}
+	data.close();
+	return groups;
+}
 
 int main(int argc, char** argv)
 {
@@ -116,12 +135,22 @@ int main(int argc, char** argv)
 			"'va_gene' 'cdr3a' 'vb_gene' 'cdr3b' (or alt fieldnames: 'va' and 'vb')", true,
 			"unk", "string", cmd);
 
+ 		TCLAP::ValueArg<string> agroups_file_arg("a","agroups_file","np.savetxt output "
+			"(ie, one integer per line) ith the agroups information so we can exclude same-group neighbors", false,
+			"", "string", cmd);
+
+ 		TCLAP::ValueArg<string> bgroups_file_arg("b","bgroups_file","np.savetxt output "
+			"(ie, one integer per line) ith the bgroups information so we can exclude same-group neighbors", false,
+			"", "string", cmd);
+
 		cmd.parse( argc, argv );
 
 		string const db_filename( db_filename_arg.getValue() );
 		Size const num_nbrs( num_nbrs_arg.getValue() );
 		int const threshold_int( threshold_arg.getValue() );
 		string const tcrs_file( tcrs_file_arg.getValue() );
+		string const agroups_file( agroups_file_arg.getValue() );
+		string const bgroups_file( bgroups_file_arg.getValue() );
 		string const outfile_prefix( outfile_prefix_arg.getValue());
 
 		runtime_assert( ( num_nbrs>0 && threshold_int==-1) || (num_nbrs==0 && threshold_int >=0 ) );
@@ -133,7 +162,20 @@ int main(int argc, char** argv)
 
 		Size const num_tcrs(tcrs.size());
 
+		Sizes agroups( agroups_file.size() ? read_groups_from_file(agroups_file) : Sizes() );
+		Sizes bgroups( bgroups_file.size() ? read_groups_from_file(bgroups_file) : Sizes() );
+		if ( agroups.empty() ) {
+			for ( Size i=0; i<num_tcrs; ++i ) agroups.push_back(i);
+		}
+		if ( bgroups.empty() ) {
+			for ( Size i=0; i<num_tcrs; ++i ) bgroups.push_back(i);
+		}
+
+		runtime_assert( agroups.size() == num_tcrs );
+		runtime_assert( bgroups.size() == num_tcrs );
 		// two different modes of operations
+
+		Size const BIG_DIST(10000);
 
 		if ( num_nbrs > 0 ) {
 			// open the outfiles
@@ -167,7 +209,11 @@ int main(int argc, char** argv)
 						++i;
 					}
 				}
-				dists[ii] = 10000; // something big
+				Size const a(agroups[ii]), b(bgroups[ii]);
+				for ( Size jj=0; jj< num_tcrs; ++jj ) {
+					if ( agroups[jj] == a || bgroups[jj] == b ) dists[jj] = BIG_DIST;
+				}
+				runtime_assert( dists[ii] == BIG_DIST );
 				copy(dists.begin(), dists.end(), sortdists.begin());
 				nth_element(sortdists.begin(), sortdists.begin()+num_nbrs-1, sortdists.end());
 				Size const threshold(sortdists[num_nbrs-1]);
@@ -237,9 +283,10 @@ int main(int argc, char** argv)
 
 				// for ties, shuffle so we don't get biases based on file order
 				DistanceTCR_g const &atcr( tcrs[ii].first ), &btcr( tcrs[ii].second);
+				Size const a(agroups[ii]), b(bgroups[ii]);
 				for ( Size jj=0; jj< num_tcrs; ++jj ) {
 					Size const dist( 0.5 + atcrdist(atcr, tcrs[jj].first) + btcrdist(btcr, tcrs[jj].second) );
-					if ( dist <= threshold && jj != ii ) {
+					if ( dist <= threshold && agroups[jj] != a && bgroups[jj] != b ) {
 						knn_indices.push_back(jj);
 						knn_distances.push_back(dist);
 					}

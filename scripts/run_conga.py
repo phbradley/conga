@@ -124,6 +124,7 @@ hostname = os.popen('hostname').readlines()[0][:-1]
 outlog.write('hostname: {}\n'.format(hostname))
 
 if args.restart is None:
+    allow_missing_kpca_file = args.use_exact_tcrdist_nbrs and args.use_tcrdist_umap and args.use_tcrdist_clusters
 
     assert exists(args.gex_data)
     assert exists(args.clones_file)
@@ -140,11 +141,12 @@ if args.restart is None:
             kernel=args.kpca_kernel,
             outfile=args.kpca_file,
             gaussian_kernel_sdev=args.kpca_gaussian_kernel_sdev,
-            force_Dmax=args.kpca_default_kernel_Dmax
+            force_Dmax=args.kpca_default_kernel_Dmax,
         )
 
-    adata = conga.preprocess.read_dataset(args.gex_data, args.gex_data_type, args.clones_file,
-                                          kpca_file=args.kpca_file) # default is None
+    adata = conga.preprocess.read_dataset(
+        args.gex_data, args.gex_data_type, args.clones_file, kpca_file=args.kpca_file, # default is None
+        allow_missing_kpca_file=allow_missing_kpca_file)
     assert args.organism
     adata.uns['organism'] = args.organism
     assert 'organism' in adata.uns_keys()
@@ -194,7 +196,7 @@ if args.restart is None:
 
 
     assert not adata.isview
-    assert 'X_pca_tcr' in adata.obsm_keys() # tcr-dist kPCA info
+    assert allow_missing_kpca_file or 'X_pca_tcr' in adata.obsm_keys() # tcr-dist kPCA info
     assert 'cdr3a' in adata.obs # tcr sequence (VDJ) info (plus other obs keys)
 
     print(adata)
@@ -225,7 +227,9 @@ if args.restart is None:
         adata.obsm['X_pca_tcr'] = X_pca_tcr[reorder,:]
         outlog.write('randomly permuting X_pca_tcr {}\n'.format(X_pca_tcr.shape))
 
-    adata = conga.preprocess.cluster_and_tsne_and_umap( adata, clustering_method=args.clustering_method )
+    skip_tcr = (args.use_tcrdist_umap and args.use_tcrdist_clusters)
+    adata = conga.preprocess.cluster_and_tsne_and_umap(
+        adata, clustering_method=args.clustering_method, skip_tcr=(args.use_tcrdist_umap and args.use_tcrdist_clusters))
 
     if args.checkpoint:
         adata.write_h5ad(args.outfile_prefix+'_checkpoint.h5ad')
@@ -256,7 +260,9 @@ else:
               .format(adata.shape[0]-np.sum(mask), adata.shape[0]))
         adata = adata[mask].copy()
         # need to redo the cluster/tsne/umap
-        adata = conga.preprocess.cluster_and_tsne_and_umap( adata )
+        adata = conga.preprocess.cluster_and_tsne_and_umap(
+            adata, clustering_method=args.clustering_method,
+            skip_tcr=(args.use_tcrdist_umap and args.use_tcrdist_clusters))
 
 if args.exclude_gex_clusters:
     xl = args.exclude_gex_clusters
@@ -285,7 +291,8 @@ if args.exclude_gex_clusters:
               .format(adata.shape[0]-np.sum(mask), adata.shape[0]))
         adata = adata[mask].copy()
 
-    adata = conga.preprocess.cluster_and_tsne_and_umap( adata )
+    adata = conga.preprocess.cluster_and_tsne_and_umap(
+        adata, clustering_method=args.clustering_method, skip_tcr=(args.use_tcrdist_umap and args.use_tcrdist_clusters))
 
     if args.checkpoint:
         adata.write_h5ad(args.outfile_prefix+'_checkpoint.h5ad')
@@ -307,23 +314,38 @@ if args.use_tcrdist_umap or args.use_tcrdist_clusters:
 num_clones = adata.shape[0]
 nbr_frac_for_nndists = min( x for x in args.nbr_fracs if x*num_clones>=10 or x==max(args.nbr_fracs) )
 outlog.write(f'nbr_frac_for_nndists: {nbr_frac_for_nndists}\n')
+obsm_tag_tcr = None if args.use_exact_tcrdist_nbrs else 'X_pca_tcr'
 all_nbrs, nndists_gex, nndists_tcr = conga.preprocess.calc_nbrs(
-    adata, args.nbr_fracs, also_calc_nndists=True, nbr_frac_for_nndists=nbr_frac_for_nndists)
+    adata, args.nbr_fracs, also_calc_nndists=True, nbr_frac_for_nndists=nbr_frac_for_nndists, obsm_tag_tcr=obsm_tag_tcr)
 
 if args.use_exact_tcrdist_nbrs:
-    all_tcrdist_nbrs = conga.preprocess.recalculate_tcrdist_nbrs(adata, args.nbr_fracs)
+    if conga.util.tcrdist_cpp_available():
+        all_tcrdist_nbrs, nndists_tcr = conga.preprocess.calculate_tcrdist_nbrs_cpp(
+            adata, args.nbr_fracs, nbr_frac_for_nndists=nbr_frac_for_nndists)
+    else:
+        all_tcrdist_nbrs, nndists_tcr = conga.preprocess.recalculate_tcrdist_nbrs(
+            adata, args.nbr_fracs, nbr_frac_for_nndists=nbr_frac_for_nndists)
     for nbr_frac in args.nbr_fracs:
         nbrs_gex, old_nbrs_tcr = all_nbrs[nbr_frac]
-        new_nbrs_tcr = all_tcrdist_nbrs[nbr_frac]
-        all_nbrs[nbr_frac] = [nbrs_gex, new_nbrs_tcr]
+        assert old_nbrs_tcr is None
+        all_nbrs[nbr_frac] = [nbrs_gex, all_tcrdist_nbrs[nbr_frac]]
 
-        # compare nbr overlap
-        overlap, total = 0, 0
-        for nbrs1, nbrs2 in zip(old_nbrs_tcr, new_nbrs_tcr):
-            nbrs2_set = frozenset(nbrs2)
-            overlap += sum(x in nbrs2_set for x in nbrs1)
-            total += len(nbrs1)
-        print(f'use_exact_tcrdist_nbrs: nbr_frac= {nbr_frac} overlap_fraction= {overlap/total:.6f} {overlap} {total}')
+    ## with the new logic, we don't calculate kpca nbrs at all if args.use_exact_tcrdist_nbrs is True
+    ## so we can't check the overlap like we are doing here:
+    #
+    # all_tcrdist_nbrs = conga.preprocess.recalculate_tcrdist_nbrs(adata, args.nbr_fracs)
+    # for nbr_frac in args.nbr_fracs:
+    #     nbrs_gex, old_nbrs_tcr = all_nbrs[nbr_frac]
+    #     new_nbrs_tcr = all_tcrdist_nbrs[nbr_frac]
+    #     all_nbrs[nbr_frac] = [nbrs_gex, new_nbrs_tcr]
+
+    #     # compare nbr overlap
+    #     overlap, total = 0, 0
+    #     for nbrs1, nbrs2 in zip(old_nbrs_tcr, new_nbrs_tcr):
+    #         nbrs2_set = frozenset(nbrs2)
+    #         overlap += sum(x in nbrs2_set for x in nbrs1)
+    #         total += len(nbrs1)
+    #     print(f'use_exact_tcrdist_nbrs: nbr_frac= {nbr_frac} overlap_fraction= {overlap/total:.6f} {overlap} {total}')
 
 if args.shuffle_gex_nbrs:
     reorder = np.random.permutation(num_clones)
@@ -475,7 +497,7 @@ if args.graph_vs_gex_features: #################################################
             if l.mwu_pvalue_adj <= clustermap_pvalue_threshold:
                 gene_pvalues[l.feature] = min(l.mwu_pvalue_adj, gene_pvalues.get(l.feature, 1.0))
         genes = list(gene_pvalues.keys())
-        if len(genes)>1:
+        if len(genes)>1 and 'X_pca_tcr' in adata.obsm_keys(): # TMP HACK
             gene_labels = ['{:9.1e} {}'.format(gene_pvalues[x], x) for x in genes]
             pngfile = '{}_all_tcr_graph_genes_clustermap.png'.format(args.outfile_prefix)
             nbr_frac = max(args.nbr_fracs)
@@ -922,6 +944,10 @@ if args.find_hotspot_features:
 
                 if results.shape[0]<2:
                     continue # clustermap not interesting...
+
+                if 'X_pca_'+plot_tag not in adata.obsm_keys():
+                    print(f'skipping clustermap vs {plot_tag} since no X_pca_{plot_tag} in adata.obsm_keys!')
+                    continue
 
                 ## clustermap of features versus cells
                 features = list(results.feature)
