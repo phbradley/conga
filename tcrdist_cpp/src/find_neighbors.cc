@@ -129,6 +129,8 @@ int main(int argc, char** argv)
 			"Prefix for the knn_indices and knn_distances output files",true,
 			"", "string",cmd);
 
+		TCLAP::SwitchArg only_tcrdists_arg("m","only_tcrdists", "Just write the matrix of tcrdists. "
+			"Don't find neighbors. Matrix will be called <outfile_prefix>_tcrdists.txt", cmd, false);
 
  		TCLAP::ValueArg<string> tcrs_file_arg("f","tcrs_file","TSV (tab separated values) "
 			"file containing TCRs for neighbor calculation. Should contain the 4 columns "
@@ -148,12 +150,13 @@ int main(int argc, char** argv)
 		string const db_filename( db_filename_arg.getValue() );
 		Size const num_nbrs( num_nbrs_arg.getValue() );
 		int const threshold_int( threshold_arg.getValue() );
+		bool const only_tcrdists( only_tcrdists_arg.getValue() );
 		string const tcrs_file( tcrs_file_arg.getValue() );
 		string const agroups_file( agroups_file_arg.getValue() );
 		string const bgroups_file( bgroups_file_arg.getValue() );
 		string const outfile_prefix( outfile_prefix_arg.getValue());
 
-		runtime_assert( ( num_nbrs>0 && threshold_int==-1) || (num_nbrs==0 && threshold_int >=0 ) );
+		runtime_assert( only_tcrdists || ( num_nbrs>0 && threshold_int==-1) || (num_nbrs==0 && threshold_int >=0 ) );
 
 		TCRdistCalculator const atcrdist('A', db_filename), btcrdist('B', db_filename);
 
@@ -177,7 +180,27 @@ int main(int argc, char** argv)
 
 		Size const BIG_DIST(10000);
 
-		if ( num_nbrs > 0 ) {
+		if ( only_tcrdists ) {
+			ofstream out(outfile_prefix+"_tcrdists.txt");
+			cout << "making " << outfile_prefix+"_tcrdists.txt" << endl;
+			for ( Size ii=0; ii< num_tcrs; ++ii ) {
+				if ( ii && ii%100==0 ) cerr << '.';
+				if ( ii && ii%5000==0 ) cerr << ' ' << ii << endl;
+
+				DistanceTCR_g const &atcr( tcrs[ii].first ), &btcr( tcrs[ii].second);
+				bool first(true);
+				for ( PairedTCR const & other_tcr : tcrs ) {
+					// NOTE we round down to an integer here!
+					if ( first ) first=false;
+					else out << ' ';
+					out << Size( 0.5 + atcrdist(atcr, other_tcr.first) + btcrdist(btcr, other_tcr.second) );
+				}
+				out << '\n';
+			}
+			cerr << endl;
+			out.close();
+
+		} else if ( num_nbrs > 0 ) {
 			// open the outfiles
 			ofstream out_indices(outfile_prefix+"_knn_indices.txt");
 			ofstream out_distances(outfile_prefix+"_knn_distances.txt");

@@ -172,6 +172,7 @@ def _parse_bicluster_rank_genes( adata, uns_tag = 'rank_genes_good_biclusters' )
     '''
 
     names = pd.DataFrame(adata.uns[uns_tag]['names'])
+    organism = adata.uns['organism']
 
     all_ranks = {}
     for clptag in names.columns:
@@ -180,6 +181,8 @@ def _parse_bicluster_rank_genes( adata, uns_tag = 'rank_genes_good_biclusters' )
         ranks = []
         for igene, gene in enumerate( adata.uns[uns_tag]['names'][clptag] ):
             if pd.isnull(gene):
+                continue
+            if util.is_vdj_gene(gene, organism): # NEWNEWNEW
                 continue
             log2fold = adata.uns[uns_tag]['logfoldchanges'][clptag][igene]
             pval_adj = adata.uns[uns_tag]['pvals_adj'][clptag][igene]

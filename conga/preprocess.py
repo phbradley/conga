@@ -1338,3 +1338,42 @@ def calc_tcrdist_nbrs_umap_clusters_cpp(
 
     del adata.obsm['X_pca'] # delete the fake pcas
 
+def calc_tcrdist_matrix_cpp(
+        tcrs,
+        organism,
+        tmpfile_prefix = None,
+):
+    if tmpfile_prefix is None:
+        tmpfile_prefix = './tmp_tcrdists{}'.format(random.random())
+
+    tcrs_filename = tmpfile_prefix+'_tcrs.tsv'
+    df = pd.DataFrame(dict(va=[x[0][0] for x in tcrs], cdr3a=[x[0][2] for x in tcrs],
+                           vb=[x[1][0] for x in tcrs], cdr3b=[x[1][2] for x in tcrs]))
+    df.to_csv(tcrs_filename, sep='\t', index=False)
+
+    exe = util.path_to_tcrdist_cpp_bin+'find_neighbors'
+
+    if not exists(exe):
+        print('need to compile c++ exe:', exe)
+        exit(1)
+
+    db_filename = '{}tcrdist_info_{}.txt'.format(util.path_to_tcrdist_cpp_db, organism)
+    if not exists(db_filename):
+        print('need to create database file:', db_filename)
+        exit(1)
+
+    cmd = '{} -f {} --only_tcrdists -d {} -o {}'.format(exe, tcrs_filename, db_filename, tmpfile_prefix)
+    util.run_command(cmd, verbose=True)
+
+    tcrdist_matrix_filename = tmpfile_prefix+'_tcrdists.txt'
+
+    if not exists(tcrdist_matrix_filename):
+        print('find_neighbors failed, missing', tcrdist_matrix_filename)
+        exit(1)
+
+    D = np.loadtxt(tcrdist_matrix_filename).astype(float)
+
+    for filename in [tcrs_filename, tcrdist_matrix_filename]:
+        os.remove(filename)
+
+    return D

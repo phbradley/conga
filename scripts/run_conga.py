@@ -100,7 +100,7 @@ if args.all:
     make_tcrdist_trees""".split()
 
     for mode in all_modes:
-        print('--all implies --'+mode)
+        print(f'--all implies --{mode} ==> Running {mode} analysis.')
         setattr(args, mode, True)
 
 ## check consistency of args
@@ -636,7 +636,7 @@ if args.make_tcrdist_trees: # make tcrdist trees for each of the gex clusters, a
     xpad = 25
     organism = adata.uns['organism']
 
-    precomputed = False
+    #precomputed = False
     #read the raw tcrdist distances (could instead use the kpca euclidean dists)
     #distfile = args.clones_file
 
@@ -669,11 +669,11 @@ if args.make_tcrdist_trees: # make tcrdist trees for each of the gex clusters, a
         ctcrs   = [x for x,y in zip(  tcrs, cmask) if y]
         cscores = [x for x,y in zip(scores, cmask) if y]
 
-        if not precomputed:
-            print('computing tcrdist distances:', clust, csize)
-            cdists = np.array([ tcrdist(x,y) for x in ctcrs for y in ctcrs]).reshape(csize,csize)
+        print('computing tcrdist distances:', clust, csize)
+        if csize>1000 and conga.util.tcrdist_cpp_available():
+            cdists = conga.preprocess.calc_tcrdist_matrix_cpp(ctcrs, adata.uns['organism'])
         else:
-            assert False # tmp hack
+            cdists = np.array([ tcrdist(x,y) for x in ctcrs for y in ctcrs]).reshape(csize,csize)
 
         cmds = conga.tcrdist.make_tcr_trees.make_tcr_tree_svg_commands(
             ctcrs, organism, [x_offset,0], [width,height], cdists, max_tcrs_for_trees=400, tcrdist_calculator=tcrdist,
@@ -700,11 +700,11 @@ if args.make_tcrdist_trees: # make tcrdist trees for each of the gex clusters, a
             ctcrs   = [x for x,y in zip(  tcrs, cmask) if y]
             cscores = [x for x,y in zip(scores, cmask) if y]
 
-            if not precomputed:
+            if csize>1000 and conga.util.tcrdist_cpp_available():
+                cdists = conga.preprocess.calc_tcrdist_matrix_cpp(ctcrs, adata.uns['organism'])
+            else:
                 print('computing tcrdist distances:', clust, csize)
                 cdists = np.array([ tcrdist(x,y) for x in ctcrs for y in ctcrs]).reshape(csize,csize)
-            else:
-                assert False # tmp hack
 
             cmds = conga.tcrdist.make_tcr_trees.make_tcr_tree_svg_commands(
                 ctcrs, organism, [0,0], [width,height], cdists, max_tcrs_for_trees=400, tcrdist_calculator=tcrdist,
