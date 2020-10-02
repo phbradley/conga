@@ -59,12 +59,12 @@ parser.add_argument('--skip_tcr_scores_in_gex_header', action='store_true')
 parser.add_argument('--tenx_agbt', action='store_true')
 parser.add_argument('--include_alphadist_in_tcr_feature_logos', action='store_true')
 parser.add_argument('--show_pmhc_info_in_logos', action='store_true')
-parser.add_argument('--gex_header_tcr_score_names', type=str, nargs='*',
-                    default= ['imhc', 'cdr3len', 'cd8', 'nndists_tcr'])
+parser.add_argument('--gex_header_tcr_score_names', type=str, nargs='*')
 parser.add_argument('--gex_nbrhood_tcr_score_names', type=str, nargs='*')
 parser.add_argument('--shuffle_tcr_kpcs', action='store_true') # shuffle the TCR kpcs to test for FDR
 parser.add_argument('--shuffle_gex_nbrs', action='store_true') # for debugging
 parser.add_argument('--exclude_vgene_strings', type=str, nargs='*')
+parser.add_argument('--max_genes_per_cell', type=int)
 
 args = parser.parse_args()
 
@@ -201,7 +201,7 @@ if args.restart is None:
 
     print(adata)
 
-    adata = conga.preprocess.filter_and_scale( adata )
+    adata = conga.preprocess.filter_and_scale( adata, n_genes = args.max_genes_per_cell )
 
     if args.filter_ribo_norm_low_cells:
         adata = conga.preprocess.filter_cells_by_ribo_norm( adata )
@@ -426,7 +426,16 @@ if args.graph_vs_graph: ########################################################
         conga.correlations.run_rank_genes_on_good_biclusters(
             adata, good_mask, clusters_gex, clusters_tcr, min_count=min_cluster_size, key_added= rank_genes_uns_tag)
 
-        gex_header_tcr_score_names = [] if args.skip_tcr_scores_in_gex_header else args.gex_header_tcr_score_names
+        if args.skip_tcr_scores_in_gex_header:
+            gex_header_tcr_score_names = []
+        elif args.gex_header_tcr_score_names is None:
+            if '_ig' in adata.uns['organism']:
+                gex_header_tcr_score_names = ['af2', 'cdr3len', 'volume', 'nndists_tcr']
+            else:
+                gex_header_tcr_score_names = ['imhc', 'cdr3len', 'cd8', 'nndists_tcr']
+        else:
+            gex_header_tcr_score_names = args.gex_header_tcr_score_names
+
 
         conga.plotting.make_logo_plots(
             adata, nbrs_gex, nbrs_tcr, min_cluster_size, args.outfile_prefix+'_bicluster_logos.png',

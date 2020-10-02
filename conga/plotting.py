@@ -41,9 +41,9 @@ default_logo_genes = {
                  'Itgal', 'Prf1', 'Gzma', 'Il2rb', 'Gzmk', 'Ifng',
                  'Ccl5', 'Cxcr3', 'Zbtb16', 'Nkg7', 'Klrd1'],
     # b cells
-    'human_ig': ['IL4R','TCL1A','SELL','IGKC','CD27',
-                 'LAIR1','HLA-C','HLA-DRB1','COTL1','JCHAIN','XBP1',
-                 'EGR1','IGHM','IGHD','IGHA1','IGHA2']
+    'human_ig': ['IL4R','TCL1A','SELL','CRIP1','CD27',
+                 'ZFP36','HLA-C','HLA-DRB1','COTL1','JCHAIN','XBP1',
+                 'IGHD','IGHM','IGHG1','IGHA1','IGHA2']
 }
 
 
@@ -182,7 +182,7 @@ def _parse_bicluster_rank_genes( adata, uns_tag = 'rank_genes_good_biclusters' )
         for igene, gene in enumerate( adata.uns[uns_tag]['names'][clptag] ):
             if pd.isnull(gene):
                 continue
-            if util.is_vdj_gene(gene, organism): # NEWNEWNEW
+            if util.is_vdj_gene(gene, organism, include_constant_regions=True): # NEWNEWNEW
                 continue
             log2fold = adata.uns[uns_tag]['logfoldchanges'][clptag][igene]
             pval_adj = adata.uns[uns_tag]['pvals_adj'][clptag][igene]

@@ -165,7 +165,7 @@ def read_adata(
         adata = sc.read_h5ad( gex_data )
 
     elif gex_data_type == '10x_mtx':
-        adata = sc.read_10x_mtx( gex_data )
+        adata = sc.read_10x_mtx( gex_data ) # consider-- do we need gex_only here? is it also an option for this fxn?
 
     elif gex_data_type == '10x_h5':
         adata = sc.read_10x_h5( gex_data, gex_only=True )
