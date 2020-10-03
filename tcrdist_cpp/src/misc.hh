@@ -190,48 +190,4 @@ vector_index( T const & t, vector< T > const & v )
 
 
 
-/// these are inspired by the output functions from Rosetta
-// inline
-// string
-// F( int const width, int const decimals, float const & t )
-// {
-// 	stringstream out;
-// 	out << fixed << showpoint << setprecision( decimals ) << setw( width ) << t;
-// 	return out.str();
-// }
-
-// inline
-// string
-// F( int const width, int const decimals, double const & t )
-// {
-// 	stringstream out;
-// 	out << fixed << showpoint << setprecision( decimals ) << setw( width ) << t;
-// 	return out.str();
-// }
-
-// template< typename T >
-// inline
-// string
-// I( int const width, T const & value )
-// {
-// 	ostringstream out;
-// 	out << right << setw( width ) << value;
-// 	return out.str();
-// }
-
-
-// template < class T >
-// T
-// max( vector<T> const & v )
-// {
-// 	return *max_element( v.begin(), v.end() );
-// }
-
-// template < class T >
-// T
-// min( vector<T> const & v )
-// {
-// 	return *min_element( v.begin(), v.end() );
-// }
-
 #endif

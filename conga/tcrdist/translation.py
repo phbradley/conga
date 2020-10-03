@@ -23,7 +23,23 @@ for a in bases_plus:
 
 
 
-def get_translation( seq, frame ):
+def get_translation( seq, frame='+1' ): ## STUPID-- frame is 1/2/3 with a +/- in front
+    assert frame[0] in '+-'
+    if frame[0] == '-': seq = logo_tools.reverse_complement( seq )
+    offset = abs( int( frame ))-1
+    assert offset in range(3)
+    seq = seq[offset:].lower()
+    naa = len(seq)//3
+    protseq = ''
+    for i in range(naa):
+        codon = seq[3*i:3*i+3]
+        if '#' in codon:
+            protseq += '#'
+        else:
+            protseq += genetic_code.get( codon, 'X' )
+    return protseq
+
+def get_translation_and_codons( seq, frame='+1' ): ## STUPID-- frame is 1/2/3 with a +/- in front
     assert frame[0] in '+-'
     if frame[0] == '-': seq = logo_tools.reverse_complement( seq )
     offset = abs( int( frame ))-1

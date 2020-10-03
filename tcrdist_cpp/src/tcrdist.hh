@@ -28,6 +28,9 @@ struct DistanceTCR_gs {
 	string cdr3; // from C to 'F'
 };
 
+// a paired tcr with gene-level (actually allele level) resolution
+// DistanceTCR_g is defined in tcrdist.hh
+typedef std::pair< DistanceTCR_g, DistanceTCR_g > PairedTCR;
 
 class TCRdistCalculator {
 public:

@@ -1,5 +1,7 @@
 import sys
 import random
+from collections import OrderedDict
+import pandas as pd
 from .basic import *
 from . import translation
 from .all_genes import all_genes, gap_character
@@ -270,43 +272,153 @@ def analyze_junction( organism, v_gene, j_gene, cdr3_protseq, cdr3_nucseq, force
         return new_nucseq, cdr3_protseq_masked, cdr3_protseq_new_nucleotide_countstring, trims, inserts
 
 
+def parse_tcr_junctions( organism, tcrs ):
+    '''
+    Analyze the junction regions of all the tcrs. Return a pandas dataframe with the results, in the same order
+    as tcrs
+    '''
+
+    dfl = []
+
+    for ii, (atcr, btcr) in enumerate(tcrs):
+        if ii%1000==0:
+            print('parse_tcr_junctions:', ii, len(tcrs))
+        va, ja, cdr3a, cdr3a_nucseq = atcr
+        vb, jb, cdr3b, cdr3b_nucseq = btcr
+
+        aresults = analyze_junction(organism, va, ja, cdr3a, cdr3a_nucseq, return_cdr3_nucseq_src=True)
+        bresults = analyze_junction(organism, vb, jb, cdr3b, cdr3b_nucseq, return_cdr3_nucseq_src=True)
+
+        # trims = ( v_trim, d0_trim, d1_trim, j_trim )
+        # inserts = ( best_d_id, n_vd_insert, n_dj_insert, n_vj_insert )
+        # return new_nucseq, cdr3_protseq_masked, cdr3_protseq_new_nucleotide_countstring, trims, inserts, cdr3_nucseq_src
+
+        _, cdr3a_protseq_masked, _, a_trims, a_inserts, cdr3a_nucseq_src = aresults
+        _, cdr3b_protseq_masked, _, b_trims, b_inserts, cdr3b_nucseq_src = bresults
+
+        assert a_trims[1]+a_trims[2] == 0
+        assert a_inserts[1]+a_inserts[2] == 0
+
+        dfl.append( OrderedDict( clone_index=ii,
+                                 va=va,
+                                 ja=ja,
+                                 cdr3a=cdr3a,
+                                 cdr3a_nucseq=cdr3a_nucseq,
+                                 cdr3a_protseq_masked=cdr3a_protseq_masked,
+                                 cdr3a_nucseq_src=''.join(cdr3a_nucseq_src),
+                                 va_trim=a_trims[0],
+                                 ja_trim=a_trims[3],
+                                 a_insert=a_inserts[3],
+                                 vb=vb,
+                                 jb=jb,
+                                 cdr3b=cdr3b,
+                                 cdr3b_nucseq=cdr3b_nucseq,
+                                 cdr3b_protseq_masked=cdr3b_protseq_masked,
+                                 cdr3b_nucseq_src=''.join(cdr3b_nucseq_src),
+                                 vb_trim=b_trims[0],
+                                 d0_trim=b_trims[1],
+                                 d1_trim=b_trims[2],
+                                 jb_trim=b_trims[3],
+                                 vd_insert=b_inserts[1],
+                                 dj_insert=b_inserts[2],
+                                 vj_insert=b_inserts[3],
+                                 ))
+
+    return pd.DataFrame(dfl)
+
+def resample_shuffled_tcr_chains(
+        num_samples,
+        chain, # 'A' or 'B'
+        junctions_df, # dataframe made by the above function
+):
+    ''' returns list of (v_gene, j_gene, cdr3, cdr3_nucseq) for inputting into tcrdist calcs (e.g.)
+    '''
+    # need list of (v_gene, j_gene, cdr3_nucseq, breakpoints_pre_d, breakpoints_post_d)
+    # breakpoints sets could contain negative numbers: that means read from the back
+    #
+    junctions = []
+    for l in junctions_df.itertuples():
+        # where are the acceptable breakpoints?
+        # dont allow breakpoints in the middle of V D or J
+        # the breakpoint is the index we can use as in  nucseq = nucseq1[:breakpoint] + nucseq2[breakpoint:]
+        breakpoints_pre_d = set()
+        breakpoints_post_d = set()
+        nucseq_src = l.cdr3a_nucseq_src if chain == 'A' else l.cdr3b_nucseq_src
+        #
+        post_d = False
+        for ii in range(1,len(nucseq_src)):
+            ## ii refers to the breakpoint between position ii-1 and position ii
+            ## ie, right before position ii
+            a,b = nucseq_src[ii-1], nucseq_src[ii]
+            if a=='D':
+                post_d = True
+            if a==b and a!='N':
+                #bad
+                pass
+            else:
+                # -1 would be ii==len(nucseq_src)-1
+                for bp in [ii, ii-len(nucseq_src)]:
+                    if post_d:
+                        breakpoints_post_d.add(bp)
+                    else:
+                        breakpoints_pre_d.add(bp)
+        if chain=='A':
+            junctions.append( (l.va, l.ja, l.cdr3a_nucseq,
+                               breakpoints_pre_d, breakpoints_post_d))
+        else:
+            junctions.append( (l.vb, l.jb, l.cdr3b_nucseq,
+                               breakpoints_pre_d, breakpoints_post_d))
+
+    # repeat:
+    # choose 2 random tcrs; are their breakpoints compatible?
+    # if so, choose random compatible breakpoint, make frankentcr
 
 
-def add_masked_CDR3_sequences_to_tcr_dict( organism, vals ):
-    ## this code is mostly taken from compute_probs.py
-    va_gene = vals['va_gene']
-    ja_gene = vals['ja_gene']
-    vb_gene = vals['vb_gene']
-    jb_gene = vals['jb_gene']
-    cdr3a_protseq = vals['cdr3a']
-    cdr3a_nucseq  = vals['cdr3a_nucseq']
-    cdr3b_protseq = vals['cdr3b']
-    cdr3b_nucseq  = vals['cdr3b_nucseq']
+    new_tcrs = []
+    attempts = 0
+    successes = 0
+    while len(new_tcrs) < num_samples:
+        #print(len(new_tcrs))
 
-    a_junction_results = analyze_junction( organism, va_gene, ja_gene, cdr3a_protseq, cdr3a_nucseq )
-    b_junction_results = analyze_junction( organism, vb_gene, jb_gene, cdr3b_protseq, cdr3b_nucseq )
+        t1 = random.choice(junctions)
+        t2 = random.choice(junctions)
+        nucseq1 = t1[2]
+        nucseq2 = t2[2]
 
-    cdr3a_new_nucseq, cdr3a_protseq_masked, cdr3a_protseq_new_nucleotide_countstring,a_trims,a_inserts \
-        = a_junction_results
-    cdr3b_new_nucseq, cdr3b_protseq_masked, cdr3b_protseq_new_nucleotide_countstring,b_trims,b_inserts \
-        = b_junction_results
+        inds = [3] if chain=='A' else [3,4]
+        random.shuffle(inds)
 
-    # from tcr_sampler.py:
-    # trims = ( v_trim, d0_trim, d1_trim, j_trim )
-    # inserts = ( best_d_id, n_vd_insert, n_dj_insert, n_vj_insert )
+        success = False
+        for ind in inds:
+            shared = t1[ind] & t2[ind]
+            if shared:
+                bp = random.choice(list(shared))
+                nucseq = nucseq1[: bp] + nucseq2[bp :]
+                assert len(nucseq)%3==0
+                if bp<0: # DEBUGGING
+                    assert len(nucseq) == len(nucseq1)
+                else:
+                    assert len(nucseq) == len(nucseq2)
+                # but is there a stop codon??
+                cdr3 = translation.get_translation(nucseq)
+                assert len(cdr3) == len(nucseq)//3
+                if '*' not in cdr3:
+                    success = True
+                    t_new = ( t1[0], t2[1], cdr3, nucseq)
+                    # print('t1', translation.get_translation(t1[2]), t1)
+                    # print('t2', translation.get_translation(t2[2]), t2)
+                    # print('tn', translation.get_translation(t_new[3]), t_new)
+                    # print(bp, nucseq)
+                    new_tcrs.append(t_new)
+                    break
+        #print('success:', success)
+        attempts += 1
+        successes += success
+        if success and len(new_tcrs) >= num_samples:
+            break
+    print(f'success_rate: {100.0*successes/attempts:.2f}')
+    return new_tcrs
 
-    assert a_trims[1] + a_trims[2] + a_inserts[0] + a_inserts[1] + a_inserts[2] + b_inserts[3] == 0
-    assert a_inserts[3] == len( cdr3a_new_nucseq )
-
-    ita = '+%d-%d'%(sum(a_inserts[1:]),sum(a_trims))
-    itb = '+%d-%d'%(sum(b_inserts[1:]),sum(b_trims))
-
-    vals[ 'cdr3a_protseq_masked'] = cdr3a_protseq_masked
-    vals[ 'a_indels'] = ita
-    vals[ 'cdr3a_new_nucseq' ] = cdr3a_new_nucseq
-    vals[ 'cdr3b_protseq_masked'] = cdr3b_protseq_masked
-    vals[ 'b_indels'] = itb
-    vals[ 'cdr3b_new_nucseq' ] = cdr3b_new_nucseq
 
 
 ########################################################################################################################

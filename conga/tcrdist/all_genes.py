@@ -32,7 +32,7 @@ class TCR_Gene:
         assert frame in [1,2,3] # now parsed by pandas, so string converted to int
         #self.nucseq_offset = int( frame[-1] )-1 ## 0, 1 or 2 (0-indexed for python)
         self.nucseq_offset = frame-1 ## 0, 1 or 2 (0-indexed for python)
-        self.protseq = translation.get_translation( self.nucseq, f'+{frame}' )[0]
+        self.protseq = translation.get_translation( self.nucseq, f'+{frame}' )
         assert self.protseq == self.alseq.replace(gap_character,'')
         # sanity check
         if self.cdrs:
