@@ -384,6 +384,8 @@ def resample_shuffled_tcr_chains(
         t2 = random.choice(junctions)
         nucseq1 = t1[2]
         nucseq2 = t2[2]
+        if nucseq1 == nucseq2:
+            continue
 
         inds = [3] if chain=='A' else [3,4]
         random.shuffle(inds)

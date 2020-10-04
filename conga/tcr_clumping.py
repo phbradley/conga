@@ -114,17 +114,20 @@ def assess_tcr_clumping(
     # use poisson to find nbrhoods with more tcrs than expected; have to handle agroups/bgroups
     dfl = []
 
+    is_clumped = np.full((num_clones,), False)
+
     for ii in range(num_clones):
         ii_freqs = freqs[ii]
-        dists = all_distances[ii]
+        ii_dists = all_distances[ii]
         for radius in radii:
-            num_nbrs = np.sum(x<=radius for x in dists)
+            num_nbrs = np.sum(x<=radius for x in ii_dists)
             max_nbrs = np.sum( (agroups!=agroups[ii]) & (bgroups!=bgroups[ii]))
             if num_nbrs:
                 # adjust for number of tests
                 mu = max_nbrs * ii_freqs[radius]
                 pval = len(radii) * num_clones * poisson.sf( num_nbrs-1, mu )
                 if pval< pvalue_threshold:
+                    is_clumped[ii] = True
                     print('nbrs: {:2d} {:9.6f} radius: {:2d} pval: {:9.1e} {:6d} tcr: {:3d} {} {}'\
                           .format( num_nbrs, mu, radius, pval, counts[ii][radius], clone_sizes[ii],
                                    ' '.join(tcrs[ii][0][:3]), ' '.join(tcrs[ii][1][:3])))
@@ -141,5 +144,66 @@ def assess_tcr_clumping(
                                             jb   =tcrs[ii][1][1],
                                             cdr3b=tcrs[ii][1][2],
                     ))
-    return pd.DataFrame(dfl)
+    results_df = pd.DataFrame(dfl)
+    if results_df.shape[0] == 0:
+        return results_df
+
+    # identify groups of related hits?
+    all_clumped_nbrs = {}
+    for l in results_df.itertuples():
+        ii = l.clone_index
+        radius = l.nbr_radius
+        clumped_nbrs = set(x for x,y in zip(all_nbrs[ii], all_distances[ii]) if y<= radius and is_clumped[x])
+        clumped_nbrs.add(ii)
+        if ii in all_clumped_nbrs:
+            all_clumped_nbrs[ii] = all_clumped_nbrs[ii] | clumped_nbrs
+        else:
+            all_clumped_nbrs[ii] = clumped_nbrs
+
+
+    clumped_inds = sorted(all_clumped_nbrs.keys())
+    assert len(clumped_inds) == np.sum(is_clumped)
+
+    # make nbrs symmetric
+    for ii in clumped_inds:
+        for nbr in all_clumped_nbrs[ii]:
+            assert nbr in all_clumped_nbrs
+            all_clumped_nbrs[nbr].add(ii)
+
+    all_smallest_nbr = {}
+    for ii in clumped_inds:
+        all_smallest_nbr[ii] = min(all_clumped_nbrs[ii])
+
+    while True:
+        updated = False
+        for ii in clumped_inds:
+            nbr = all_smallest_nbr[ii]
+            new_nbr = min(nbr, np.min([all_smallest_nbr[x] for x in all_clumped_nbrs[ii]]))
+            if nbr != new_nbr:
+                all_smallest_nbr[ii] = new_nbr
+                updated = True
+        if not updated:
+            break
+    # define clusters, choose cluster centers
+    clusters = np.array([0]*num_clones) # 0 if not clumped
+
+    cluster_number=0
+    for ii in clumped_inds:
+        nbr = all_smallest_nbr[ii]
+        if ii==nbr:
+            cluster_number += 1
+            members = [ x for x,y in all_smallest_nbr.items() if y==nbr]
+            clusters[members] = cluster_number
+
+    for ii, nbrs in all_clumped_nbrs.items():
+        for nbr in nbrs:
+            assert clusters[ii] == clusters[nbr] # confirm single-linkage clusters
+
+    assert not np.any(clusters[is_clumped]==0)
+    assert np.all(clusters[~is_clumped]==0)
+
+    results_df['cluster'] = [ clusters[x.clone_index] for x in results_df.itertuples()]
+
+
+    return results_df
 

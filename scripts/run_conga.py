@@ -42,6 +42,7 @@ parser.add_argument('--graph_vs_tcr_features', action='store_true')
 parser.add_argument('--graph_vs_gex_features', action='store_true')
 # some extra analyses
 parser.add_argument('--cluster_vs_cluster', action='store_true')
+parser.add_argument('--tcr_clumping', action='store_true')
 parser.add_argument('--calc_clone_pmhc_pvals', action='store_true')
 parser.add_argument('--find_pmhc_nbrhood_overlaps', action='store_true') # only if pmhc info is present
 parser.add_argument('--find_distance_correlations', action='store_true')
@@ -60,6 +61,8 @@ parser.add_argument('--tenx_agbt', action='store_true')
 parser.add_argument('--include_alphadist_in_tcr_feature_logos', action='store_true')
 parser.add_argument('--show_pmhc_info_in_logos', action='store_true')
 parser.add_argument('--gex_header_tcr_score_names', type=str, nargs='*')
+parser.add_argument('--radii_for_tcr_clumping', type=int, nargs='*')
+parser.add_argument('--num_random_samples_for_tcr_clumping', type=int)
 parser.add_argument('--gex_nbrhood_tcr_score_names', type=str, nargs='*')
 parser.add_argument('--shuffle_tcr_kpcs', action='store_true') # shuffle the TCR kpcs to test for FDR
 parser.add_argument('--shuffle_gex_nbrs', action='store_true') # for debugging
@@ -97,6 +100,7 @@ if args.all:
     cluster_vs_cluster
     find_hotspot_features
     find_gex_cluster_degs
+    tcr_clumping
     make_tcrdist_trees""".split()
 
     for mode in all_modes:
@@ -374,6 +378,70 @@ if args.verbose_nbrs:
             outfile = '{}_{}_nbrs_{:.3f}.txt'.format(args.outfile_prefix, tag, nbr_frac)
             np.savetxt(outfile, nbrs, fmt='%d')
             print('wrote nbrs to file:', outfile)
+
+
+if args.tcr_clumping:
+    num_random_samples = 50000 if args.num_random_samples_for_tcr_clumping is None \
+                         else args.num_random_samples_for_tcr_clumping
+
+    radii = [24, 48, 72, 96] if args.radii_for_tcr_clumping is None else args.radii_for_tcr_clumping
+
+
+    results = conga.tcr_clumping.assess_tcr_clumping(
+        adata, num_random_samples, args.outfile_prefix, radii, pvalue_threshold = 1.0)
+
+    if results.shape[0]:
+
+        # add some extra info
+        clusters_gex = np.array(adata.obs['clusters_gex'])
+        clusters_tcr = np.array(adata.obs['clusters_tcr'])
+        results['clusters_gex'] = [ clusters_gex[x] for x in results.clone_index]
+        results['clusters_tcr'] = [ clusters_tcr[x] for x in results.clone_index]
+
+        tsvfile = args.outfile_prefix+'_tcr_clumping.tsv'
+        results.to_csv(tsvfile, sep='\t', index=False)
+
+        num_clones = adata.shape[0]
+        fake_clusters_gex = np.zeros((num_clones,)).astype(int)
+        fake_clusters_tcr = np.zeros((num_clones,)).astype(int)
+        clumping_pvals = np.full( (num_clones,), num_clones).astype(float)
+        for l in results.itertuples():
+            clumping_pvals[ l.clone_index] = min( l.pvalue_adj, clumping_pvals[l.clone_index])
+            fake_clusters_tcr[l.clone_index] = l.cluster
+
+        nbrs_gex, nbrs_tcr = all_nbrs[ max(args.nbr_fracs) ]
+
+        min_cluster_size = max( args.min_cluster_size, int( 0.5 + args.min_cluster_size_fraction * num_clones) )
+        pngfile = f'{args.outfile_prefix}_tcr_clumping_logos.png'
+
+        conga.plotting.make_cluster_logo_plots_figure(
+            adata, clumping_pvals, 1.0, fake_clusters_gex, fake_clusters_tcr, nbrs_gex, nbrs_tcr, min_cluster_size,
+            pngfile)
+
+        # make umaps colored by clumping pvals
+        plt.figure(figsize=(12,6))
+        for icol, tag in enumerate(['gex','tcr']):
+            plt.subplot(1,2,icol+1)
+            colors = np.sqrt( np.maximum(0.0, -1*np.log10(np.maximum(1e-100, clumping_pvals)))) # no log10 of 0.0
+            print('colors:', tag, np.max(colors), list(colors[:100]))
+            reorder = np.argsort(colors)
+            xy = adata.obsm['X_{}_2d'.format(tag)] # same umap as feature nbr-type
+            vmax = np.sqrt(-1*np.log10(1e-25))
+            #vmax = np.sqrt(-1*np.log10(1e-5))
+            plt.scatter( xy[reorder,0], xy[reorder,1], c=colors[reorder], vmin=0, vmax=vmax)
+            plt.colorbar()
+            plt.xticks([],[])
+            plt.yticks([],[])
+            plt.xlabel('{} UMAP1'.format(tag.upper()))
+            plt.ylabel('{} UMAP2'.format(tag.upper()))
+            plt.title('TCR clumping pvalues')
+        plt.tight_layout()
+        pngfile = '{}_tcr_clumping.png'.format(args.outfile_prefix)
+        print('making:', pngfile)
+        plt.savefig(pngfile)
+
+
+
 
 if args.graph_vs_graph: ############################################################################################
     # make these numpy arrays because there seems to be a problem with np.nonzero on pandas series...
