@@ -326,13 +326,23 @@ def parse_tcr_junctions( organism, tcrs ):
 
     return pd.DataFrame(dfl)
 
+
+def vj_compatible(v_gene, j_gene, organism):
+    if organism == 'human_ig': # enforce kappa or lambda
+        assert v_gene.startswith('IG') and j_gene.startswith('IG') and v_gene[2] in 'HKL' and j_gene[2] in 'HKL'
+        return v_gene[2] == j_gene[2]
+    else:
+        return True
+
 def resample_shuffled_tcr_chains(
+        organism,
         num_samples,
         chain, # 'A' or 'B'
         junctions_df, # dataframe made by the above function
 ):
     ''' returns list of (v_gene, j_gene, cdr3, cdr3_nucseq) for inputting into tcrdist calcs (e.g.)
     '''
+    assert chain in ['A', 'B']
     # need list of (v_gene, j_gene, cdr3_nucseq, breakpoints_pre_d, breakpoints_post_d)
     # breakpoints sets could contain negative numbers: that means read from the back
     #
@@ -385,6 +395,9 @@ def resample_shuffled_tcr_chains(
         nucseq1 = t1[2]
         nucseq2 = t2[2]
         if nucseq1 == nucseq2:
+            continue
+
+        if not vj_compatible(t1[0], t2[1], organism):
             continue
 
         inds = [3] if chain=='A' else [3,4]

@@ -14,20 +14,88 @@ import numpy as np
 from scipy.stats import poisson
 # from anndata import AnnData
 import sys
-# import os
+import os
 from sys import exit
 from . import util
 from . import preprocess
 from .tcrdist import tcr_sampler
+import random
+
+
+def estimate_background_tcrdist_distributions(
+        organism,
+        tcrs,
+        max_dist,
+        num_random_samples = 50000,
+        pseudocount = 0.25,
+        tmpfile_prefix = None,
+):
+    if not util.tcrdist_cpp_available():
+        print('conga.tcr_clumping.estimate_background_tcrdist_distributions:: need to compile the C++ tcrdist executables')
+        exit(1)
+
+    if tmpfile_prefix is None:
+        tmpfile_prefix = './tmp_nbrs{}'.format(random.random())
+
+    max_dist = int(0.1+max_dist) ## need an integer
+    num_clones = len(tcrs)
+
+    # parse the V(D)J junction regions of the tcrs to define split-points for shuffling
+    junctions_df = tcr_sampler.parse_tcr_junctions(organism, tcrs)
+
+    # resample shuffled single-chain tcrs
+    achains_bg = tcr_sampler.resample_shuffled_tcr_chains(organism, num_random_samples, 'A', junctions_df)
+    bchains_bg = tcr_sampler.resample_shuffled_tcr_chains(organism, num_random_samples, 'B', junctions_df)
+
+    # save all tcrs to files
+    achains_file = tmpfile_prefix+'_bg_achains.tsv'
+    bchains_file = tmpfile_prefix+'_bg_bchains.tsv'
+    tcrs_file = tmpfile_prefix+'_tcrs.tsv'
+
+    pd.DataFrame({'va':[x[0] for x in achains_bg], 'cdr3a':[x[2] for x in achains_bg]})\
+      .to_csv(achains_file, sep='\t', index=False)
+
+    pd.DataFrame({'vb':[x[0] for x in bchains_bg], 'cdr3b':[x[2] for x in bchains_bg]})\
+      .to_csv(bchains_file, sep='\t', index=False)
+
+    pd.DataFrame({'va':[x[0][0] for x in tcrs], 'cdr3a':[x[0][2] for x in tcrs],
+                  'vb':[x[1][0] for x in tcrs], 'cdr3b':[x[1][2] for x in tcrs]})\
+      .to_csv(tcrs_file, sep='\t', index=False)
+
+
+    # compute distributions vs background chains
+    exe = util.path_to_tcrdist_cpp_bin + 'calc_distributions'
+    outfile = tmpfile_prefix+'_dists.txt'
+    db_filename = '{}tcrdist_info_{}.txt'.format(util.path_to_tcrdist_cpp_db, organism)
+    cmd = '{} -f {} -m {} -d {} -a {} -b {} -o {}'\
+          .format(exe, tcrs_file, max_dist, db_filename, achains_file, bchains_file, outfile)
+    util.run_command(cmd, verbose=True)
+
+    if not exists(outfile):
+        print('tcr_clumping:: calc_distributions failed: missing', outfile)
+        exit(1)
+
+    counts = np.loadtxt(outfile, dtype=int)
+    counts = np.cumsum(counts, axis=1)
+    assert counts.shape == (num_clones, max_dist+1)
+    n_bg_pairs = num_random_samples * num_random_samples
+    tcrdist_freqs = np.maximum(pseudocount, counts.astype(float))/n_bg_pairs
+
+    for filename in [achains_file, bchains_file, tcrs_file, outfile]:
+        os.remove(filename)
+
+    return tcrdist_freqs
+
+
 
 
 def assess_tcr_clumping(
         adata,
-        num_random_samples,
         outfile_prefix,
         radii = [24, 48, 72, 96],
-        pseudocount = 0.25,
+        num_random_samples = 50000, # higher numbers are slower but allow more significant pvalues for extreme clumping
         pvalue_threshold = 1.0,
+        verbose=True,
 ):
     if not util.tcrdist_cpp_available():
         print('conga.tcr_clumping.assess_tcr_clumping:: need to compile the C++ tcrdist executables')
@@ -41,21 +109,11 @@ def assess_tcr_clumping(
     outprefix = outfile_prefix+'_tcr_clumping'
 
     tcrs = preprocess.retrieve_tcrs_from_adata(adata)
-    junctions_df = tcr_sampler.parse_tcr_junctions(adata.uns['organism'], tcrs)
 
-    achains_bg = tcr_sampler.resample_shuffled_tcr_chains(num_random_samples, 'A', junctions_df)
-    bchains_bg = tcr_sampler.resample_shuffled_tcr_chains(num_random_samples, 'B', junctions_df)
+    bg_freqs = estimate_background_tcrdist_distributions(
+        adata.uns['organism'], tcrs, max(radii), num_random_samples=num_random_samples, tmpfile_prefix=outprefix)
 
-    achains_file = outprefix+'_bg_achains.tsv'
-    bchains_file = outprefix+'_bg_bchains.tsv'
     tcrs_file = outprefix+'_tcrs.tsv'
-
-    pd.DataFrame({'va':[x[0] for x in achains_bg], 'cdr3a':[x[2] for x in achains_bg]})\
-      .to_csv(achains_file, sep='\t', index=False)
-
-    pd.DataFrame({'vb':[x[0] for x in bchains_bg], 'cdr3b':[x[2] for x in bchains_bg]})\
-      .to_csv(bchains_file, sep='\t', index=False)
-
     adata.obs['va cdr3a vb cdr3b'.split()].to_csv(tcrs_file, sep='\t', index=False)
 
 
@@ -92,23 +150,6 @@ def assess_tcr_clumping(
         all_distances.append([int(x) for x in l2])
     assert len(all_nbrs) == num_clones
 
-    # compute distributions vs background chains
-    exe = util.path_to_tcrdist_cpp_bin + 'calc_distributions'
-    outfile = outprefix+'_dists.txt'
-    cmd = '{} -f {} -m {} -d {} -a {} -b {} -o {}'\
-          .format(exe, tcrs_file, max(radii), db_filename, achains_file, bchains_file, outfile)
-    util.run_command(cmd, verbose=True)
-
-    if not exists(outfile):
-        print('calc_distributions failed: missing', outfile)
-        exit(1)
-
-    counts = np.loadtxt(outfile, dtype=int)
-    counts = np.cumsum(counts, axis=1)
-    assert counts.shape == (num_clones, max(radii)+1)
-    n_bg_pairs = num_random_samples * num_random_samples
-    freqs = np.maximum(pseudocount, counts.astype(float))/n_bg_pairs
-
     clone_sizes = adata.obs['clone_sizes']
 
     # use poisson to find nbrhoods with more tcrs than expected; have to handle agroups/bgroups
@@ -116,8 +157,10 @@ def assess_tcr_clumping(
 
     is_clumped = np.full((num_clones,), False)
 
+    n_bg_pairs = num_random_samples * num_random_samples
+
     for ii in range(num_clones):
-        ii_freqs = freqs[ii]
+        ii_freqs = bg_freqs[ii]
         ii_dists = all_distances[ii]
         for radius in radii:
             num_nbrs = np.sum(x<=radius for x in ii_dists)
@@ -128,15 +171,17 @@ def assess_tcr_clumping(
                 pval = len(radii) * num_clones * poisson.sf( num_nbrs-1, mu )
                 if pval< pvalue_threshold:
                     is_clumped[ii] = True
-                    print('nbrs: {:2d} {:9.6f} radius: {:2d} pval: {:9.1e} {:6d} tcr: {:3d} {} {}'\
-                          .format( num_nbrs, mu, radius, pval, counts[ii][radius], clone_sizes[ii],
-                                   ' '.join(tcrs[ii][0][:3]), ' '.join(tcrs[ii][1][:3])))
+                    raw_count = ii_freqs[radius]*n_bg_pairs # if count was 0, will be pseudocount
+                    if verbose:
+                        print('nbrs: {:2d} {:9.6f} radius: {:2d} pval: {:9.1e} {:9.1f} tcr: {:3d} {} {}'\
+                              .format( num_nbrs, mu, radius, pval, raw_count, clone_sizes[ii],
+                                       ' '.join(tcrs[ii][0][:3]), ' '.join(tcrs[ii][1][:3])))
                     dfl.append( OrderedDict(clone_index=ii,
                                             nbr_radius=radius,
                                             pvalue_adj=pval,
                                             num_nbrs=num_nbrs,
                                             expected_num_nbrs=mu,
-                                            raw_count=counts[ii][radius],
+                                            raw_count=raw_count,
                                             va   =tcrs[ii][0][0],
                                             ja   =tcrs[ii][0][1],
                                             cdr3a=tcrs[ii][0][2],
@@ -202,7 +247,7 @@ def assess_tcr_clumping(
     assert not np.any(clusters[is_clumped]==0)
     assert np.all(clusters[~is_clumped]==0)
 
-    results_df['cluster'] = [ clusters[x.clone_index] for x in results_df.itertuples()]
+    results_df['clumping_group'] = [ clusters[x.clone_index] for x in results_df.itertuples()]
 
 
     return results_df
