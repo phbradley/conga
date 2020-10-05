@@ -1385,7 +1385,7 @@ def Prep_for_CoNGA(
         adata,
         clones_file,
         second_clones_file = None,
-        write_full_clone_df = False,
+        write_full_clone_df = True,
 ):
     ''' prepares adata object generated thru std scanpy workflow for CoNGA analysis.
     
@@ -1439,8 +1439,9 @@ def Prep_for_CoNGA(
         clone_df_full = clone_df_full.rename(columns={ "va_gene": "va", "ja_gene": "ja", "vb_gene": "vb", "jb_gene": "jb"})
         mapped_cells = len( clone_df_full.index )
         uclones = clone_df_full['clone_id'].nunique()
-        print(f'{mapped_cells} cells with repertoire info')
-        print(f'{uclones} unique clonotypes')
+        
+        print(f'{mapped_cells} cells with {tag} info')
+        print(f'{uclones} unique {tag} clonotypes')
         
         if write_full_clone_df:
             full_file = clones_file[:-4]+'_full.tsv'
@@ -1579,7 +1580,6 @@ def Prep_for_CoNGA(
 def make_tcrdist_kernel_pcs_file_from_clones_file_V2(
         df,
         organism,
-        #tag,
         n_components_in=50,
         kernel=None, # either None (-->default) or 'gaussian'
         gaussian_kernel_sdev=100.0, #unused unless kernel=='gaussian'
@@ -1592,7 +1592,7 @@ def make_tcrdist_kernel_pcs_file_from_clones_file_V2(
 
     # in conga we usually also have cdr3_nucseq but we don't need it for tcrdist; we also don't need the jgene but hey
     tcrs = [ ( ( l.va, l.ja, l.cdr3a ), ( l.vb, l.jb, l.cdr3b ) ) for l in df.itertuples() ]
-    ids = [ l.clone_id for l in df.itertuples() ]
+    #ids = [ l.clone_id for l in df.itertuples() ]
     
     print(f'compute tcrdist distance matrix for {len(tcrs)} clonotypes')
     D = np.array( [ tcrdist_calculator(x,y) for x in tcrs for y in tcrs ] ).reshape( (len(tcrs), len(tcrs)) )

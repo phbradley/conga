@@ -89,6 +89,14 @@ def read_tcr_data(
     gene_suffix = '*01' # may not be used
 
 
+    Ttypes = ['human' , 'mouse' , 'human_gd' , 'human_gd']
+
+    if organism in Ttypes:
+        tag = 'tcr_'
+    else:
+        tag = 'bcr_'
+
+
     # read the contig annotations-- map from clonotypes to barcodes
     # barcode,is_cell,contig_id,high_confidence,length,chain,v_gene,d_gene,j_gene,c_gene,full_length,productive,cdr3,cdr3_nt,reads,umis,raw_clonotype_id,raw_consensus_id
     # AAAGATGGTCTTCTCG-1,True,AAAGATGGTCTTCTCG-1_contig_1,True,695,TRB,TRBV5-1*01,TRBD2*02,TRBJ2-3*01,TRBC2*01,True,True,CASSPLAGYAADTQYF,TGCGCCAGCAGCCCCCTAGCGGGATACGCAGCAGATACGCAGTATTTT,9427,9,clonotype14,clonotype14_consensus_1
@@ -101,7 +109,7 @@ def read_tcr_data(
     clonotype2tcrs_backup = {} ## in case we dont have a consensus_annotations_csvfile
     for l in df.itertuples():
         bc = l.barcode
-        clonotype = l.raw_clonotype_id
+        clonotype = tag + l.raw_clonotype_id
         # annoying: pandas sometimes converts to True/False booleans and sometimes not.
         assert l.productive in [ 'None', 'False', 'True']
         if clonotype =='None':
@@ -245,6 +253,14 @@ def read_tcr_data_batch(
 
     md = pd.read_csv(metadata_file, dtype=str)#"string")
 
+
+    Ttypes = ['human' , 'mouse' , 'human_gd' , 'human_gd']
+
+    if organism in Ttypes:
+        tag = 'tcr_'
+    else:
+        tag = 'bcr_'
+
     # read in contig files and update suffix to match GEX matrix
     contig_list = []
     for x in range(len(md['file'])):
@@ -260,8 +276,8 @@ def read_tcr_data_batch(
             '_' + dfx['contig_id'].str.split('_').str.get(2) # currently unused, but can't hurt
 
         # giving each library a tag here really boosted the number of clones I got back
-        dfx['raw_clonotype_id'] = dfx['raw_clonotype_id'] + '_' + suffix
-        dfx['raw_consensus_id'] = dfx['raw_consensus_id'] + '_' + suffix # currently unused, but can't hurt
+        dfx['raw_clonotype_id'] = tag + dfx['raw_clonotype_id'] + '_' + suffix
+        dfx['raw_consensus_id'] = tag + dfx['raw_consensus_id'] + '_' + suffix # currently unused, but can't hurt
 
         contig_list.append(dfx)
 
