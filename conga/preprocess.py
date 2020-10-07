@@ -1,7 +1,7 @@
 import scanpy as sc
 import random
 import pandas as pd
-from os.path import exists
+from os.path import exists, join
 from collections import Counter
 from sklearn.metrics import pairwise_distances
 from sklearn.utils import sparsefuncs
@@ -122,7 +122,7 @@ def setup_X_igex( adata ):
     ''' Side effect: will log1p-and-normalize the raw matrix if that's not already done
     '''
     # tmp hacking
-    all_genes_file = util.path_to_data+'igenes_all_v1.txt'
+    all_genes_file = join( util.path_to_data+ 'igenes_all_v1.txt')
     kir_genes = 'KIR2DL1 KIR2DL3 KIR2DL4 KIR3DL1 KIR3DL2 KIR3DL3 KIR3DX1'.split()
     extra_genes = [ 'CD4','CD8A','CD8B','CCR7', 'SELL','CCL5','KLRF1','KLRG1','IKZF2','PDCD1','GNG4','MME',
                     'ZNF683','KLRD1','NCR3','KIR3DL1','NCAM1','ITGAM','KLRC2','KLRC3', #'MME',

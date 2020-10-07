@@ -9,15 +9,16 @@ from collections import Counter
 
 # convenience paths
 path_to_conga = os.path.dirname(os.path.realpath(__file__))
-assert not path_to_conga.endswith('/')
-path_to_conga += '/'
+assert os.path.isdir( path_to_conga )
 
-path_to_data = path_to_conga+'data/'
+path_to_data = os.path.join( path_to_conga, 'data')
 assert os.path.isdir( path_to_data )
 
-path_to_tcrdist_cpp_bin = os.path.dirname( path_to_conga[:-1] )+'/tcrdist_cpp/bin/'
-path_to_tcrdist_cpp_db = os.path.dirname( path_to_conga[:-1] )+'/tcrdist_cpp/db/'
+path_to_tcrdist_cpp = os.path.join( os.path.dirname( path_to_conga[:-1] ),'tcrdist_cpp')
+path_to_tcrdist_cpp_bin = os.path.join( path_to_tcrdist_cpp ,'bin')
+path_to_tcrdist_cpp_db = os.path.join( path_to_tcrdist_cpp ,'db')
 assert os.path.isdir( path_to_tcrdist_cpp_bin ) and os.path.isdir( path_to_tcrdist_cpp_db )
+
 
 def tcrdist_cpp_available():
     return os.path.exists(path_to_tcrdist_cpp_bin + 'find_neighbors')
