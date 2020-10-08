@@ -325,7 +325,8 @@ def filter_normalize_and_hvg(
         print('min_genes not set. Using default ' + str(min_genes) )
 
     if n_genes is None:
-        n_genes=2000
+        n_genes=2000 # seems like this default of 2000 is maybe a little stringent. Really these should be set
+        # on a per-dataset basis
         print('n_genes not set. Using default ' + str(n_genes) )
 
     if percent_mito is None:
@@ -1192,12 +1193,22 @@ def condense_clones_file_and_barcode_mapping_file_by_tcrdist(
                 cluster_centers.append(center) # will be parallel with clusters_set
         assert not np.any(clusters==-1)
 
+        #confirm single linkage
+        for ii in range(N):
+            for nbr in all_nbrs[ii]:
+                assert clusters[ii] == clusters[nbr] # just added 2020-10-07
+
+
     else: # use python tcrdist, compute full distance matrix
         # in conga we usually also have cdr3_nucseq but we don't need it for tcrdist
         tcrs = [ ( ( l.va_gene, l.ja_gene, l.cdr3a ), ( l.vb_gene, l.jb_gene, l.cdr3b ) ) for l in df.itertuples() ]
-        tcrdist_calculator = TcrDistCalculator(organism)
         print(f'compute tcrdist distance matrix for {len(tcrs)} clonotypes')
-        D = np.array( [ tcrdist_calculator(x,y) for x in tcrs for y in tcrs ] ).reshape( (len(tcrs), len(tcrs)) )
+        sys.stdout.flush()
+        if force_tcrdist_cpp or (util.tcrdist_cpp_available() and N>5000):
+            D = calc_tcrdist_matrix_cpp(tcrs, organism)
+        else:
+            tcrdist_calculator = TcrDistCalculator(organism)
+            D = np.array( [ tcrdist_calculator(x,y) for x in tcrs for y in tcrs ] ).reshape( (len(tcrs), len(tcrs)) )
 
         DT = squareform(D, force='tovector')
 
@@ -1377,3 +1388,101 @@ def calc_tcrdist_matrix_cpp(
         os.remove(filename)
 
     return D
+
+
+def subset_to_CD4_or_CD8_clusters(
+        adata,
+        which_subset  # 'CD4' or 'CD8'
+):
+    assert adata.uns['organism'] == 'human'
+    assert which_subset in ['CD4', 'CD8']
+
+    clusters_gex = np.array(adata.obs['clusters_gex'])
+    num_clones = adata.shape[0]
+    all_gex = {}
+
+    for gene in ['CD4','CD8A','CD8B']:
+        if gene not in adata.raw.var_names:
+            print('subset_to_CD4_or_CD8_clusters: missing', gene)
+            all_gex[gene] = np.zeros((num_clones,))
+        else:
+            index = list(adata.raw.var_names).index(gene)
+            all_gex[gene] = adata.raw.X[:,index].toarray()[:,0]
+
+    cd8_gex = all_gex['CD8A'] + all_gex['CD8B']
+    cd4_gex = all_gex['CD4']
+
+    num_clusters = np.max(clusters_gex)+1
+    good_clusters = []
+    cd4_rescale = 1/0.6
+    cd8_rescale = 1/4.0
+    good_mask = np.full((num_clones,), False)
+    for c in range(num_clusters):
+        mask = clusters_gex==c
+        cd4 = cd4_rescale * np.sum(cd4_gex[mask])/np.sum(mask)
+        cd8 = cd8_rescale * np.sum(cd8_gex[mask])/np.sum(mask)
+        keep_cluster = (which_subset == 'CD4' and cd4 > cd8 ) or ( which_subset=='CD8' and cd8 > cd4)
+        print('subset_to_CD4_or_CD8_clusters: {} keep_cluster {:2d} {:5s} cd4: {:9.3f} cd8: {:9.3f}'\
+              .format(which_subset, c, str(keep_cluster), cd4, cd8))
+        if keep_cluster:
+            good_mask |= mask
+
+    adata = adata[good_mask,:].copy()
+    return adata
+
+
+def analyze_CD4_CD8(
+        adata,
+        nbrs_gex,
+        pngfile
+):
+    import matplotlib.pyplot as plt
+    if adata.uns['organism'] != 'human':
+        # only really makes sense for human tcr AB
+        print('analyze_CD4_CD8 incompatible organism:', adata.uns['organism'])
+        return
+
+    clusters_gex = np.array(adata.obs['clusters_gex'])
+    num_clones = adata.shape[0]
+    all_gex = {}
+
+    for gene in ['CD4','CD8A','CD8B']:
+        if gene not in adata.raw.var_names:
+            print('analyze_CD4_CD8: missing', gene)
+            all_gex[gene] = np.zeros((num_clones,))
+        else:
+            index = list(adata.raw.var_names).index(gene)
+            all_gex[gene] = adata.raw.X[:,index].toarray()[:,0]
+
+    # look at neighborhoods
+    xvals = all_gex['CD8A'] + all_gex['CD8B']
+    yvals = all_gex['CD4']
+
+    num_nbrs = nbrs_gex.shape[1]
+
+    xvals = (xvals + xvals[nbrs_gex].sum(axis=1))/(num_nbrs+1)
+    yvals = (yvals + yvals[nbrs_gex].sum(axis=1))/(num_nbrs+1)
+
+    plt.figure(figsize=(8,4))
+    plt.subplot(121)
+    plt.scatter(xvals, yvals, alpha=0.25, c=clusters_gex, cmap='tab20')
+    plt.xlabel('CD8A+CD8B')
+    plt.ylabel('CD4')
+
+
+    plt.subplot(122)
+    xvals = all_gex['CD8A'] + all_gex['CD8B']
+    yvals = all_gex['CD4']
+    num_clusters = np.max(clusters_gex)+1
+    vals = []
+    for c in range(num_clusters):
+        mask = clusters_gex==c
+        x = np.sum(xvals[mask])/np.sum(mask)
+        y = np.sum(yvals[mask])/np.sum(mask)
+        vals.append((x,y,c))
+    plt.scatter([x[0] for x in vals], [x[1] for x in vals], c=[x[2] for x in vals], cmap='tab20', s=50)
+    plt.xlabel('CD8A+CD8B')
+    plt.ylabel('CD4')
+    plt.savefig(pngfile)
+    print('making:', pngfile)
+

@@ -25,6 +25,8 @@ parser.add_argument('--kpca_default_kernel_Dmax', type=float,
                     help='only used if rerun_kpca and kpca_kernel==None')
 parser.add_argument('--exclude_gex_clusters', type=int, nargs='*')
 parser.add_argument('--exclude_mait_and_inkt_cells', action='store_true')
+parser.add_argument('--subset_to_CD4', action='store_true')
+parser.add_argument('--subset_to_CD8', action='store_true')
 parser.add_argument('--min_cluster_size', type=int, default=5)
 parser.add_argument('--min_cluster_size_fraction', type=float, default=0.001)
 parser.add_argument('--clustering_method', choices=['louvain','leiden'])
@@ -231,7 +233,6 @@ if args.restart is None:
         adata.obsm['X_pca_tcr'] = X_pca_tcr[reorder,:]
         outlog.write('randomly permuting X_pca_tcr {}\n'.format(X_pca_tcr.shape))
 
-    skip_tcr = (args.use_tcrdist_umap and args.use_tcrdist_clusters)
     adata = conga.preprocess.cluster_and_tsne_and_umap(
         adata, clustering_method=args.clustering_method, skip_tcr=(args.use_tcrdist_umap and args.use_tcrdist_clusters))
 
@@ -300,6 +301,17 @@ if args.exclude_gex_clusters:
 
     if args.checkpoint:
         adata.write_h5ad(args.outfile_prefix+'_checkpoint.h5ad')
+        adata = conga.preprocess.cluster_and_tsne_and_umap(
+            adata, clustering_method=args.clustering_method,
+            skip_tcr=(args.use_tcrdist_umap and args.use_tcrdist_clusters))
+
+if args.subset_to_CD4 or args.subset_to_CD8:
+    assert not (args.subset_to_CD4 and args.subset_to_CD8)
+    which_subset = 'CD4' if args.subset_to_CD4 else 'CD8'
+    adata = conga.preprocess.subset_to_CD4_or_CD8_clusters(adata, which_subset)
+
+    adata = conga.preprocess.cluster_and_tsne_and_umap(
+        adata, clustering_method=args.clustering_method, skip_tcr=(args.use_tcrdist_umap and args.use_tcrdist_clusters))
 
 
 if args.use_tcrdist_umap or args.use_tcrdist_clusters:

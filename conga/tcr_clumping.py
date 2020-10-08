@@ -29,6 +29,9 @@ def estimate_background_tcrdist_distributions(
         num_random_samples = 50000,
         pseudocount = 0.25,
         tmpfile_prefix = None,
+        background_alpha_chains = None, # default is to get these by shuffling tcrs_for_background_generation
+        background_beta_chains = None, #  -- ditto --
+        tcrs_for_background_generation = None, # default is to use 'tcrs'
 ):
     if not util.tcrdist_cpp_available():
         print('conga.tcr_clumping.estimate_background_tcrdist_distributions:: need to compile the C++ tcrdist executables')
@@ -37,26 +40,34 @@ def estimate_background_tcrdist_distributions(
     if tmpfile_prefix is None:
         tmpfile_prefix = './tmp_nbrs{}'.format(random.random())
 
+    if tcrs_for_background_generation is None:
+        # only used when background_alpha_chains and/or background_beta_chains is None
+        tcrs_for_background_generation = tcrs
+
     max_dist = int(0.1+max_dist) ## need an integer
-    num_clones = len(tcrs)
 
-    # parse the V(D)J junction regions of the tcrs to define split-points for shuffling
-    junctions_df = tcr_sampler.parse_tcr_junctions(organism, tcrs)
+    if background_alpha_chains is None or background_beta_chains is None:
+        # parse the V(D)J junction regions of the tcrs to define split-points for shuffling
+        junctions_df = tcr_sampler.parse_tcr_junctions(organism, tcrs_for_background_generation)
 
-    # resample shuffled single-chain tcrs
-    achains_bg = tcr_sampler.resample_shuffled_tcr_chains(organism, num_random_samples, 'A', junctions_df)
-    bchains_bg = tcr_sampler.resample_shuffled_tcr_chains(organism, num_random_samples, 'B', junctions_df)
+        # resample shuffled single-chain tcrs
+        if background_alpha_chains is None:
+            background_alpha_chains = tcr_sampler.resample_shuffled_tcr_chains(
+                organism, num_random_samples, 'A', junctions_df)
+        if background_beta_chains is None:
+            background_beta_chains  = tcr_sampler.resample_shuffled_tcr_chains(
+                organism, num_random_samples, 'B', junctions_df)
 
     # save all tcrs to files
     achains_file = tmpfile_prefix+'_bg_achains.tsv'
     bchains_file = tmpfile_prefix+'_bg_bchains.tsv'
     tcrs_file = tmpfile_prefix+'_tcrs.tsv'
 
-    pd.DataFrame({'va':[x[0] for x in achains_bg], 'cdr3a':[x[2] for x in achains_bg]})\
-      .to_csv(achains_file, sep='\t', index=False)
+    pd.DataFrame({'va'   :[x[0] for x in background_alpha_chains],
+                  'cdr3a':[x[2] for x in background_alpha_chains]}).to_csv(achains_file, sep='\t', index=False)
 
-    pd.DataFrame({'vb':[x[0] for x in bchains_bg], 'cdr3b':[x[2] for x in bchains_bg]})\
-      .to_csv(bchains_file, sep='\t', index=False)
+    pd.DataFrame({'vb'   :[x[0] for x in background_beta_chains ],
+                  'cdr3b':[x[2] for x in background_beta_chains ]}).to_csv(bchains_file, sep='\t', index=False)
 
     pd.DataFrame({'va':[x[0][0] for x in tcrs], 'cdr3a':[x[0][2] for x in tcrs],
                   'vb':[x[1][0] for x in tcrs], 'cdr3b':[x[1][2] for x in tcrs]})\
@@ -77,8 +88,8 @@ def estimate_background_tcrdist_distributions(
 
     counts = np.loadtxt(outfile, dtype=int)
     counts = np.cumsum(counts, axis=1)
-    assert counts.shape == (num_clones, max_dist+1)
-    n_bg_pairs = num_random_samples * num_random_samples
+    assert counts.shape == (len(tcrs), max_dist+1)
+    n_bg_pairs = len(background_alpha_chains) * len(background_beta_chains)
     tcrdist_freqs = np.maximum(pseudocount, counts.astype(float))/n_bg_pairs
 
     for filename in [achains_file, bchains_file, tcrs_file, outfile]:

@@ -56,6 +56,9 @@ for ii, row in df.iterrows():
             new_barcodes.append(','.join([x+suffix for x in barcodes]))
         bcmap_df.barcodes = new_barcodes
 
+    adata.obs['batch_gex_data'] = row.gex_data
+    adata.obs['batch_clones_file'] = row.clones_file
+
     all_data.append( [clones_df, bcmap_df, adata ] )
     print(adata.shape, row.gex_data)
     sys.stdout.flush()
