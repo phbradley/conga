@@ -63,6 +63,7 @@ parser.add_argument('--tenx_agbt', action='store_true')
 parser.add_argument('--include_alphadist_in_tcr_feature_logos', action='store_true')
 parser.add_argument('--show_pmhc_info_in_logos', action='store_true')
 parser.add_argument('--gex_header_tcr_score_names', type=str, nargs='*')
+parser.add_argument('--batch_keys', type=str, nargs='*')
 parser.add_argument('--radii_for_tcr_clumping', type=int, nargs='*')
 parser.add_argument('--num_random_samples_for_tcr_clumping', type=int)
 parser.add_argument('--gex_nbrhood_tcr_score_names', type=str, nargs='*')
@@ -114,6 +115,9 @@ if args.find_pmhc_nbrhood_overlaps or args.calc_clone_pmhc_pvals:
     # we need pmhc info for these analyses; right now that's restricted to the 10x AGBT dataset format
     assert args.tenx_agbt
 
+if args.batch_keys:
+    assert args.gex_data_type == 'h5ad' # need the info already in the obs dict
+
 if args.restart: # these are incompatible with restarting
      assert not (args.calc_clone_pmhc_pvals or
                  args.bad_barcodes_file or
@@ -156,6 +160,18 @@ if args.restart is None:
     assert args.organism
     adata.uns['organism'] = args.organism
     assert 'organism' in adata.uns_keys()
+    if args.batch_keys:
+        adata.uns['batch_keys'] = args.batch_keys
+        for k in args.batch_keys:
+            assert k in adata.obs_keys()
+            vals = np.array(adata.obs[k]).astype(int)
+            #assert np.min(vals)==0
+            counts = Counter(vals)
+            expected_choices = np.max(vals)+1
+            observed_choices = len(counts.keys())
+            print(f'read batch info for key {k} with {expected_choices} possible and {observed_choices} observed choices')
+            # confirm integer-value
+            adata.obs[k] = vals
 
     if args.exclude_vgene_strings:
         tcrs = conga.preprocess.retrieve_tcrs_from_adata(adata)
@@ -222,6 +238,7 @@ if args.restart is None:
     if args.make_clone_plots:
         pngfile = args.outfile_prefix+'_clone_plots.png'
         conga.plotting.make_clone_plots(adata, 16, pngfile)
+
 
     adata = conga.preprocess.reduce_to_single_cell_per_clone( adata )
     assert 'X_igex' in adata.obsm_keys()

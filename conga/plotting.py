@@ -232,6 +232,8 @@ def make_logo_plots(
         nocleanup = False, # dont delete temporary image files (useful for debugging)
         conga_scores = None,
         good_score_mask = None,
+        make_batch_bars = None,
+        batch_keys = None,
 
         ## controls for the gene expression thumbnails that come before the actual logos:
         gex_header_genes=None,
@@ -259,6 +261,12 @@ def make_logo_plots(
 
     if not make_gex_header:
         make_gex_header_raw, make_gex_header_nbrZ = False, False
+
+    # show the distribution of the clones among the different batches
+    if make_batch_bars is None:
+        make_batch_bars = 'batch_keys' in adata.uns_keys()
+    if make_batch_bars and batch_keys is None:
+        batch_keys = adata.uns['batch_keys']
 
     ## unpack data from adata arrays ##################################
     clone_sizes = adata.obs['clone_sizes']
@@ -417,6 +425,8 @@ def make_logo_plots(
 
     # aim for 10in width
     dendro_width = 1.0
+    single_batch_bar_width = 0.25
+    batch_bars_width = 0 if not make_batch_bars else single_batch_bar_width * len(batch_keys)
     title_logo_width = 0.75
     rg_logo_width = 1.5
     score_logo_width = 0.0 if good_bicluster_tcr_scores is None else 0.5
@@ -430,8 +440,8 @@ def make_logo_plots(
 
     gex_logo_width = logo_height * ( gene_width / (math.sqrt(3)+1) )
 
-    fig_width = 2*margin + dendro_width + title_logo_width + rg_logo_width + tcr_logo_width + score_logo_width + \
-                gex_logo_width
+    fig_width = ( 2*margin + dendro_width + title_logo_width + batch_bars_width + rg_logo_width + tcr_logo_width +
+                  score_logo_width + gex_logo_width )
     header_height = (fig_width-2*margin)/6.
 
     num_header2_rows = int(make_gex_header_nbrZ)+int(make_gex_header_raw)
@@ -879,13 +889,44 @@ def make_logo_plots(
         plt.ylim((-1,1))
         plt.axis('off')
 
+        # show the batch distribution
+        if make_batch_bars:
+            for ib, k in enumerate(batch_keys):
+                batch_counts_for_clp = np.array(adata.obsm[k])[nodes,:]
+                left = (margin+dendro_width+title_logo_width+ib*single_batch_bar_width)/fig_width
+                width = single_batch_bar_width/fig_width
+                plt.axes( [left,bottom,width,height] )
+                # bar plot
+                counts = np.sum(batch_counts_for_clp, axis=0)
+                num_batch_key_choices = counts.shape[0]
+                assert num_batch_key_choices >1 # we add a fake one in preprocess.py if necessary
+                fractions = counts.astype(float)/np.sum(counts)
+                if num_batch_key_choices <= 10:
+                    colors = plt.get_cmap('tab10').colors[:num_batch_key_choices]
+                elif num_batch_key_choices <= 20:
+                    colors = plt.get_cmap('tab20').colors[:num_batch_key_choices]
+                else:
+                    cmap = plt.get_cmap('tab20')
+                    colors = [cmap(0.99*x/(num_batch_key_choices-1)) for x in range(num_batch_key_choices)]
+                plt.bar([0]*num_batch_key_choices, height=fractions, width=0.8,
+                        bottom=np.cumsum(fractions)-fractions, color=colors, align='center')
+                # overall counts/fractions
+                batch_counts_for_clp = np.array(adata.obsm[k])[:,:]
+                counts = np.sum(batch_counts_for_clp, axis=0)
+                fractions = counts.astype(float)/np.sum(counts)
+                plt.bar([0.6]*num_batch_key_choices, height=fractions, width=0.4,
+                        bottom=np.cumsum(fractions)-fractions, color=colors, align='center')
+                plt.axis('off')
+                plt.ylim((0,1.05))
+
+
         # make the rank genes logo
         if all_ranks is not None:
             clp_rank_genes = all_ranks[clp]
             for r in range(3):
                 pngfile = '{}.tmp_{}_{}_{}.png'.format(logo_pngfile, clp[0], clp[1], r)
                 start_rank, stop_rank = 3*r, 3*r+3
-                left = (margin+dendro_width+title_logo_width+r*0.333*rg_logo_width)/fig_width
+                left = (margin+dendro_width+title_logo_width+batch_bars_width+r*0.333*rg_logo_width)/fig_width
                 width = 0.333*rg_logo_width/fig_width
                 plt.axes( [left,bottom,width,height] )
                 if len(clp_rank_genes) > start_rank and clp_rank_genes[start_rank][2] < 0.99:
@@ -913,7 +954,7 @@ def make_logo_plots(
 
         # make a tcr logo
         for iab,ab in enumerate('AB'):
-            left = (margin+dendro_width+title_logo_width+rg_logo_width+iab*0.5*tcr_logo_width)/fig_width
+            left = (margin+dendro_width+title_logo_width+batch_bars_width+rg_logo_width+iab*0.5*tcr_logo_width)/fig_width
             width = 0.5*tcr_logo_width/fig_width
 
             plt.axes( [left,bottom,width,height] )
@@ -942,7 +983,7 @@ def make_logo_plots(
             if not include_alphadist_in_tcr_feature_logos:
                 clp_rank_scores = [ x for x in clp_rank_scores if x[0] != 'alphadist' ]
             pngfile = '{}.tmpsc_{}_{}.png'.format(logo_pngfile, clp[0], clp[1])
-            left = (margin+dendro_width+title_logo_width+rg_logo_width+tcr_logo_width)/fig_width
+            left = (margin+dendro_width+title_logo_width+batch_bars_width+rg_logo_width+tcr_logo_width)/fig_width
             width = score_logo_width/fig_width
             plt.axes( [left,bottom,width,height] )
             if len(clp_rank_scores):
@@ -972,7 +1013,7 @@ def make_logo_plots(
 
 
         # make the gex logo
-        left = (margin+dendro_width+title_logo_width+rg_logo_width+tcr_logo_width+score_logo_width)/fig_width
+        left = (margin+dendro_width+title_logo_width+batch_bars_width+rg_logo_width+tcr_logo_width+score_logo_width)/fig_width
         width = gex_logo_width/fig_width
 
         plt.axes( [left,bottom,width,height] )

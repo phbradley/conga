@@ -567,10 +567,28 @@ def reduce_to_single_cell_per_clone(
     else:
         pmhc_var_names = None
 
+    if 'batch_keys' in adata.uns_keys():
+        clone_batch_counts = {}
+        num_batch_key_choices = {}
+        batch_keys = adata.uns['batch_keys']
+        for k in batch_keys:
+            assert k in adata.obs_keys()
+            clone_batch_counts[k] = []
+            assert np.min(adata.obs[k]) >= 0
+            max_val = np.max(adata.obs[k])
+            if max_val==0: # we need at least two choices for obsm
+                print(f'WARNING adding fake extra option "1" for batch key {k} so we can store counts in obsm')
+                max_val = 1
+            num_batch_key_choices[k] = max_val+1
+            print(f'storing clone batch counts for key {k} with {num_batch_key_choices[k]} choices in adata.obsm')
+    else:
+        batch_keys = None
+
     clone_ids = np.array( [ tcr2clone_id[x] for x in tcrs_with_duplicates ] )
 
     X_pca = adata.obsm['X_pca']
     clone_sizes = []
+    batch_counts = []
     rep_cell_indices = [] # parallel
     new_X_igex = []
 
@@ -582,6 +600,14 @@ def reduce_to_single_cell_per_clone(
         clone_cells = np.array( [ x for x,y in enumerate(clone_ids) if y==c] )
         clone_size = clone_cells.shape[0]
         clone_sizes.append( clone_size )
+        if batch_keys is not None:
+            clone_mask = clone_ids==c
+            # store the distribution of this clone across the different batches
+            for k in batch_keys:
+                counts = Counter(adata.obs[k][clone_mask])
+                counts = [counts[x] for x in range(num_batch_key_choices[k]) ]
+                clone_batch_counts[k].append(counts)
+
         if clone_size==1:
             rep_cell_index = clone_cells[0]
         else:
@@ -607,6 +633,14 @@ def reduce_to_single_cell_per_clone(
     adata.obs['clone_sizes'] = np.array( clone_sizes )
     adata.obsm['X_igex'] = new_X_igex
     adata.uns['X_igex_genes'] = good_genes
+
+    if batch_keys:
+        for k in batch_keys:
+            counts = np.array(clone_batch_counts[k])
+            assert counts.shape == (num_clones, num_batch_key_choices[k])
+            adata.obsm[k] = counts
+            print(f'storing clone batch info for key {k} with {num_batch_key_choices[k]} choices')
+
     if pmhc_var_names:
         new_X_pmhc = np.array(new_X_pmhc)
         assert new_X_pmhc.shape == ( num_clones, len(pmhc_var_names))
