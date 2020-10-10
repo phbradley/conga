@@ -45,6 +45,7 @@ parser.add_argument('--graph_vs_gex_features', action='store_true')
 # some extra analyses
 parser.add_argument('--cluster_vs_cluster', action='store_true')
 parser.add_argument('--tcr_clumping', action='store_true')
+parser.add_argument('--find_batch_biases', action='store_true')
 parser.add_argument('--calc_clone_pmhc_pvals', action='store_true')
 parser.add_argument('--find_pmhc_nbrhood_overlaps', action='store_true') # only if pmhc info is present
 parser.add_argument('--find_distance_correlations', action='store_true')
@@ -408,6 +409,8 @@ if args.verbose_nbrs:
             np.savetxt(outfile, nbrs, fmt='%d')
             print('wrote nbrs to file:', outfile)
 
+if args.find_batch_biases:
+    conga.correlations.find_batch_biases(adata, all_nbrs, pval_threshold=0.05)
 
 if args.tcr_clumping:
     num_random_samples = 50000 if args.num_random_samples_for_tcr_clumping is None \

@@ -1133,3 +1133,75 @@ def find_hotspot_nbrhoods(
     else:
         return pd.DataFrame()
 
+def find_batch_biases(
+        adata,
+        all_nbrs,
+        pval_threshold=0.05,
+):
+    ''' Look for graph neighborhoods that are biased in their batch distribution
+
+    '''
+    if 'batch_keys' not in adata.uns_keys():
+        print('find_batch_biases:: no batch_keys in adata.uns!!!')
+        return
+
+    tcrs = pp.retrieve_tcrs_from_adata(adata)
+
+    num_clones = adata.shape[0]
+    batch_keys = adata.uns['batch_keys']
+
+    for bkey in batch_keys:
+        bcounts = np.array(adata.obsm[bkey])
+        num_choices = bcounts.shape[1]
+        assert bcounts.shape == (num_clones, num_choices)
+        clone_sizes = np.sum(bcounts,axis=1)
+        bfreqs = bcounts.astype(float)/clone_sizes[:,np.newaxis]
+
+        ## hotspot analysis
+        X = sps.csr_matrix(bfreqs)
+
+        for nbr_frac in all_nbrs:
+            nbrs_gex, nbrs_tcr = all_nbrs[nbr_frac]
+            for nbrs_tag, nbrs in [['gex', nbrs_gex], ['tcr', nbrs_tcr]]:
+                if nbrs_tag=='gex':
+                    continue
+                ## look for neighborhoods with skewed distribution of scores
+                num_nbrs = nbrs.shape[1]
+                bfreqs_nbr_avged = bfreqs[nbrs[:, :, np.newaxis],
+                                          np.arange(num_choices)[np.newaxis, np.newaxis, :]]
+                assert bfreqs_nbr_avged.shape == (num_clones, num_nbrs, num_choices)
+                bfreqs_nbr_avged = (bfreqs + bfreqs_nbr_avged.sum(axis=1))/(num_nbrs+1)
+                assert bfreqs_nbr_avged.shape == (num_clones, num_choices)
+
+                bfreqs_mean = np.mean(bfreqs, axis=0)
+                bfreqs_std = np.std(bfreqs, axis=0)
+
+                zscores = (bfreqs_nbr_avged - bfreqs_mean[np.newaxis,:])/bfreqs_std[np.newaxis,:]
+
+                for ib in range(num_choices):
+                    for ii in np.argsort(-1*zscores[:,ib]):
+                        zscore = zscores[ii,ib]
+                        nbr_scores = list(bfreqs[:,ib][nbrs[ii]])+[bfreqs[ii,ib]]
+                        nbrs_mask = np.full((num_clones,), False)
+                        nbrs_mask[nbrs[ii]] = True
+                        nbrs_mask[ii] = True
+                        non_nbr_scores = bfreqs[:,ib][~nbrs_mask]
+                        _,mwu_pval1 = mannwhitneyu( nbr_scores, non_nbr_scores, alternative='greater')
+                        #_,mwu_pval2 = mannwhitneyu( nbr_scores, non_nbr_scores, alternative='less')
+                        mwu_pval1 *= num_clones
+                        if mwu_pval1 < pval_threshold:
+                            print('nbr_batch_bias: {:9.1e} {:7.3f} {:7.4f} {:7.4f} {} {} {} {} {} {}'\
+                                  .format(mwu_pval1, zscore, np.mean(nbr_scores), np.mean(non_nbr_scores),
+                                          bkey, ib, nbr_frac, nbrs_tag,
+                                          ' '.join(tcrs[ii][0][:3]), ' '.join(tcrs[ii][1][:3])))
+
+                ## hotspot
+                features = ['{}_{}'.format(bkey, x) for x in range(num_choices)]
+                print(f'find hotspot features for {bkey} vs {nbrs_tag} at {nbr_frac:.4f}')
+                results = find_hotspot_features(X, nbrs, features, pval_threshold)
+
+                for ii, l in enumerate(results.itertuples()):
+                    print('hotspot_batch: {:2d} {:9.3f} {:8.1e} {} {} {:.4f}'\
+                          .format(ii, l.Z, l.pvalue_adj, l.feature, nbrs_tag, nbr_frac))
+    sys.stdout.flush()
+
