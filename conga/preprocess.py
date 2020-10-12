@@ -869,7 +869,8 @@ def recalculate_tcrdist_nbrs(
 
     tcrs = retrieve_tcrs_from_adata(adata)
 
-    tcrdist = TcrDistCalculator(adata.uns['organism'])
+    #tcrdist = TcrDistCalculator(adata.uns['organism'])
+    tcrdist = calc_tcrdist_matrix_cpp(tcrs, adata.uns['organism'], tmpfile_prefix = None)
 
     num_clones = adata.shape[0]
 
@@ -1065,18 +1066,15 @@ def make_tcrdist_kernel_pcs_file_from_clones_file(
     if outfile is None: # this is the name expected by read_dataset above (with n_components_in==50)
         outfile = '{}_AB.dist_{}_kpcs'.format(clones_file[:-4], n_components_in)
 
-    tcrdist_calculator = TcrDistCalculator(organism)
-
     df = pd.read_csv(clones_file, sep='\t')
 
     # in conga we usually also have cdr3_nucseq but we don't need it for tcrdist; we also don't need the jgene but hey
     tcrs = [ ( ( l.va_gene, l.ja_gene, l.cdr3a ), ( l.vb_gene, l.jb_gene, l.cdr3b ) ) for l in df.itertuples() ]
     ids = [ l.clone_id for l in df.itertuples() ]
 
-
     if input_distfile is None: ## tcr distances
         print(f'compute tcrdist distance matrix for {len(tcrs)} clonotypes')
-        D = np.array( [ tcrdist_calculator(x,y) for x in tcrs for y in tcrs ] ).reshape( (len(tcrs), len(tcrs)) )
+        D = calc_tcrdist_matrix_cpp(tcrs, organism, outfile )
     else:
         print(f'reload tcrdist distance matrix for {len(tcrs)} clonotypes')
         D = np.loadtxt(input_distfile)
