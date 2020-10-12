@@ -1,7 +1,8 @@
 #from phil import *
 from sys import exit
 import math
-from os.path import exists, join
+from os.path import exists
+from pathlib import PurePath
 import pandas as pd
 import numpy as np
 from . import util
@@ -19,7 +20,7 @@ default_cdr3_score_mode = cdr3_score_FG
 fg_trim = 4
 center_len = 5
 
-aa_props_file = join( util.path_to_data,'aa_props.tsv')
+aa_props_file = PurePath.joinpath( util.path_to_data, 'aa_props.tsv')
 assert exists(aa_props_file)
 aa_props_df = pd.read_csv(aa_props_file, sep='\t')
 aa_props_df.set_index('aa', inplace=True)
@@ -36,7 +37,7 @@ amino_acids = ['A', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'K', 'L', \
 def read_cd8_score_params():
     # setup the scoring params
     # made by read_flunica_gene_usage_clustermaps*py
-    infofile = join( util.path_to_data, 'cd48_score_params_nomait.txt')
+    infofile = PurePath.joinpath( util.path_to_data, 'cd48_score_params_nomait.txt')
 
     scoretags = 'cdr3_len cdr3_aa gene'.split()
 
@@ -181,7 +182,7 @@ def read_locus_order( remove_slashes_from_gene_names= False ):
     all_locus_order = {'A':{}, 'B':{}}
     for ab in 'AB':
         fn = f'imgt_tr{ab.lower()}_locus_order.txt'
-        filename = join( util.path_to_data, fn)
+        filename = PurePath.joinpath( util.path_to_data, fn)
         assert exists(filename)
         for line in open(filename,'r'):
             l = line.split()
