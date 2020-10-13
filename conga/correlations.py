@@ -1140,6 +1140,8 @@ def find_batch_biases(
 ):
     ''' Look for graph neighborhoods that are biased in their batch distribution
 
+    Returns a tuple of two dataframes: nbrhood_results, hotspot_results
+
     '''
     if 'batch_keys' not in adata.uns_keys():
         print('find_batch_biases:: no batch_keys in adata.uns!!!')
@@ -1149,6 +1151,10 @@ def find_batch_biases(
 
     num_clones = adata.shape[0]
     batch_keys = adata.uns['batch_keys']
+
+    nbrhood_results = []
+
+    hotspot_results = []
 
     for bkey in batch_keys:
         bcounts = np.array(adata.obsm[bkey])
@@ -1179,8 +1185,12 @@ def find_batch_biases(
                 zscores = (bfreqs_nbr_avged - bfreqs_mean[np.newaxis,:])/bfreqs_std[np.newaxis,:]
 
                 for ib in range(num_choices):
+                    if bfreqs_std[ib] < 1e-6:
+                        continue # no variation at this choice
                     for ii in np.argsort(-1*zscores[:,ib]):
                         zscore = zscores[ii,ib]
+                        if zscore<1e-2: # .1 could be significant but not really .01
+                            break
                         nbr_scores = list(bfreqs[:,ib][nbrs[ii]])+[bfreqs[ii,ib]]
                         nbrs_mask = np.full((num_clones,), False)
                         nbrs_mask[nbrs[ii]] = True
@@ -1190,6 +1200,18 @@ def find_batch_biases(
                         #_,mwu_pval2 = mannwhitneyu( nbr_scores, non_nbr_scores, alternative='less')
                         mwu_pval1 *= num_clones
                         if mwu_pval1 < pval_threshold:
+                            nbrhood_results.append( OrderedDict(
+                                batch_key=bkey,
+                                batch_choice=ib,
+                                nbrs_tag=nbrs_tag, # 'gex' or 'tcr'
+                                nbr_frac=nbr_frac,
+                                clone_index=ii,
+                                pvalue_adj=mwu_pval1,
+                                zscore=zscore,
+                                nbrs_mean=np.mean(nbr_scores),
+                                non_nbrs_mean=np.mean(non_nbr_scores)
+                                ))
+
                             print('nbr_batch_bias: {:9.1e} {:7.3f} {:7.4f} {:7.4f} {} {} {} {} {} {}'\
                                   .format(mwu_pval1, zscore, np.mean(nbr_scores), np.mean(non_nbr_scores),
                                           bkey, ib, nbr_frac, nbrs_tag,
@@ -1201,7 +1223,18 @@ def find_batch_biases(
                 results = find_hotspot_features(X, nbrs, features, pval_threshold)
 
                 for ii, l in enumerate(results.itertuples()):
+                    if l.pvalue_adj <= pval_threshold:
+                        hotspot_results.append( OrderedDict(
+                            batch_key=l.feature.split('_')[0],
+                            batch_choice=int(l.feature.split('_')[1]),
+                            nbrs_tag=nbrs_tag,
+                            nbr_frac=nbr_frac,
+                            pvalue_adj=l.pvalue_adj,
+                            zscore=l.Z,
+                            ))
+
                     print('hotspot_batch: {:2d} {:9.3f} {:8.1e} {} {} {:.4f}'\
                           .format(ii, l.Z, l.pvalue_adj, l.feature, nbrs_tag, nbr_frac))
     sys.stdout.flush()
 
+    return pd.DataFrame(nbrhood_results), pd.DataFrame(hotspot_results)

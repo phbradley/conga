@@ -28,6 +28,7 @@ parser.add_argument('--exclude_mait_and_inkt_cells', action='store_true')
 parser.add_argument('--subset_to_CD4', action='store_true')
 parser.add_argument('--subset_to_CD8', action='store_true')
 parser.add_argument('--min_cluster_size', type=int, default=5)
+parser.add_argument('--min_cluster_size_for_tcr_clumping_logos', type=int, default=3)
 parser.add_argument('--min_cluster_size_fraction', type=float, default=0.001)
 parser.add_argument('--clustering_method', choices=['louvain','leiden'])
 parser.add_argument('--bad_barcodes_file')
@@ -237,8 +238,13 @@ if args.restart is None:
         results_df.to_csv(tsvfile, sep='\t', index=False)
 
     if args.make_clone_plots:
-        pngfile = args.outfile_prefix+'_clone_plots.png'
-        conga.plotting.make_clone_plots(adata, 16, pngfile)
+        # need to compute cluster and umaps for these plots
+        # these will be re-computed once we reduce to a single cell per clonotype
+        #
+        print('make_clone_plots: cluster_and_tsne_and_umap')
+        adata = pp.cluster_and_tsne_and_umap( adata, skip_tcr=True )
+
+        conga.plotting.make_clone_gex_umap_plots(adata, args.outfile_prefix)
 
 
     adata = conga.preprocess.reduce_to_single_cell_per_clone( adata )
@@ -409,8 +415,19 @@ if args.verbose_nbrs:
             np.savetxt(outfile, nbrs, fmt='%d')
             print('wrote nbrs to file:', outfile)
 
+batch_bias_results = None
 if args.find_batch_biases:
-    conga.correlations.find_batch_biases(adata, all_nbrs, pval_threshold=0.05)
+    nbrhood_results, hotspot_results = conga.correlations.find_batch_biases(
+        adata, all_nbrs, pval_threshold=0.05)
+    if nbrhood_results.shape[0]:
+        tsvfile = args.outfile_prefix+'_nbrhood_batch_biases.tsv'
+        nbrhood_results.to_csv(tsvfile, sep='\t', index=False)
+
+    if hotspot_results.shape[0]:
+        tsvfile = args.outfile_prefix+'_batch_hotspots.tsv'
+        hotspot_results.to_csv(tsvfile, sep='\t', index=False)
+
+    batch_bias_results = (nbrhood_results, hotspot_results)
 
 if args.tcr_clumping:
     num_random_samples = 50000 if args.num_random_samples_for_tcr_clumping is None \
@@ -436,10 +453,17 @@ if args.tcr_clumping:
 
         nbrs_gex, nbrs_tcr = all_nbrs[ max(args.nbr_fracs) ]
 
-        min_cluster_size = max( args.min_cluster_size, int( 0.5 + args.min_cluster_size_fraction * num_clones) )
-
+        #min_cluster_size = max( args.min_cluster_size, int( 0.5 + args.min_cluster_size_fraction * num_clones) )
         conga.plotting.make_tcr_clumping_plots(
-            adata, results, nbrs_gex, nbrs_tcr, min_cluster_size, pvalue_threshold, args.outfile_prefix)
+            adata, results, nbrs_gex, nbrs_tcr, args.min_cluster_size_for_tcr_clumping_logos,
+            pvalue_threshold, args.outfile_prefix)
+
+    num_clones = adata.shape[0]
+    tcr_clumping_pvalues = np.full((num_clones,), num_clones).astype(float)
+    for l in results.itertuples():
+        tcr_clumping_pvalues[l.clone_index] = min(tcr_clumping_pvalues[l.clone_index],
+                                                  l.pvalue_adj)
+    adata.obs['tcr_clumping_pvalues'] = tcr_clumping_pvalues # stash in adata.obs
 
 
 if args.graph_vs_graph: ############################################################################################
@@ -1107,6 +1131,18 @@ if args.find_hotspot_features:
             conga.plotting.make_hotspot_nbrhood_logo_figures(adata, nbrs_gex, nbrs_tcr, nbrhood_results,
                                                              min_cluster_size, args.outfile_prefix,
                                                              pvalue_threshold=1.0)
+
+## make summary plots of top clones and their batch distributions
+if 'batch_keys' in adata.uns_keys():
+    conga_scores, tcr_clumping_pvalues = None, None
+    if args.graph_vs_graph:
+        conga_scores = adata.obs['conga_scores']
+    if args.tcr_clumping:
+        tcr_clumping_pvalues = adata.obs['tcr_clumping_pvalues']
+    conga.plotting.make_clone_batch_clustermaps(
+        adata, args.outfile_prefix, adata.uns['batch_keys'],
+        conga_scores = conga_scores, tcr_clumping_pvalues = tcr_clumping_pvalues,
+        batch_bias_results = batch_bias_results )
 
 
 # just out of curiosity:

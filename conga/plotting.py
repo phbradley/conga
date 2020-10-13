@@ -1346,46 +1346,193 @@ def make_summary_figure(
 
 
 
-def make_clone_plots(adata, num_clones_to_plot, pngfile, dpi=200):
+def make_clone_gex_umap_plots(
+        adata,
+        outfile_prefix,
+        max_clones = 16,
+        dpi=200,
+):
+
     ''' This is called before we've condensed to a single cell per clone
-    So we don't have PCA or UMAP yet
     '''
 
-
-    print('make_clone_plots: cluster_and_tsne_and_umap')
-    adata = pp.cluster_and_tsne_and_umap( adata, skip_tcr=True )
+    clusters_gex = np.array(adata.obs['clusters_gex'])
 
     tcrs = pp.retrieve_tcrs_from_adata(adata)
 
     unique_tcrs = sorted(set(tcrs))
+    # the clone ids are integer indices into the unique_tcrs list
 
     tcr2clone_id = { x:i for i,x in enumerate(unique_tcrs)}
     clone_ids = np.array( [ tcr2clone_id[x] for x in tcrs ])
 
-    counts = Counter(clone_ids)
+    clone_counts = Counter(clone_ids)
 
-    nrows = int(np.sqrt(num_clones_to_plot))
-    ncols = (num_clones_to_plot-1)//nrows + 1
+    nrows = int(np.sqrt(max_clones))
+    ncols = (max_clones-1)//nrows + 1
 
     plt.figure(figsize=(3*ncols,3*nrows))
     plotno=0
 
     xy = adata.obsm['X_gex_2d']
-    for (clone_id, clone_size) in counts.most_common(num_clones_to_plot):
+    for (clone_id, clone_size) in clone_counts.most_common(max_clones):
         plotno += 1
         plt.subplot(nrows, ncols, plotno)
         plt.scatter(xy[:,0], xy[:,1], s=16, c='gray',alpha=0.2)
         mask = clone_ids==clone_id
-        plt.scatter(xy[mask,0], xy[mask,1], s=16, c='blue', alpha=0.5)
+        plt.scatter(xy[mask,0], xy[mask,1], s=16, c=clusters_gex[mask], #c='blue',
+                    alpha=0.5)
         plt.xlabel('GEX UMAP1')
         plt.ylabel('GEX UMAP2')
         plt.xticks([], [])
         plt.yticks([], [])
-        plt.text(0, 0, '{} cells'.format(clone_size), ha='left', va='bottom', transform=plt.gca().transAxes)
+        plt.text(0, 0, '{} cells'.format(clone_size), ha='left', va='bottom',
+                 transform=plt.gca().transAxes)
     plt.tight_layout()
+    pngfile = outfile_prefix+'_clone_gex_umaps.png'
     print('making:', pngfile)
     plt.savefig(pngfile, dpi=dpi)
 
+
+
+def make_clone_batch_clustermaps(
+        adata,
+        outfile_prefix,
+        batch_keys = None, # if None will look in adata.uns
+        max_clones = 50,
+        min_clone_size = 5,
+        dpi=200,
+        conga_scores = None,             # np.array of pvals
+        tcr_clumping_pvalues = None,      # --""--
+        batch_bias_results = None, # tuple of dataframes: nbrhood_results, hotspot_results
+        cmap_for_row_scores = 'viridis'
+):
+
+    '''
+    '''
+    try:
+        import seaborn as sns
+    except:
+        print('ERROR seaborn is not installed')
+        return
+
+    if 'batch_keys' not in adata.uns_keys():
+        print('make_clone_batch_clustermaps: no batch_keys in adata.uns')
+        return
+
+    cmap_for_row_scores = plt.get_cmap(cmap_for_row_scores)
+
+    num_clones = adata.shape[0]
+    batch_keys = adata.uns['batch_keys']
+
+    tcrs = pp.retrieve_tcrs_from_adata(adata)
+
+    # sort the clonotypes by clone size
+    clone_sizes = np.array(adata.obs['clone_sizes'])
+    sortl = sorted( [(x,i) for i,x in enumerate(clone_sizes)])
+    sortl.reverse() # now in decreasing order of clone size
+
+    top_clone_indices = [x[1] for x in sortl[:max_clones] if x[0] >= min_clone_size]
+
+    if len(top_clone_indices)<2:
+        print('make_clone_batch_clustermaps:: fewer than 2 clones meet size requirements')
+        return
+
+    for batch_key in batch_keys:
+        batch_freqs = adata.obsm[batch_key].astype(float)/clone_sizes[:,np.newaxis]
+        assert batch_freqs.shape[0] == num_clones
+        num_choices = batch_freqs.shape[1]
+        print('start:', batch_key, num_choices)
+
+        colorbar_row_colors = []
+        def transform_adjusted_pvalues_into_unit_range(pvalues,
+                                                       max_pval=1.0, min_pval=1e-5):
+            vals = np.sqrt(np.maximum(0., -1*np.log10(np.maximum(
+                1e-299, np.array(pvalues)/max_pval))))
+            vmax = np.sqrt(-1*np.log10(min_pval/max_pval))
+            print('pvalues:', np.min(pvalues), np.max(pvalues), vmax, np.min(vals), np.max(vals))
+            retvals = np.maximum(0.001, np.minimum(0.999, vals/vmax))
+            #assert False
+            return retvals
+
+        def get_row_colors_from_pvalues(pvalues, cmap=cmap_for_row_scores):
+            vals =  transform_adjusted_pvalues_into_unit_range(pvalues)
+            print('get_row_colors_from_pvalues:', np.min(vals), np.max(vals), vals[:10])
+            retvals = [ cmap(x) for x in vals]
+            #assert False
+            return retvals
+
+
+        if conga_scores is not None: # these are adjusted pvalues
+            print('conga_scores')
+            colorbar_row_colors.append(get_row_colors_from_pvalues(conga_scores[top_clone_indices]))
+
+        if tcr_clumping_pvalues is not None:
+            print('tcr_clumping_pvalues')
+            colorbar_row_colors.append(get_row_colors_from_pvalues(tcr_clumping_pvalues[top_clone_indices]))
+
+        if batch_bias_results is not None:
+            nbrhood_results, hotspot_results = batch_bias_results
+            tcr_nbrhood_pvals = np.full((num_clones,), num_clones).astype(float)
+            for l in nbrhood_results.itertuples():
+                if l.nbrs_tag == 'tcr' and l.batch_key == batch_key:
+                    #print('nbrhood:', batch_key, l)
+                    tcr_nbrhood_pvals[l.clone_index] = min(
+                        l.pvalue_adj, tcr_nbrhood_pvals[l.clone_index])
+            colorbar_row_colors.append(get_row_colors_from_pvalues(tcr_nbrhood_pvals[top_clone_indices]))
+
+            hotspot_pval = 1.
+            for l in hotspot_results.itertuples():
+                #print('hotspot:', l)
+                if l.nbrs_tag == 'tcr' and l.batch_key == batch_key:
+                    hotspot_pval = min(l.pvalue_adj, hotspot_pval)
+
+            title = 'batch_key: {} num_choices: {} best_hotspot_pval: {:.1e}'\
+                    .format( batch_key, num_choices, hotspot_pval)
+        else:
+            title = 'batch_key: {} num_choices: {}'\
+                    .format( batch_key, num_choices)
+
+
+        # show clustermap of clone frequencies for the top clones
+        A = []
+        clone_labels = []
+        for ii in top_clone_indices:
+            A.append(batch_freqs[ii,:])
+            (va,ja,cdr3a,_), (vb,jb,cdr3b,_) = tcrs[ii]
+            clone_labels.append('{:3d}  {} {} {:18s} {} {} {:18s}'\
+                                .format(clone_sizes[ii],
+                                        va[2:6], ja[2:6], cdr3a,
+                                        vb[2:6], jb[2:7], cdr3b))
+
+        A = np.array(A)
+
+        ## things we might want to add row colors for:
+        ##
+        ## - tcr nbr batch bias for this batch_key
+        ## - conga score
+        ## - tcr clumping score
+        ##
+
+        fig_width, fig_height = (10,10)
+        cm = sns.clustermap(A, metric='euclidean', col_cluster=False, vmin=0, vmax=1,
+                            figsize=(fig_width,fig_height), cmap='Reds',
+                            row_colors=colorbar_row_colors)
+
+        row_indices = cm.dendrogram_row.reordered_ind
+        row_labels = [clone_labels[x] for x in row_indices]
+        cm.ax_heatmap.set_yticks( 0.5+np.arange(A.shape[0]))
+        cm.ax_heatmap.set_yticklabels( row_labels, rotation='horizontal', fontdict={'fontsize':8, 'fontfamily':'monospace'} )
+        cm.ax_heatmap.set_xticks([])
+        cm.ax_heatmap.set_xticklabels([])
+        #cm.fig.suptitle(title)
+        cm.ax_heatmap.set_title(title)
+
+
+        pngfile = f'{outfile_prefix}_clone_clustermap_batch_{batch_key}.png'
+        print('saving', pngfile)
+        cm.savefig(pngfile, dpi=200)
+        #assert False
 
 
 
