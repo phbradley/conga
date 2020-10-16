@@ -1399,13 +1399,14 @@ def make_clone_batch_clustermaps(
         adata,
         outfile_prefix,
         batch_keys = None, # if None will look in adata.uns
-        max_clones = 50,
+        max_clones = 75,
         min_clone_size = 5,
         dpi=200,
         conga_scores = None,             # np.array of pvals
         tcr_clumping_pvalues = None,      # --""--
         batch_bias_results = None, # tuple of dataframes: nbrhood_results, hotspot_results
-        cmap_for_row_scores = 'viridis'
+        cmap_for_row_scores = 'viridis',
+        show_mait_and_inkt_clones = True,
 ):
 
     '''
@@ -1426,6 +1427,7 @@ def make_clone_batch_clustermaps(
     batch_keys = adata.uns['batch_keys']
 
     tcrs = pp.retrieve_tcrs_from_adata(adata)
+    organism = adata.uns['organism']
 
     # sort the clonotypes by clone size
     clone_sizes = np.array(adata.obs['clone_sizes'])
@@ -1442,33 +1444,29 @@ def make_clone_batch_clustermaps(
         batch_freqs = adata.obsm[batch_key].astype(float)/clone_sizes[:,np.newaxis]
         assert batch_freqs.shape[0] == num_clones
         num_choices = batch_freqs.shape[1]
-        print('start:', batch_key, num_choices)
 
         colorbar_row_colors = []
+
         def transform_adjusted_pvalues_into_unit_range(pvalues,
                                                        max_pval=1.0, min_pval=1e-5):
             vals = np.sqrt(np.maximum(0., -1*np.log10(np.maximum(
                 1e-299, np.array(pvalues)/max_pval))))
             vmax = np.sqrt(-1*np.log10(min_pval/max_pval))
-            print('pvalues:', np.min(pvalues), np.max(pvalues), vmax, np.min(vals), np.max(vals))
             retvals = np.maximum(0.001, np.minimum(0.999, vals/vmax))
             #assert False
             return retvals
 
         def get_row_colors_from_pvalues(pvalues, cmap=cmap_for_row_scores):
             vals =  transform_adjusted_pvalues_into_unit_range(pvalues)
-            print('get_row_colors_from_pvalues:', np.min(vals), np.max(vals), vals[:10])
             retvals = [ cmap(x) for x in vals]
             #assert False
             return retvals
 
 
         if conga_scores is not None: # these are adjusted pvalues
-            print('conga_scores')
             colorbar_row_colors.append(get_row_colors_from_pvalues(conga_scores[top_clone_indices]))
 
         if tcr_clumping_pvalues is not None:
-            print('tcr_clumping_pvalues')
             colorbar_row_colors.append(get_row_colors_from_pvalues(tcr_clumping_pvalues[top_clone_indices]))
 
         if batch_bias_results is not None:
@@ -1476,14 +1474,12 @@ def make_clone_batch_clustermaps(
             tcr_nbrhood_pvals = np.full((num_clones,), num_clones).astype(float)
             for l in nbrhood_results.itertuples():
                 if l.nbrs_tag == 'tcr' and l.batch_key == batch_key:
-                    #print('nbrhood:', batch_key, l)
                     tcr_nbrhood_pvals[l.clone_index] = min(
                         l.pvalue_adj, tcr_nbrhood_pvals[l.clone_index])
             colorbar_row_colors.append(get_row_colors_from_pvalues(tcr_nbrhood_pvals[top_clone_indices]))
 
             hotspot_pval = 1.
             for l in hotspot_results.itertuples():
-                #print('hotspot:', l)
                 if l.nbrs_tag == 'tcr' and l.batch_key == batch_key:
                     hotspot_pval = min(l.pvalue_adj, hotspot_pval)
 
@@ -1494,16 +1490,46 @@ def make_clone_batch_clustermaps(
                     .format( batch_key, num_choices)
 
 
+        if show_mait_and_inkt_clones and organism in ['human','mouse']:
+            colors = []
+            for ii in top_clone_indices:
+                tcr = tcrs[ii]
+                if organism == 'human':
+                    celltype = 2 * tcr_scoring.is_human_mait_alpha_chain(tcr[0])+\
+                               tcr_scoring.is_human_inkt_tcr(tcr)
+                elif organism == 'mouse':
+                    celltype = 2 * tcr_scoring.is_mouse_mait_alpha_chain(tcr[0])+\
+                               tcr_scoring.is_mouse_inkt_alpha_chain(tcr[0])
+                colors.append(['white','C0','C1'][celltype])
+            colorbar_row_colors.append(colors)
+
         # show clustermap of clone frequencies for the top clones
         A = []
         clone_labels = []
-        for ii in top_clone_indices:
+        def trim_allele(s):
+            return s[:s.index('*')]
+        def get_gene_strings(tcr, organism):
+            if organism.endswith('_ig'):
+                va_prefix = tcr[0][0][2]
+            else:
+                va_prefix = ''
+            (va,ja,*_), (vb,jb,*_) = tcr
+            return (va_prefix+trim_allele(va[4:]), trim_allele(ja[4:]),
+                    trim_allele(vb[4:]), trim_allele(jb[4:]))
+        gene_strings = [get_gene_strings(tcrs[x], organism) for x in top_clone_indices]
+        max_valen = max(len(x[0]) for x in gene_strings)
+        max_jalen = max(len(x[1]) for x in gene_strings)
+        max_vblen = max(len(x[2]) for x in gene_strings)
+        max_jblen = max(len(x[3]) for x in gene_strings)
+        for ii, genes in zip(top_clone_indices, gene_strings):
             A.append(batch_freqs[ii,:])
-            (va,ja,cdr3a,_), (vb,jb,cdr3b,_) = tcrs[ii]
-            clone_labels.append('{:3d}  {} {} {:18s} {} {} {:18s}'\
+            va,ja,vb,jb = genes
+            cdr3a, cdr3b = tcrs[ii][0][2], tcrs[ii][1][2]
+
+            clone_labels.append('{:3d}  {:{}s} {:{}s} {:18s} {:{}s} {:{}s} {:18s}'\
                                 .format(clone_sizes[ii],
-                                        va[2:6], ja[2:6], cdr3a,
-                                        vb[2:6], jb[2:7], cdr3b))
+                                        va, max_valen, ja, max_jalen, cdr3a,
+                                        vb, max_vblen, jb, max_jblen, cdr3b))
 
         A = np.array(A)
 
@@ -1514,7 +1540,7 @@ def make_clone_batch_clustermaps(
         ## - tcr clumping score
         ##
 
-        fig_width, fig_height = (10,10)
+        fig_width, fig_height = (10,14)
         cm = sns.clustermap(A, metric='euclidean', col_cluster=False, vmin=0, vmax=1,
                             figsize=(fig_width,fig_height), cmap='Reds',
                             row_colors=colorbar_row_colors)

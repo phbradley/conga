@@ -16,6 +16,7 @@ parser.add_argument('--tcrdist_threshold_for_condensing', type=float, default=50
 parser.add_argument('--no_tcrdists', action='store_true', help='Don\'t compute tcrdists or kernel PCs; instead generate a random matrix of kernel PCs. This might be useful for preprocessing very big GEX datasets to isolate subsets of interest')
 parser.add_argument('--no_kpcs', action='store_true')
 parser.add_argument('--force_tcrdist_cpp', action='store_true')
+parser.add_argument('--batch_keys', type=str, nargs='*')
 
 
 args = parser.parse_args()
@@ -45,6 +46,13 @@ for ii, row in df.iterrows():
     clones_df = pd.read_csv(row.clones_file, sep='\t')
     bcmap_df = pd.read_csv(bcmap_file, sep='\t')
     adata = conga.preprocess.read_adata(row.gex_data, row.gex_data_type)
+
+    if args.batch_keys is not None:
+        for k in args.batch_keys:
+            assert k in df.columns
+            val = int(row[k]) # conga expects integers
+            adata.obs[k] = np.array([val]*adata.shape[0])
+            print(f'saving batch_key {k} value {val} for sample row {row.clones_file}')
 
     if add_batch_suffix:
         suffix = '-'+str(ii)

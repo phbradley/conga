@@ -597,6 +597,7 @@ def reduce_to_single_cell_per_clone(
     for c in range(num_clones):
         if c%1000==0:
             print('choose representative cell for clone:', c, num_clones, adata.shape)
+            sys.stdout.flush()
         clone_cells = np.array( [ x for x,y in enumerate(clone_ids) if y==c] )
         clone_size = clone_cells.shape[0]
         clone_sizes.append( clone_size )
@@ -1456,8 +1457,8 @@ def subset_to_CD4_or_CD8_clusters(
         cd4 = cd4_rescale * np.sum(cd4_gex[mask])/np.sum(mask)
         cd8 = cd8_rescale * np.sum(cd8_gex[mask])/np.sum(mask)
         keep_cluster = (which_subset == 'CD4' and cd4 > cd8 ) or ( which_subset=='CD8' and cd8 > cd4)
-        print('subset_to_CD4_or_CD8_clusters: {} keep_cluster {:2d} {:5s} cd4: {:9.3f} cd8: {:9.3f}'\
-              .format(which_subset, c, str(keep_cluster), cd4, cd8))
+        print('subset_to_CD4_or_CD8_clusters: {} keep_cluster {:2d} {:4d} {:5s} cd4: {:9.3f} cd8: {:9.3f}'\
+              .format(which_subset, c, np.sum(mask), str(keep_cluster), cd4, cd8))
         if keep_cluster:
             good_mask |= mask
 

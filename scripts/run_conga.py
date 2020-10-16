@@ -46,6 +46,7 @@ parser.add_argument('--graph_vs_gex_features', action='store_true')
 # some extra analyses
 parser.add_argument('--cluster_vs_cluster', action='store_true')
 parser.add_argument('--tcr_clumping', action='store_true')
+parser.add_argument('--intra_cluster_tcr_clumping', action='store_true')
 parser.add_argument('--find_batch_biases', action='store_true')
 parser.add_argument('--calc_clone_pmhc_pvals', action='store_true')
 parser.add_argument('--find_pmhc_nbrhood_overlaps', action='store_true') # only if pmhc info is present
@@ -247,6 +248,7 @@ if args.restart is None:
         conga.plotting.make_clone_gex_umap_plots(adata, args.outfile_prefix)
 
 
+    print('run reduce_to_single_cell_per_clone'); sys.stdout.flush()
     adata = conga.preprocess.reduce_to_single_cell_per_clone( adata )
     assert 'X_igex' in adata.obsm_keys()
 
@@ -257,8 +259,12 @@ if args.restart is None:
         adata.obsm['X_pca_tcr'] = X_pca_tcr[reorder,:]
         outlog.write('randomly permuting X_pca_tcr {}\n'.format(X_pca_tcr.shape))
 
+    clustering_resolution = 2.0 if (args.subset_to_CD8 or args.subset_to_CD4) else 1.0 # 1.0 is the default
+
+    print('run cluster_and_tsne_and_umap'); sys.stdout.flush()
     adata = conga.preprocess.cluster_and_tsne_and_umap(
-        adata, clustering_method=args.clustering_method, skip_tcr=(args.use_tcrdist_umap and args.use_tcrdist_clusters))
+        adata, louvain_resolution = clustering_resolution, clustering_method=args.clustering_method,
+        skip_tcr=(args.use_tcrdist_umap and args.use_tcrdist_clusters))
 
     if args.checkpoint:
         adata.write_h5ad(args.outfile_prefix+'_checkpoint.h5ad')
@@ -415,20 +421,6 @@ if args.verbose_nbrs:
             np.savetxt(outfile, nbrs, fmt='%d')
             print('wrote nbrs to file:', outfile)
 
-batch_bias_results = None
-if args.find_batch_biases:
-    nbrhood_results, hotspot_results = conga.correlations.find_batch_biases(
-        adata, all_nbrs, pval_threshold=0.05)
-    if nbrhood_results.shape[0]:
-        tsvfile = args.outfile_prefix+'_nbrhood_batch_biases.tsv'
-        nbrhood_results.to_csv(tsvfile, sep='\t', index=False)
-
-    if hotspot_results.shape[0]:
-        tsvfile = args.outfile_prefix+'_batch_hotspots.tsv'
-        hotspot_results.to_csv(tsvfile, sep='\t', index=False)
-
-    batch_bias_results = (nbrhood_results, hotspot_results)
-
 if args.tcr_clumping:
     num_random_samples = 50000 if args.num_random_samples_for_tcr_clumping is None \
                          else args.num_random_samples_for_tcr_clumping
@@ -439,7 +431,8 @@ if args.tcr_clumping:
 
     results = conga.tcr_clumping.assess_tcr_clumping(
         adata, args.outfile_prefix, radii=radii, num_random_samples=num_random_samples,
-        pvalue_threshold = pvalue_threshold)
+        pvalue_threshold = pvalue_threshold,
+        also_find_clumps_within_gex_clusters=args.intra_cluster_tcr_clumping)
 
     if results.shape[0]:
         # add clusters info for results tsvfile
@@ -538,6 +531,20 @@ if args.graph_vs_graph: ########################################################
             rank_genes_uns_tag = rank_genes_uns_tag,
             show_pmhc_info_in_logos = args.show_pmhc_info_in_logos,
             gex_header_tcr_score_names = gex_header_tcr_score_names )
+
+batch_bias_results = None
+if args.find_batch_biases:
+    nbrhood_results, hotspot_results = conga.correlations.find_batch_biases(
+        adata, all_nbrs, pval_threshold=0.05)
+    if nbrhood_results.shape[0]:
+        tsvfile = args.outfile_prefix+'_nbrhood_batch_biases.tsv'
+        nbrhood_results.to_csv(tsvfile, sep='\t', index=False)
+
+    if hotspot_results.shape[0]:
+        tsvfile = args.outfile_prefix+'_batch_hotspots.tsv'
+        hotspot_results.to_csv(tsvfile, sep='\t', index=False)
+
+    batch_bias_results = (nbrhood_results, hotspot_results)
 
 
 if args.graph_vs_gex_features: #######################################################################################
