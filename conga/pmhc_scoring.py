@@ -1,4 +1,5 @@
 from . import preprocess as pp
+from . import util
 import numpy as np
 from scipy.stats import hypergeom
 from scipy.special import binom
@@ -12,6 +13,11 @@ def get_feature_types_varname( adata ):
     '''
     for name in adata.var: # the columns of the var dataframe
         if name.startswith('feature_types'):
+            ftypes = Counter(adata.var[name])
+            print('get_feature_types_varname:', name, 'feature_type_counts:', ftypes.most_common())
+            for fname, count in ftypes.items():
+                if fname not in util.EXPECTED_FEATURE_TYPES:
+                    print('WARNING WARNING WARNING !!!! unrecognized feature type', fname, 'with', count, 'features')
             return name
     print('unable to find feature_types varname')
     print(adata.var_names)

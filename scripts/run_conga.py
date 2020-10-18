@@ -15,6 +15,7 @@ parser.add_argument('--outfile_prefix', required=True, help='string that will be
 parser.add_argument('--restart', help='Name of a scanpy h5ad file to restart from; skips preprocessing, clustering, UMAP, etc. Could be the *_final.h5ad file generated at the end of a previous conga run.')
 parser.add_argument('--checkpoint', action='store_true', help='Save a scanpy h5ad checkpoint file after preprocessing')
 parser.add_argument('--rerun_kpca', action='store_true')
+parser.add_argument('--no_kpca', action='store_true')
 parser.add_argument('--use_exact_tcrdist_nbrs', action='store_true', help='The default is to use the nbrs defined by euclidean distances in the tcrdist kernel pc space. This flag will force a re-computation of all the tcrdist distances')
 parser.add_argument('--use_tcrdist_umap', action='store_true')
 parser.add_argument('--use_tcrdist_clusters', action='store_true')
@@ -58,6 +59,7 @@ parser.add_argument('--make_tcrdist_trees', action='store_true')
 parser.add_argument('--make_hotspot_nbrhood_logos', action='store_true')
 # configure things
 parser.add_argument('--skip_gex_header', action='store_true')
+parser.add_argument('--average_clone_gex', action='store_true')
 parser.add_argument('--skip_gex_header_raw', action='store_true')
 parser.add_argument('--skip_gex_header_nbrZ', action='store_true')
 parser.add_argument('--verbose_nbrs', action='store_true')
@@ -112,6 +114,14 @@ if args.all:
     for mode in all_modes:
         print(f'--all implies --{mode} ==> Running {mode} analysis.')
         setattr(args, mode, True)
+
+if args.no_kpca:
+    print('--no_kpca implies --use_exact_tcrdist_nbrs and --use_tcrdist_umap --use_tcrdist_clusters')
+    print('setting those flags now')
+    args.use_exact_tcrdist_nbrs = True
+    args.use_tcrdist_umap = True
+    args.use_tcrdist_clusters = True
+
 
 ## check consistency of args
 if args.find_pmhc_nbrhood_overlaps or args.calc_clone_pmhc_pvals:
@@ -249,7 +259,7 @@ if args.restart is None:
 
 
     print('run reduce_to_single_cell_per_clone'); sys.stdout.flush()
-    adata = conga.preprocess.reduce_to_single_cell_per_clone( adata )
+    adata = conga.preprocess.reduce_to_single_cell_per_clone( adata, average_clone_gex=args.average_clone_gex )
     assert 'X_igex' in adata.obsm_keys()
 
     if args.shuffle_tcr_kpcs:

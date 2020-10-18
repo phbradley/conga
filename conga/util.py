@@ -22,6 +22,9 @@ assert os.path.isdir( path_to_tcrdist_cpp_bin ) and os.path.isdir( path_to_tcrdi
 def tcrdist_cpp_available():
     return os.path.exists(path_to_tcrdist_cpp_bin + 'find_neighbors')
 
+# not a big deal, but if we have protein ie antibody data we use these to mask it out
+EXPECTED_FEATURE_TYPES = ['Gene Expression', 'Antibody Capture']
+
 FUNNY_MOUSE_TRBV_GENE = '5830405F06Rik' # actually seems to be a tcr v gene transcript or correlate with one
 FUNNY_HUMAN_IG_GENES = ['AC233755.1', 'AC233755.2', # seem to be associated with one or more IGHV genes
                         'CH17-224D4.2', # chr14 bac, suspiciously high correlation with tcr features??

@@ -10,7 +10,7 @@ import numpy as np
 import scipy
 from scipy.cluster import hierarchy
 from scipy.spatial.distance import squareform, cdist
-from scipy.sparse import issparse#, csr_matrix
+from scipy.sparse import issparse, csr_matrix
 from anndata import AnnData
 import sys
 import os
@@ -49,7 +49,10 @@ def add_mait_info_to_adata_obs( adata, key_added = 'is_mait' ):
     adata.obs['is_mait'] = is_mait
 
 
-def normalize_and_log_the_raw_matrix( adata, counts_per_cell_after = 1e4 ):
+def normalize_and_log_the_raw_matrix(
+        adata,
+        normalize_antibody_features_CLR=True, # centered log normalize (this is NEW!!!! was just log1p'ing before)
+        counts_per_cell_after = 1e4 ):
     '''
     '''
     if check_if_raw_matrix_is_logged( adata ):
@@ -60,12 +63,15 @@ def normalize_and_log_the_raw_matrix( adata, counts_per_cell_after = 1e4 ):
 
     ft_varname = pmhc_scoring.get_feature_types_varname(adata)
     if ft_varname:
+        ftypes_counts = Counter(adata.raw.var[ft_varname]).most_common()
+        print('feature_types counter:', ftypes_counts)
+
         ngenes = sum( adata.raw.var[ft_varname] != 'Antibody Capture' )
     else:
         ngenes = adata.raw.shape[1]
+    n_ab_features = adata.raw.shape[1] - ngenes
 
     X_gex = adata.raw.X[:,:ngenes]
-    X_ab  = adata.raw.X[:,ngenes:]
 
     counts_per_cell = np.sum( X_gex, axis=1 ).A1 # A1 since X_gex is sparse
     assert np.min( counts_per_cell ) > 0
@@ -81,8 +87,18 @@ def normalize_and_log_the_raw_matrix( adata, counts_per_cell_after = 1e4 ):
     new_counts_per_cell = np.sum( X_gex, axis=1 ).A1 # A1 since X_gex is sparse
     assert min(new_counts_per_cell) > counts_per_cell_after-1 and max(new_counts_per_cell) < counts_per_cell_after+1
 
-    new_X = scipy.sparse.hstack( [X_gex, X_ab], format="csr" )
-    np.log1p( new_X.data, out = new_X.data )
+    # now log1p transform
+    np.log1p( X_gex.data, out = X_gex.data )
+
+    if n_ab_features:
+        X_ab  = adata.raw.X[:,ngenes:]
+        np.log1p( X_ab.data, out =  X_ab.data )
+        if normalize_antibody_features_CLR:
+            X_ab_mn = X_ab.mean(axis=1)
+            X_ab = scipy.sparse.csr_matrix(X_ab - X_ab_mn)
+        new_X = scipy.sparse.hstack( [X_gex, X_ab], format="csr" )
+    else:
+        new_X = X_gex
 
     adata_new = AnnData( X = new_X, obs = adata.obs, var = adata.raw.var )
 
@@ -526,7 +542,8 @@ def filter_and_scale(
 
 def reduce_to_single_cell_per_clone(
         adata,
-        n_pcs=50
+        n_pcs=50,
+        average_clone_gex=False,
 ):
     ''' returns adata
 
@@ -592,17 +609,21 @@ def reduce_to_single_cell_per_clone(
     rep_cell_indices = [] # parallel
     new_X_igex = []
 
+    ## only used if average_clone_gex is True
+    old_X = adata.raw.X
+    new_X_rows = []
+
     ## for each clone (tcr) we pick a single representative cell, stored in rep_cell_indices
     ## rep_cell_indices is parallel with and aligned to the tcrs list
     for c in range(num_clones):
         if c%1000==0:
             print('choose representative cell for clone:', c, num_clones, adata.shape)
             sys.stdout.flush()
-        clone_cells = np.array( [ x for x,y in enumerate(clone_ids) if y==c] )
+        clone_mask = clone_ids==c
+        clone_cells = np.nonzero(clone_mask)[0] #array( [ x for x,y in enumerate(clone_ids) if y==c] )
         clone_size = clone_cells.shape[0]
         clone_sizes.append( clone_size )
         if batch_keys is not None:
-            clone_mask = clone_ids==c
             # store the distribution of this clone across the different batches
             for k in batch_keys:
                 counts = Counter(adata.obs[k][clone_mask])
@@ -621,6 +642,12 @@ def reduce_to_single_cell_per_clone(
             #print('min_avgdist', np.min(avgdist)/clone_size, clone_size, np.argmin(avgdist))
             rep_cell_index = clone_cells[ np.argmin( avgdist ) ]
         rep_cell_indices.append(rep_cell_index)
+        if average_clone_gex:
+            if clone_size == 1:
+                new_X_rows.append(old_X[clone_cells[0],:])
+            else:
+                new_X_rows.append(csr_matrix(old_X[clone_cells,:].sum(axis=0)/clone_size))
+                adata.X[rep_cell_index,:] = adata.X[clone_cells,:].sum(axis=0)/clone_size
         new_X_igex.append( np.sum( X_igex[clone_cells,:], axis=0 ) / clone_size )
         if pmhc_var_names:
             new_X_pmhc.append( np.sum( X_pmhc[clone_cells,:], axis=0 ) / clone_size )
@@ -634,6 +661,17 @@ def reduce_to_single_cell_per_clone(
     adata.obs['clone_sizes'] = np.array( clone_sizes )
     adata.obsm['X_igex'] = new_X_igex
     adata.uns['X_igex_genes'] = good_genes
+
+    if average_clone_gex:
+        print('vstacking new_X_rows...'); sys.stdout.flush()
+        new_X = scipy.sparse.vstack(new_X_rows, format="csr")
+        print('DONE vstacking new_X_rows...'); sys.stdout.flush()
+        assert new_X.shape == (adata.shape[0], adata.raw.X.shape[1])
+
+        adata_new = AnnData( X = new_X, obs = adata.obs, var = adata.raw.var )
+        adata.raw = adata_new
+
+
 
     if batch_keys:
         for k in batch_keys:
@@ -1520,4 +1558,49 @@ def analyze_CD4_CD8(
     plt.ylabel('CD4')
     plt.savefig(pngfile)
     print('making:', pngfile)
+
+
+
+def save_nbr_info_to_adata(
+        adata,
+        all_nbrs
+):
+    ''' Stash the nbrs info in the adata.obsm array
+    '''
+
+    for nbr_frac in all_nbrs:
+        nbrs_gex, nbrs_tcr = all_nbrs[nbr_frac]
+        for tag, nbrs in [['gex', nbrs_gex], ['tcr', nbrs_tcr]]:
+            obsm_key = f'nbrs_{tag}_{nbr_frac:.6f}'
+            adata.obsm[obsm_key] = nbrs
+            print('saved:', obsm_key, type(adata.obsm[obsm_key]),
+                  adata.obsm[obsm_key].shape, adata.obsm[obsm_key].dtype)
+
+def retrieve_nbr_info_from_adata(
+        adata,
+):
+    ''' Returns the all_nbrs dictionary, which maps from nbr_fracs
+    to lists of [nbrs_gex, nbrs_tcr]
+
+    all_nbrs = { 0.01: [nbrs_gex, nbrs_tcr], ... }
+
+    '''
+
+    all_nbrs = {}
+    for k in adata.obsm_keys():
+        if k[:5] == 'nbrs_' and k.count('_')==2:
+            tagl = k.split('_')
+            _, tag, nbr_frac = k.split('_')
+            expected_tags = ['gex','tcr']
+            assert tag in expected_tags
+            nbr_frac = float(nbr_frac)
+            if nbr_frac not in all_nbrs:
+                all_nbrs[nbr_frac] = [None, None]
+            all_nbrs[nbr_frac][ expected_tags.index(tag) ] = adata.obsm[k]
+
+    for nbr_frac in all_nbrs:
+        assert all_nbrs[nbr_frac][0] is not None
+        assert all_nbrs[nbr_frac][1] is not None
+
+    return all_nbrs
 
