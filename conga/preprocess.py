@@ -2,7 +2,7 @@ import scanpy as sc
 import random
 import pandas as pd
 from os.path import exists
-from pathlib import PurePath
+from pathlib import Path
 from collections import Counter
 from sklearn.metrics import pairwise_distances
 from sklearn.utils import sparsefuncs
@@ -21,6 +21,7 @@ from . import util
 from . import pmhc_scoring
 from . import plotting
 from .tcrdist.tcr_distances import TcrDistCalculator
+from .util import tcrdist_cpp_available
 
 # silly hack
 all_sexlinked_genes = frozenset('XIST DDX3Y EIF1AY KDM5D LINC00278 NLGN4Y RPS4Y1 TTTY14 TTTY15 USP9Y UTY ZFY'.split())
@@ -123,7 +124,7 @@ def setup_X_igex( adata ):
     ''' Side effect: will log1p-and-normalize the raw matrix if that's not already done
     '''
     # tmp hacking
-    all_genes_file = PurePath.joinpath( util.path_to_data , 'igenes_all_v1.txt')
+    all_genes_file = Path.joinpath( Path( util.path_to_data ) , 'igenes_all_v1.txt')
     kir_genes = 'KIR2DL1 KIR2DL3 KIR2DL4 KIR3DL1 KIR3DL2 KIR3DL3 KIR3DX1'.split()
     extra_genes = [ 'CD4','CD8A','CD8B','CCR7', 'SELL','CCL5','KLRF1','KLRG1','IKZF2','PDCD1','GNG4','MME',
                     'ZNF683','KLRD1','NCR3','KIR3DL1','NCAM1','ITGAM','KLRC2','KLRC3', #'MME',
@@ -869,8 +870,7 @@ def recalculate_tcrdist_nbrs(
 
     tcrs = retrieve_tcrs_from_adata(adata)
 
-    #tcrdist = TcrDistCalculator(adata.uns['organism'])
-    tcrdist = calc_tcrdist_matrix_cpp(tcrs, adata.uns['organism'], tmpfile_prefix = None)
+    tcrdist = TcrDistCalculator(adata.uns['organism'])
 
     num_clones = adata.shape[0]
 
@@ -921,7 +921,7 @@ def calculate_tcrdist_nbrs_cpp(
     nbrs exclude self and any clones in same atcr group or btcr group
     '''
     if tmpfile_prefix is None:
-        tmpfile_prefix = PurePath('./tmp_nbrs{}'.format(random.randrange(1,10000)))
+        tmpfile_prefix = Path('./tmp_nbrs{}'.format(random.randrange(1,10000)))
 
     print('calculate_tcrdist_nbrs_cpp:', adata.shape, nbr_fracs, tmpfile_prefix)
 
@@ -936,15 +936,15 @@ def calculate_tcrdist_nbrs_cpp(
     adata.obs['va cdr3a vb cdr3b'.split()].to_csv(tcrs_filename, sep='\t', index=False)
 
     if os.name == 'posix':
-        exe = PurePath.joinpath( util.path_to_tcrdist_cpp_bin , 'find_neighbors')
+        exe = Path.joinpath( Path(util.path_to_tcrdist_cpp_bin) , 'find_neighbors')
     else:
-        exe = PurePath.joinpath( util.path_to_tcrdist_cpp_bin , 'find_neighbors.exe') 
+        exe = Path.joinpath( Path(util.path_to_tcrdist_cpp_bin) , 'find_neighbors.exe') 
 
     if not exists(exe):
         print('need to compile c++ exe:', exe)
         exit(1)
 
-    db_filename = PurePath.joinpath(util.path_to_tcrdist_cpp_db, 'tcrdist_info_{}.txt'.format(adata.uns['organism']))
+    db_filename = Path.joinpath( Path( util.path_to_tcrdist_cpp_db), 'tcrdist_info_{}.txt'.format(adata.uns['organism']))
 
     if not exists(db_filename):
         print('need to create database file:', db_filename)
@@ -958,10 +958,7 @@ def calculate_tcrdist_nbrs_cpp(
     cmd = '{} -f {} -n {} -d {} -o {} -a {} -b {}'\
     .format(exe, tcrs_filename, num_nbrs, db_filename, outprefix, agroups_filename, bgroups_filename)
 
-    if os.name == 'posix':
-        util.run_command(cmd, verbose=True)
-    else:
-        util.run_command_windows(cmd, verbose=True)
+    util.run_command(cmd, verbose=True)
 
     knn_indices_filename = outprefix+'_knn_indices.txt'
     knn_distances_filename = outprefix+'_knn_distances.txt'
@@ -1072,9 +1069,17 @@ def make_tcrdist_kernel_pcs_file_from_clones_file(
     tcrs = [ ( ( l.va_gene, l.ja_gene, l.cdr3a ), ( l.vb_gene, l.jb_gene, l.cdr3b ) ) for l in df.itertuples() ]
     ids = [ l.clone_id for l in df.itertuples() ]
 
+
     if input_distfile is None: ## tcr distances
         print(f'compute tcrdist distance matrix for {len(tcrs)} clonotypes')
-        D = calc_tcrdist_matrix_cpp(tcrs, organism, outfile )
+
+        if tcrdist_cpp_available():
+            print('Using C++ TCRdist calculator')
+            D = calc_tcrdist_matrix_cpp(tcrs, organism, outfile)
+        else:
+            print('Using Python TCRdist calculator. Consider compiling C++ calculator for faster perfomance.')
+            tcrdist_calculator = TcrDistCalculator(organism) 
+            D = np.array( [ tcrdist_calculator(x,y) for x in tcrs for y in tcrs ] ).reshape( (len(tcrs), len(tcrs)) )
     else:
         print(f'reload tcrdist distance matrix for {len(tcrs)} clonotypes')
         D = np.loadtxt(input_distfile)
@@ -1138,20 +1143,17 @@ def condense_clones_file_and_barcode_mapping_file_by_tcrdist(
         tcrdist_threshold = int(tcrdist_threshold+0.001) # cpp tcrdist threshold is integer
 
         if os.name == 'posix':
-            exe = PurePath.joinpath( util.path_to_tcrdist_cpp_bin , 'find_neighbors')
+            exe = Path.joinpath( Path(util.path_to_tcrdist_cpp_bin), 'find_neighbors')
         else:
-            exe = PurePath.joinpath( util.path_to_tcrdist_cpp_bin , 'find_neighbors.exe') 
+            exe = Path.joinpath( Path(util.path_to_tcrdist_cpp_bin) , 'find_neighbors.exe') 
 
-        db_filename = PurePath.joinpath( util.path_to_tcrdist_cpp_db, 'tcrdist_info_{}.txt'.format(organism) ) 
+        db_filename = Path.joinpath( Path(util.path_to_tcrdist_cpp_db) , 'tcrdist_info_{}.txt'.format(organism) ) 
 
         outprefix = old_clones_file + '_calc_tcrdist'
 
         cmd = '{} -f {} -t {} -d {} -o {}'.format(exe, old_clones_file, tcrdist_threshold, db_filename, outprefix)
 
-        if os.name == 'posix':
-            util.run_command(cmd, verbose=True)
-        else:
-            util.run_command_windows(cmd, verbose=True)
+        util.run_command(cmd, verbose=True)
 
         nbr_indices_filename = '{}_nbr{}_indices.txt'.format(outprefix, tcrdist_threshold)
         nbr_distances_filename = '{}_nbr{}_distances.txt'.format(outprefix, tcrdist_threshold)
@@ -1287,16 +1289,15 @@ def calc_tcrdist_nbrs_umap_clusters_cpp(
     adata.obs['va cdr3a vb cdr3b'.split()].to_csv(tcrs_filename, sep='\t', index=False)
 
     if os.name == 'posix':
-        exe = PurePath.joinpath( util.path_to_tcrdist_cpp_bin , 'find_neighbors')
+        exe = Path.joinpath( Path(util.path_to_tcrdist_cpp_bin) , 'find_neighbors')
     else:
-        exe = PurePath.joinpath( util.path_to_tcrdist_cpp_bin , 'find_neighbors.exe') 
+        exe = Path.joinpath( Path(util.path_to_tcrdist_cpp_bin) , 'find_neighbors.exe') 
 
     if not exists(exe):
         print('need to compile c++ exe:', exe)
         exit(1)
 
-    db_filename = PurePath.joinpath(util.path_to_tcrdist_cpp_db,\
-        'tcrdist_info_{}.txt'.format(adata.uns['organism']) )
+    db_filename = Path.joinpath( Path(util.path_to_tcrdist_cpp_db), 'tcrdist_info_{}.txt'.format(adata.uns['organism']) )
 
     if not exists(db_filename):
         print('need to create database file:', db_filename)
@@ -1306,10 +1307,7 @@ def calc_tcrdist_nbrs_umap_clusters_cpp(
 
     cmd = '{} -f {} -n {} -d {} -o {}'.format(exe, tcrs_filename, num_nbrs, db_filename, outprefix)
 
-    if os.name == 'posix':
-        util.run_command(cmd, verbose=True)
-    else:
-        util.run_command_windows(cmd, verbose=True)
+    util.run_command(cmd, verbose=True)
 
     knn_indices_filename = outprefix+'_knn_indices.txt'
     knn_distances_filename = outprefix+'_knn_distances.txt'
@@ -1372,7 +1370,7 @@ def calc_tcrdist_matrix_cpp(
         tmpfile_prefix = None,
 ):
     if tmpfile_prefix is None:
-        tmpfile_prefix = PurePath('./tmp_tcrdists{}'.format(random.randrange(1,10000)))
+        tmpfile_prefix = Path('./tmp_tcrdists{}'.format(random.randrange(1,10000)))
 
     tcrs_filename = str(tmpfile_prefix) +'_tcrs.tsv'
 
@@ -1381,15 +1379,15 @@ def calc_tcrdist_matrix_cpp(
     df.to_csv(tcrs_filename, sep='\t', index=False)
 
     if os.name == 'posix':
-        exe = PurePath.joinpath( util.path_to_tcrdist_cpp_bin , 'find_neighbors')
+        exe = Path.joinpath( Path(util.path_to_tcrdist_cpp_bin) , 'find_neighbors')
     else:
-        exe = PurePath.joinpath( util.path_to_tcrdist_cpp_bin , 'find_neighbors.exe') 
+        exe = Path.joinpath( Path(util.path_to_tcrdist_cpp_bin) , 'find_neighbors.exe') 
 
     if not exists(exe):
         print('need to compile c++ exe:', exe)
         exit(1)
 
-    db_filename = PurePath.joinpath(util.path_to_tcrdist_cpp_db, 'tcrdist_info_{}.txt'.format( organism ) )
+    db_filename = Path.joinpath( Path(util.path_to_tcrdist_cpp_db), 'tcrdist_info_{}.txt'.format( organism ) )
 
     if not exists(db_filename):
         print('need to create database file:', db_filename)
@@ -1397,10 +1395,7 @@ def calc_tcrdist_matrix_cpp(
 
     cmd = '{} -f {} --only_tcrdists -d {} -o {}'.format(exe, tcrs_filename, db_filename, tmpfile_prefix)
 
-    if os.name == 'posix':
-        util.run_command(cmd, verbose=True)
-    else:
-        util.run_command_windows(cmd, verbose=True)
+    util.run_command(cmd, verbose=True)
 
     tcrdist_matrix_filename = str(tmpfile_prefix) +'_tcrdists.txt'
 
@@ -1633,7 +1628,13 @@ def make_tcrdist_kernel_pcs_file_from_clones_file_V2(
     
     print(f'compute tcrdist distance matrix for {len(tcrs)} clonotypes')
 
-    D = calc_tcrdist_matrix_cpp(tcrs, organism, output_prefix )
+    if tcrdist_cpp_available():
+        print('Using C++ TCRdist calculator')
+        D = calc_tcrdist_matrix_cpp(tcrs, organism, outfile)
+    else:
+        print('Using Python TCRdist calculator. Consider compiling C++ calculator for faster perfomance.')
+        tcrdist_calculator = TcrDistCalculator(organism) 
+        D = np.array( [ tcrdist_calculator(x,y) for x in tcrs for y in tcrs ] ).reshape( (len(tcrs), len(tcrs)) )
 
     n_components = min( n_components_in, D.shape[0] )
 

@@ -2,7 +2,7 @@ import numpy as np
 import sys
 from os import system
 import os.path
-from pathlib import PurePath
+from pathlib import Path
 import os
 from scipy.sparse import issparse
 from collections import Counter
@@ -12,23 +12,23 @@ import subprocess
 #
 
 # convenience paths
-path_to_conga = PurePath(__file__).parent
+path_to_conga = Path(__file__).parent
 assert os.path.isdir( path_to_conga )
 
-path_to_data = PurePath.joinpath( path_to_conga, 'data')
+path_to_data = Path.joinpath( path_to_conga, 'data')
 assert os.path.isdir( path_to_data )
 
-path_to_tcrdist_cpp = PurePath.joinpath( path_to_conga.parents[0] ,'tcrdist_cpp')
-path_to_tcrdist_cpp_bin = PurePath.joinpath( path_to_tcrdist_cpp ,'bin')
-path_to_tcrdist_cpp_db = PurePath.joinpath( path_to_tcrdist_cpp ,'db')
+path_to_tcrdist_cpp = Path.joinpath( path_to_conga.parents[0] ,'tcrdist_cpp')
+path_to_tcrdist_cpp_bin = Path.joinpath( path_to_tcrdist_cpp ,'bin')
+path_to_tcrdist_cpp_db = Path.joinpath( path_to_tcrdist_cpp ,'db')
 assert os.path.isdir( path_to_tcrdist_cpp_bin ) and os.path.isdir( path_to_tcrdist_cpp_db )
 
 
 def tcrdist_cpp_available():
 	if os.name == 'posix':
-		return os.path.exists(PurePath.joinpath( path_to_tcrdist_cpp_bin ,'find_neighbors'))
+		return os.path.exists(Path.joinpath( path_to_tcrdist_cpp_bin ,'find_neighbors'))
 	else:
-		return os.path.exists(PurePath.joinpath( path_to_tcrdist_cpp_bin ,'find_neighbors.exe'))
+		return os.path.exists(Path.joinpath( path_to_tcrdist_cpp_bin ,'find_neighbors.exe'))
     
 
 FUNNY_MOUSE_TRBV_GENE = '5830405F06Rik' # actually seems to be a tcr v gene transcript or correlate with one
@@ -37,16 +37,16 @@ FUNNY_HUMAN_IG_GENES = ['AC233755.1', 'AC233755.2', # seem to be associated with
                         'IGLL5' ] # correlated with IGLJ1
 
 def run_command( cmd, verbose=False ):
-    if verbose:
-        print('util.run_command: cmd=', cmd)
-    system(cmd)
 
-def run_command_windows( cmd, verbose=False ):
-    #windows launches the TCRdist C++ as as detached processes and os.system doesn't know to wait
-    if verbose:
-        print('util.run_command_windows: cmd=', cmd)
-    cmd_run = 'cmd /c' + cmd
-    subprocess.check_call(list(cmd_run.split(' ')))
+    if verbose: 
+        print('util.run_command: cmd=', cmd)
+
+    if os.name == 'posix':
+        system(cmd)
+    else:
+        cmd_run = 'cmd /c' + cmd
+        subprocess.check_call(list(cmd_run.split(' ')))
+
 
 # different types of repertoire data we might have
 TCR_AB_VDJ_TYPE = 'TCR_AB_VDJ_TYPE'

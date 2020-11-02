@@ -1,5 +1,5 @@
 from os.path import exists
-from pathlib import PurePath
+from pathlib import Path
 import numpy as np
 import pandas as pd
 from . import util
@@ -8,7 +8,7 @@ from . import util
 amino_acids = ['A', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'K', 'L', \
                'M', 'N', 'P', 'Q', 'R', 'S', 'T', 'V', 'W', 'Y']
 
-imhc_model_file = PurePath.joinpath( util.path_to_data,'logreg_hobit_donor1_v4.tsv_0_model.tsv')
+imhc_model_file = Path.joinpath( Path(util.path_to_data),'logreg_hobit_donor1_v4.tsv_0_model.tsv')
 assert exists(imhc_model_file)
 imhc_model_df = pd.read_csv(imhc_model_file, sep='\t')
 imhc_model_df.set_index('feature', inplace=True)

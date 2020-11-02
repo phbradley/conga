@@ -1569,6 +1569,11 @@ def plot_interesting_features_vs_clustermap(
         print('ERROR seaborn is not installed')
         return
 
+    try:
+        import fastcluster
+    except:
+        print('Consider installing fastcluster to increase clustering speed')
+
     assert dist_tag in ['gex','tcr']
 
     if show_gex_cluster_colorbar is None:
@@ -2004,6 +2009,7 @@ def make_tcr_clumping_plots(
         pvalue_threshold_for_logos,
         outfile_prefix,
         max_color_pvalue = 1e-16, # in the UMAP figure; no brighter beyond there
+        **logo_plot_args,
 ):
     num_clones = adata.shape[0]
     fake_clusters_gex = np.zeros((num_clones,)).astype(int)
@@ -2017,7 +2023,7 @@ def make_tcr_clumping_plots(
 
     make_cluster_logo_plots_figure(
         adata, clumping_pvals, pvalue_threshold_for_logos, fake_clusters_gex, fake_clusters_tcr, nbrs_gex, nbrs_tcr,
-        min_cluster_size_for_logos, pngfile)
+        min_cluster_size_for_logos, pngfile, **logo_plot_args) 
 
     # make umaps colored by clumping pvals
     plt.figure(figsize=(12,6))
