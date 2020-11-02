@@ -2,7 +2,7 @@
 # import random
 import pandas as pd
 from os.path import exists
-from pathlib import PurePath
+from pathlib import Path
 from collections import OrderedDict#, Counter
 # from sklearn.metrics import pairwise_distances
 # from sklearn.utils import sparsefuncs
@@ -36,9 +36,9 @@ def estimate_background_tcrdist_distributions(
         exit(1)
 
     if tmpfile_prefix is None:
-        tmpfile_prefix = PurePath('./tmp_nbrs{}'.format(random.randrange(1,10000)))
+        tmpfile_prefix = Path('./tmp_nbrs{}'.format(random.randrange(1,10000)))
     else:
-    	tmpfile_prefix = PurePath(tmpfile_prefix)
+    	tmpfile_prefix = Path(tmpfile_prefix)
 
 
     max_dist = int(0.1+max_dist) ## need an integer
@@ -69,21 +69,18 @@ def estimate_background_tcrdist_distributions(
 
     # compute distributions vs background chains
     if os.name == 'posix':
-        exe = PurePath.joinpath( util.path_to_tcrdist_cpp_bin , 'calc_distributions')
+        exe = Path.joinpath( Path(util.path_to_tcrdist_cpp_bin) , 'calc_distributions')
     else:
-        exe = PurePath.joinpath( util.path_to_tcrdist_cpp_bin , 'calc_distributions.exe') 
+        exe = Path.joinpath( Path(util.path_to_tcrdist_cpp_bin) , 'calc_distributions.exe') 
 
     outfile = str(tmpfile_prefix) + '_dists.tsv' 
 
-    db_filename = PurePath.joinpath(util.path_to_tcrdist_cpp_db, 'tcrdist_info_{}.txt'.format( organism))
+    db_filename = Path.joinpath( Path(util.path_to_tcrdist_cpp_db) , 'tcrdist_info_{}.txt'.format( organism))
     
     cmd = '{} -f {} -m {} -d {} -a {} -b {} -o {}'\
     .format(exe, tcrs_file, max_dist, db_filename, achains_file, bchains_file, outfile)
 
-    if os.name == 'posix':
-        util.run_command(cmd, verbose=True)
-    else:
-        util.run_command_windows(cmd, verbose=True)
+    util.run_command(cmd, verbose=True)
 
     if not exists(outfile):
         print('tcr_clumping:: calc_distributions failed: missing', outfile)
@@ -132,9 +129,9 @@ def assess_tcr_clumping(
     # find neighbors in fg tcrs up to max(radii) #######################################
 
     if os.name == 'posix':
-        exe = PurePath.joinpath( util.path_to_tcrdist_cpp_bin , 'find_neighbors')
+        exe = Path.joinpath( Path(util.path_to_tcrdist_cpp_bin) , 'find_neighbors')
     else:
-        exe = PurePath.joinpath( util.path_to_tcrdist_cpp_bin , 'find_neighbors.exe') 
+        exe = Path.joinpath( Path(util.path_to_tcrdist_cpp_bin) , 'find_neighbors.exe') 
 
     agroups, bgroups = preprocess.setup_tcr_groups(adata)
     agroups_filename = outprefix+'_agroups.txt'
@@ -142,17 +139,14 @@ def assess_tcr_clumping(
     np.savetxt(agroups_filename, agroups, fmt='%d')
     np.savetxt(bgroups_filename, bgroups, fmt='%d')
 
-    db_filename = PurePath.joinpath(util.path_to_tcrdist_cpp_db, f'tcrdist_info_{organism}.txt')
+    db_filename = Path.joinpath( Path(util.path_to_tcrdist_cpp_db), f'tcrdist_info_{organism}.txt')
 
     tcrdist_threshold = max(radii)
 
     cmd = '{} -f {} -t {} -d {} -o {} -a {} -b {}'\
     .format(exe, tcrs_file, tcrdist_threshold, db_filename, outprefix, agroups_filename, bgroups_filename)
 
-    if os.name == 'posix':
-        util.run_command(cmd, verbose=True)
-    else:
-        util.run_command_windows(cmd, verbose=True)
+    util.run_command(cmd, verbose=True)
 
     nbr_indices_filename = outprefix + '_nbr{}_indices.txt'.format( tcrdist_threshold) 
     nbr_distances_filename = outprefix + '_nbr{}_distances.txt'.format( tcrdist_threshold) 
