@@ -25,11 +25,11 @@ assert os.path.isdir( path_to_tcrdist_cpp_bin ) and os.path.isdir( path_to_tcrdi
 
 
 def tcrdist_cpp_available():
-	if os.name == 'posix':
-		return os.path.exists(Path.joinpath( path_to_tcrdist_cpp_bin ,'find_neighbors'))
-	else:
-		return os.path.exists(Path.joinpath( path_to_tcrdist_cpp_bin ,'find_neighbors.exe'))
-    
+    if os.name == 'posix':
+        return os.path.exists(Path.joinpath( path_to_tcrdist_cpp_bin ,'find_neighbors'))
+    else:
+        return os.path.exists(Path.joinpath( path_to_tcrdist_cpp_bin ,'find_neighbors.exe'))
+
 
 # not a big deal, but if we have protein ie antibody data we use these to mask it out
 EXPECTED_FEATURE_TYPES = ['Gene Expression', 'Antibody Capture']
@@ -41,7 +41,7 @@ FUNNY_HUMAN_IG_GENES = ['AC233755.1', 'AC233755.2', # seem to be associated with
 
 def run_command( cmd, verbose=False ):
 
-    if verbose: 
+    if verbose:
         print('util.run_command: cmd=', cmd)
 
     if os.name == 'posix':
@@ -59,7 +59,7 @@ IG_VDJ_TYPE = 'IG_VDJ_TYPE'
 organism2vdj_type = {
     'human':TCR_AB_VDJ_TYPE,
     'mouse':TCR_AB_VDJ_TYPE,
-    'human_gd':TCR_AB_VDJ_TYPE,
+    'human_gd':TCR_GD_VDJ_TYPE,
     'mouse_gd':TCR_GD_VDJ_TYPE,
     'human_ig':IG_VDJ_TYPE,
     'mouse_ig':IG_VDJ_TYPE,

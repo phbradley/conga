@@ -41,7 +41,7 @@ def estimate_background_tcrdist_distributions(
     if tmpfile_prefix is None:
         tmpfile_prefix = Path('./tmp_nbrs{}'.format(random.randrange(1,10000)))
     else:
-    	tmpfile_prefix = Path(tmpfile_prefix)
+        tmpfile_prefix = Path(tmpfile_prefix)
 
 
     if tcrs_for_background_generation is None:
@@ -82,12 +82,12 @@ def estimate_background_tcrdist_distributions(
     if os.name == 'posix':
         exe = Path.joinpath( Path(util.path_to_tcrdist_cpp_bin) , 'calc_distributions')
     else:
-        exe = Path.joinpath( Path(util.path_to_tcrdist_cpp_bin) , 'calc_distributions.exe') 
+        exe = Path.joinpath( Path(util.path_to_tcrdist_cpp_bin) , 'calc_distributions.exe')
 
-    outfile = str(tmpfile_prefix) + '_dists.tsv' 
+    outfile = str(tmpfile_prefix) + '_dists.tsv'
 
     db_filename = Path.joinpath( Path(util.path_to_tcrdist_cpp_db) , 'tcrdist_info_{}.txt'.format( organism))
-    
+
     cmd = '{} -f {} -m {} -d {} -a {} -b {} -o {}'\
     .format(exe, tcrs_file, max_dist, db_filename, achains_file, bchains_file, outfile)
 
@@ -158,7 +158,7 @@ def assess_tcr_clumping(
     if os.name == 'posix':
         exe = Path.joinpath( Path(util.path_to_tcrdist_cpp_bin) , 'find_neighbors')
     else:
-        exe = Path.joinpath( Path(util.path_to_tcrdist_cpp_bin) , 'find_neighbors.exe') 
+        exe = Path.joinpath( Path(util.path_to_tcrdist_cpp_bin) , 'find_neighbors.exe')
 
     agroups, bgroups = preprocess.setup_tcr_groups(adata)
     agroups_filename = outprefix+'_agroups.txt'
@@ -175,8 +175,8 @@ def assess_tcr_clumping(
 
     util.run_command(cmd, verbose=True)
 
-    nbr_indices_filename = outprefix + '_nbr{}_indices.txt'.format( tcrdist_threshold) 
-    nbr_distances_filename = outprefix + '_nbr{}_distances.txt'.format( tcrdist_threshold) 
+    nbr_indices_filename = outprefix + '_nbr{}_indices.txt'.format( tcrdist_threshold)
+    nbr_distances_filename = outprefix + '_nbr{}_distances.txt'.format( tcrdist_threshold)
 
     if not exists(nbr_indices_filename) or not exists(nbr_distances_filename):
         print('find_neighbors failed:', exists(nbr_indices_filename), exists(nbr_distances_filename))

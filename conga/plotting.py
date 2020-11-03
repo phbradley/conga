@@ -2238,7 +2238,7 @@ def make_tcr_clumping_plots(
 
     make_cluster_logo_plots_figure(
         adata, clumping_pvals, pvalue_threshold_for_logos, fake_clusters_gex, fake_clusters_tcr, nbrs_gex, nbrs_tcr,
-        min_cluster_size_for_logos, pngfile, **logo_plot_args) 
+        min_cluster_size_for_logos, pngfile, **logo_plot_args)
 
     # make umaps colored by clumping pvals
     plt.figure(figsize=(12,6))

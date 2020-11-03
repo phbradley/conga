@@ -5,6 +5,7 @@ from collections import Counter
 from itertools import chain
 import sys
 import pandas as pd
+from ..util import organism2vdj_type, IG_VDJ_TYPE
 
 MIN_CDR3_LEN = 6 # otherwise tcrdist barfs; actually we could also set this to 5 and be OK
 
@@ -72,7 +73,8 @@ def read_tcr_data(
         contig_annotations_csvfile,
         consensus_annotations_csvfile,
         allow_unknown_genes = False,
-        verbose = False
+        verbose = False,
+        prefix_clone_ids_with_tcr_type = False,
 ):
     """ Parse tcr data, only taking 'productive' tcrs
 
@@ -89,13 +91,13 @@ def read_tcr_data(
     gene_suffix = '*01' # may not be used
 
 
-    Ttypes = ['human' , 'mouse' , 'human_gd' , 'human_gd']
-
-    if organism in Ttypes:
-        tag = 'tcr_'
+    if prefix_clone_ids_with_tcr_type:
+        if organism2vdj_type[organism] == IG_VDJ_TYPE:
+            clone_id_prefix = 'bcr_'
+        else:
+            clone_id_prefix = 'tcr_'
     else:
-        tag = 'bcr_'
-
+        clone_id_prefix = ''
 
     # read the contig annotations-- map from clonotypes to barcodes
     # barcode,is_cell,contig_id,high_confidence,length,chain,v_gene,d_gene,j_gene,c_gene,full_length,productive,cdr3,cdr3_nt,reads,umis,raw_clonotype_id,raw_consensus_id
@@ -109,7 +111,7 @@ def read_tcr_data(
     clonotype2tcrs_backup = {} ## in case we dont have a consensus_annotations_csvfile
     for l in df.itertuples():
         bc = l.barcode
-        clonotype = tag + l.raw_clonotype_id
+        clonotype = clone_id_prefix + l.raw_clonotype_id
         # annoying: pandas sometimes converts to True/False booleans and sometimes not.
         assert l.productive in [ 'None', 'False', 'True']
         if clonotype =='None':
@@ -240,7 +242,8 @@ def read_tcr_data_batch(
         organism,
         metadata_file,
         allow_unknown_genes = False,
-        verbose = False
+        verbose = False,
+        prefix_clone_ids_with_tcr_type = False,
 ):
     """ Parse tcr data, only taking 'productive' tcrs
 
@@ -253,13 +256,13 @@ def read_tcr_data_batch(
 
     md = pd.read_csv(metadata_file, dtype=str)#"string")
 
-
-    Ttypes = ['human' , 'mouse' , 'human_gd' , 'human_gd']
-
-    if organism in Ttypes:
-        tag = 'tcr_'
+    if prefix_clone_ids_with_tcr_type:
+        if organism2vdj_type[organism] == IG_VDJ_TYPE:
+            clone_id_prefix = 'bcr_'
+        else:
+            clone_id_prefix = 'tcr_'
     else:
-        tag = 'bcr_'
+        clone_id_prefix = ''
 
     # read in contig files and update suffix to match GEX matrix
     contig_list = []
@@ -276,8 +279,8 @@ def read_tcr_data_batch(
             '_' + dfx['contig_id'].str.split('_').str.get(2) # currently unused, but can't hurt
 
         # giving each library a tag here really boosted the number of clones I got back
-        dfx['raw_clonotype_id'] = tag + dfx['raw_clonotype_id'] + '_' + suffix
-        dfx['raw_consensus_id'] = tag + dfx['raw_consensus_id'] + '_' + suffix # currently unused, but can't hurt
+        dfx['raw_clonotype_id'] = clone_id_prefix + dfx['raw_clonotype_id'] + '_' + suffix
+        dfx['raw_consensus_id'] = clone_id_prefix + dfx['raw_consensus_id'] + '_' + suffix # currently unused, can't hurt
 
         contig_list.append(dfx)
 

@@ -96,7 +96,7 @@ Next, clone the `conga` repository:
 ```
 git clone https://github.com/phbradley/conga.git
 ```
-Then compile TCRdist using your C++ compiler. 
+Then compile TCRdist using your C++ compiler.
 
 We've successfullly used `g++` from the GNU Compiler Collection (https://gcc.gnu.org/) to compile on
 Linux and MacOS, and from MinGw (http://www.mingw.org/) for Windows.
