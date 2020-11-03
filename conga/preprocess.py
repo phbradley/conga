@@ -11,7 +11,7 @@ import numpy as np
 import scipy
 from scipy.cluster import hierarchy
 from scipy.spatial.distance import squareform, cdist
-from scipy.sparse import issparse#, csr_matrix
+from scipy.sparse import issparse, csr_matrix
 from anndata import AnnData
 import sys
 import os
@@ -51,7 +51,10 @@ def add_mait_info_to_adata_obs( adata, key_added = 'is_mait' ):
     adata.obs['is_mait'] = is_mait
 
 
-def normalize_and_log_the_raw_matrix( adata, counts_per_cell_after = 1e4 ):
+def normalize_and_log_the_raw_matrix(
+        adata,
+        normalize_antibody_features_CLR=True, # centered log normalize (this is NEW!!!! was just log1p'ing before)
+        counts_per_cell_after = 1e4 ):
     '''
     '''
     if check_if_raw_matrix_is_logged( adata ):
@@ -62,12 +65,15 @@ def normalize_and_log_the_raw_matrix( adata, counts_per_cell_after = 1e4 ):
 
     ft_varname = pmhc_scoring.get_feature_types_varname(adata)
     if ft_varname:
+        ftypes_counts = Counter(adata.raw.var[ft_varname]).most_common()
+        print('feature_types counter:', ftypes_counts)
+
         ngenes = sum( adata.raw.var[ft_varname] != 'Antibody Capture' )
     else:
         ngenes = adata.raw.shape[1]
+    n_ab_features = adata.raw.shape[1] - ngenes
 
     X_gex = adata.raw.X[:,:ngenes]
-    X_ab  = adata.raw.X[:,ngenes:]
 
     counts_per_cell = np.sum( X_gex, axis=1 ).A1 # A1 since X_gex is sparse
     assert np.min( counts_per_cell ) > 0
@@ -83,8 +89,18 @@ def normalize_and_log_the_raw_matrix( adata, counts_per_cell_after = 1e4 ):
     new_counts_per_cell = np.sum( X_gex, axis=1 ).A1 # A1 since X_gex is sparse
     assert min(new_counts_per_cell) > counts_per_cell_after-1 and max(new_counts_per_cell) < counts_per_cell_after+1
 
-    new_X = scipy.sparse.hstack( [X_gex, X_ab], format="csr" )
-    np.log1p( new_X.data, out = new_X.data )
+    # now log1p transform
+    np.log1p( X_gex.data, out = X_gex.data )
+
+    if n_ab_features:
+        X_ab  = adata.raw.X[:,ngenes:]
+        np.log1p( X_ab.data, out =  X_ab.data )
+        if normalize_antibody_features_CLR:
+            X_ab_mn = X_ab.mean(axis=1)
+            X_ab = scipy.sparse.csr_matrix(X_ab - X_ab_mn)
+        new_X = scipy.sparse.hstack( [X_gex, X_ab], format="csr" )
+    else:
+        new_X = X_gex
 
     adata_new = AnnData( X = new_X, obs = adata.obs, var = adata.raw.var )
 
@@ -327,7 +343,8 @@ def filter_normalize_and_hvg(
         print('min_genes not set. Using default ' + str(min_genes) )
 
     if n_genes is None:
-        n_genes=2000
+        n_genes=2000 # seems like this default of 2000 is maybe a little stringent. Really these should be set
+        # on a per-dataset basis
         print('n_genes not set. Using default ' + str(n_genes) )
 
     if percent_mito is None:
@@ -527,7 +544,8 @@ def filter_and_scale(
 
 def reduce_to_single_cell_per_clone(
         adata,
-        n_pcs=50
+        n_pcs=50,
+        average_clone_gex=False,
 ):
     ''' returns adata
 
@@ -568,21 +586,52 @@ def reduce_to_single_cell_per_clone(
     else:
         pmhc_var_names = None
 
+    if 'batch_keys' in adata.uns_keys():
+        clone_batch_counts = {}
+        num_batch_key_choices = {}
+        batch_keys = adata.uns['batch_keys']
+        for k in batch_keys:
+            assert k in adata.obs_keys()
+            clone_batch_counts[k] = []
+            assert np.min(adata.obs[k]) >= 0
+            max_val = np.max(adata.obs[k])
+            if max_val==0: # we need at least two choices for obsm
+                print(f'WARNING adding fake extra option "1" for batch key {k} so we can store counts in obsm')
+                max_val = 1
+            num_batch_key_choices[k] = max_val+1
+            print(f'storing clone batch counts for key {k} with {num_batch_key_choices[k]} choices in adata.obsm')
+    else:
+        batch_keys = None
+
     clone_ids = np.array( [ tcr2clone_id[x] for x in tcrs_with_duplicates ] )
 
     X_pca = adata.obsm['X_pca']
     clone_sizes = []
+    batch_counts = []
     rep_cell_indices = [] # parallel
     new_X_igex = []
+
+    ## only used if average_clone_gex is True
+    old_X = adata.raw.X
+    new_X_rows = []
 
     ## for each clone (tcr) we pick a single representative cell, stored in rep_cell_indices
     ## rep_cell_indices is parallel with and aligned to the tcrs list
     for c in range(num_clones):
         if c%1000==0:
             print('choose representative cell for clone:', c, num_clones, adata.shape)
-        clone_cells = np.array( [ x for x,y in enumerate(clone_ids) if y==c] )
+            sys.stdout.flush()
+        clone_mask = clone_ids==c
+        clone_cells = np.nonzero(clone_mask)[0] #array( [ x for x,y in enumerate(clone_ids) if y==c] )
         clone_size = clone_cells.shape[0]
         clone_sizes.append( clone_size )
+        if batch_keys is not None:
+            # store the distribution of this clone across the different batches
+            for k in batch_keys:
+                counts = Counter(adata.obs[k][clone_mask])
+                counts = [counts[x] for x in range(num_batch_key_choices[k]) ]
+                clone_batch_counts[k].append(counts)
+
         if clone_size==1:
             rep_cell_index = clone_cells[0]
         else:
@@ -595,6 +644,12 @@ def reduce_to_single_cell_per_clone(
             #print('min_avgdist', np.min(avgdist)/clone_size, clone_size, np.argmin(avgdist))
             rep_cell_index = clone_cells[ np.argmin( avgdist ) ]
         rep_cell_indices.append(rep_cell_index)
+        if average_clone_gex:
+            if clone_size == 1:
+                new_X_rows.append(old_X[clone_cells[0],:])
+            else:
+                new_X_rows.append(csr_matrix(old_X[clone_cells,:].sum(axis=0)/clone_size))
+                adata.X[rep_cell_index,:] = adata.X[clone_cells,:].sum(axis=0)/clone_size
         new_X_igex.append( np.sum( X_igex[clone_cells,:], axis=0 ) / clone_size )
         if pmhc_var_names:
             new_X_pmhc.append( np.sum( X_pmhc[clone_cells,:], axis=0 ) / clone_size )
@@ -608,6 +663,25 @@ def reduce_to_single_cell_per_clone(
     adata.obs['clone_sizes'] = np.array( clone_sizes )
     adata.obsm['X_igex'] = new_X_igex
     adata.uns['X_igex_genes'] = good_genes
+
+    if average_clone_gex:
+        print('vstacking new_X_rows...'); sys.stdout.flush()
+        new_X = scipy.sparse.vstack(new_X_rows, format="csr")
+        print('DONE vstacking new_X_rows...'); sys.stdout.flush()
+        assert new_X.shape == (adata.shape[0], adata.raw.X.shape[1])
+
+        adata_new = AnnData( X = new_X, obs = adata.obs, var = adata.raw.var )
+        adata.raw = adata_new
+
+
+
+    if batch_keys:
+        for k in batch_keys:
+            counts = np.array(clone_batch_counts[k])
+            assert counts.shape == (num_clones, num_batch_key_choices[k])
+            adata.obsm[k] = counts
+            print(f'storing clone batch info for key {k} with {num_batch_key_choices[k]} choices')
+
     if pmhc_var_names:
         new_X_pmhc = np.array(new_X_pmhc)
         assert new_X_pmhc.shape == ( num_clones, len(pmhc_var_names))
@@ -938,7 +1012,7 @@ def calculate_tcrdist_nbrs_cpp(
     if os.name == 'posix':
         exe = Path.joinpath( Path(util.path_to_tcrdist_cpp_bin) , 'find_neighbors')
     else:
-        exe = Path.joinpath( Path(util.path_to_tcrdist_cpp_bin) , 'find_neighbors.exe') 
+        exe = Path.joinpath( Path(util.path_to_tcrdist_cpp_bin) , 'find_neighbors.exe')
 
     if not exists(exe):
         print('need to compile c++ exe:', exe)
@@ -1078,7 +1152,7 @@ def make_tcrdist_kernel_pcs_file_from_clones_file(
             D = calc_tcrdist_matrix_cpp(tcrs, organism, outfile)
         else:
             print('Using Python TCRdist calculator. Consider compiling C++ calculator for faster perfomance.')
-            tcrdist_calculator = TcrDistCalculator(organism) 
+            tcrdist_calculator = TcrDistCalculator(organism)
             D = np.array( [ tcrdist_calculator(x,y) for x in tcrs for y in tcrs ] ).reshape( (len(tcrs), len(tcrs)) )
     else:
         print(f'reload tcrdist distance matrix for {len(tcrs)} clonotypes')
@@ -1145,9 +1219,9 @@ def condense_clones_file_and_barcode_mapping_file_by_tcrdist(
         if os.name == 'posix':
             exe = Path.joinpath( Path(util.path_to_tcrdist_cpp_bin), 'find_neighbors')
         else:
-            exe = Path.joinpath( Path(util.path_to_tcrdist_cpp_bin) , 'find_neighbors.exe') 
+            exe = Path.joinpath( Path(util.path_to_tcrdist_cpp_bin) , 'find_neighbors.exe')
 
-        db_filename = Path.joinpath( Path(util.path_to_tcrdist_cpp_db) , 'tcrdist_info_{}.txt'.format(organism) ) 
+        db_filename = Path.joinpath( Path(util.path_to_tcrdist_cpp_db) , 'tcrdist_info_{}.txt'.format(organism) )
 
         outprefix = old_clones_file + '_calc_tcrdist'
 
@@ -1212,12 +1286,22 @@ def condense_clones_file_and_barcode_mapping_file_by_tcrdist(
                 cluster_centers.append(center) # will be parallel with clusters_set
         assert not np.any(clusters==-1)
 
+        #confirm single linkage
+        for ii in range(N):
+            for nbr in all_nbrs[ii]:
+                assert clusters[ii] == clusters[nbr] # just added 2020-10-07
+
+
     else: # use python tcrdist, compute full distance matrix
         # in conga we usually also have cdr3_nucseq but we don't need it for tcrdist
         tcrs = [ ( ( l.va_gene, l.ja_gene, l.cdr3a ), ( l.vb_gene, l.jb_gene, l.cdr3b ) ) for l in df.itertuples() ]
-        tcrdist_calculator = TcrDistCalculator(organism)
         print(f'compute tcrdist distance matrix for {len(tcrs)} clonotypes')
-        D = np.array( [ tcrdist_calculator(x,y) for x in tcrs for y in tcrs ] ).reshape( (len(tcrs), len(tcrs)) )
+        sys.stdout.flush()
+        if force_tcrdist_cpp or (util.tcrdist_cpp_available() and N>5000):
+            D = calc_tcrdist_matrix_cpp(tcrs, organism)
+        else:
+            tcrdist_calculator = TcrDistCalculator(organism)
+            D = np.array( [ tcrdist_calculator(x,y) for x in tcrs for y in tcrs ] ).reshape( (len(tcrs), len(tcrs)) )
 
         DT = squareform(D, force='tovector')
 
@@ -1291,7 +1375,7 @@ def calc_tcrdist_nbrs_umap_clusters_cpp(
     if os.name == 'posix':
         exe = Path.joinpath( Path(util.path_to_tcrdist_cpp_bin) , 'find_neighbors')
     else:
-        exe = Path.joinpath( Path(util.path_to_tcrdist_cpp_bin) , 'find_neighbors.exe') 
+        exe = Path.joinpath( Path(util.path_to_tcrdist_cpp_bin) , 'find_neighbors.exe')
 
     if not exists(exe):
         print('need to compile c++ exe:', exe)
@@ -1381,7 +1465,7 @@ def calc_tcrdist_matrix_cpp(
     if os.name == 'posix':
         exe = Path.joinpath( Path(util.path_to_tcrdist_cpp_bin) , 'find_neighbors')
     else:
-        exe = Path.joinpath( Path(util.path_to_tcrdist_cpp_bin) , 'find_neighbors.exe') 
+        exe = Path.joinpath( Path(util.path_to_tcrdist_cpp_bin) , 'find_neighbors.exe')
 
     if not exists(exe):
         print('need to compile c++ exe:', exe)
@@ -1421,14 +1505,14 @@ def Prep_for_CoNGA(
         write_full_clone_df = True,
 ):
     ''' prepares adata object generated thru std scanpy workflow for CoNGA analysis.
-    
+
     Uses clones DataFrame generated by make_10x_clone_file or make_10x_clone_file_batch as input.
-    Clonotype information gets stored in adata.obs under multiple keys 
+    Clonotype information gets stored in adata.obs under multiple keys
     TCRdist kPCA info in adata.obsm under the key 'X_pca_tcr' or 'X_pca_bcr'
-    returns adata 
-    
+    returns adata
+
     '''
-    
+
     combo_pipe = False
     single_pipe = False
     organism = adata.uns['organism']
@@ -1438,33 +1522,33 @@ def Prep_for_CoNGA(
     else:
         combo_pipe = True
 
-        
+
     if single_pipe:
-        
+
         bcmap_file = clones_file +'.barcode_mapping.tsv'
-        
+
         assert exists(clones_file)
         assert exists(bcmap_file)
-        
+
         #these steps might be worth moving up to make_10x_clone_file
         clone_df = pd.read_csv( clones_file, sep='\t')
         barcode_map = pd.read_csv( bcmap_file ,sep='\t')
-        
+
         tag = clone_df.iloc[0,0].split('_')[0]
-        
-        if tag == 'bcr': 
+
+        if tag == 'bcr':
             organism = organism + '_ig'
-        
+
         #melt the barcode map
         wide_bc = barcode_map['barcodes'].str.split(',', expand=True).copy()
         wide_bc['clone_id'] = barcode_map['clone_id']
-    
+
         long_bc = ( wide_bc.melt( id_vars=['clone_id'] , var_name='cell', value_name='barcode')
                    .dropna()
                    .drop(columns=['cell'])
                    .copy()
                    )
-        
+
         #merge barcodes and clone_df
         clone_df_full = pd.merge( long_bc , clone_df, how='left', on= 'clone_id')
         clone_df_full = clone_df_full.set_index('barcode')
@@ -1472,70 +1556,70 @@ def Prep_for_CoNGA(
         clone_df_full = clone_df_full.rename(columns={ "va_gene": "va", "ja_gene": "ja", "vb_gene": "vb", "jb_gene": "jb"})
         mapped_cells = len( clone_df_full.index )
         uclones = clone_df_full['clone_id'].nunique()
-        
+
         print(f'{mapped_cells} cells with {tag} info')
         print(f'{uclones} unique {tag} clonotypes')
-        
+
         if write_full_clone_df:
             full_file = clones_file[:-4]+'_full.tsv'
             clone_df_full.to_csv( full_file , sep = '\t')
-        
+
         #add clone info into obs
         adata.obs = adata.obs.join(clone_df_full)
-        
+
         #add kpca to adata.obsm
-        
+
         # add option to tune kernel pcs parameters in the future
         kpcs = make_tcrdist_kernel_pcs_file_from_clones_file_V2( clones_file, organism, output_prefix)
-        
-        kpcs_df = pd.DataFrame( data= kpcs ) 
+
+        kpcs_df = pd.DataFrame( data= kpcs )
         kpcs_df['clone_id'] = clone_df['clone_id']
         clones_tmp = adata.obs['clone_id']
         kpcs_full = pd.merge( clones_tmp, kpcs_df, how='left',on= 'clone_id')
         kpcs_full['clone_id'] = adata.obs.index
-    
+
         X_kpca = kpcs_full.to_numpy()
         adata.obsm[f'X_pca_{tag}'] = X_kpca
-        
+
         return adata
-    
+
     elif combo_pipe:
-        
+
         bcmap_file_1 = clones_file +'.barcode_mapping.tsv'
         bcmap_file_2 = second_clones_file +'.barcode_mapping.tsv'
-        
+
         assert exists(clones_file)
         assert exists(bcmap_file_1)
         assert exists(second_clones_file)
         assert exists(bcmap_file_2)
-        
+
         list_in = [[clones_file, bcmap_file_1] , [second_clones_file, bcmap_file_2] ]
         combo_clones = pd.DataFrame()
-        
+
         for row in list_in:
             clones_file = row[0]
             bcmap_file = row[1]
-            
+
             #these steps might be worth moving up to make_10x_clone_file
             clone_df = pd.read_csv( clones_file, sep='\t')
             barcode_map = pd.read_csv( bcmap_file ,sep='\t')
             tag = clone_df.iloc[0,0].split('_')[0]
-            
+
             organism = adata.uns['organism']
-        
-            if tag == 'bcr': 
+
+            if tag == 'bcr':
                 organism = organism + '_ig'
-        
+
             #melt the barcode map
             wide_bc = barcode_map['barcodes'].str.split(',', expand=True).copy()
             wide_bc['clone_id'] = barcode_map['clone_id']
-        
+
             long_bc = ( wide_bc.melt( id_vars=['clone_id'] , var_name='cell', value_name='barcode')
                        .dropna()
                        .drop(columns=['cell'])
                        .copy()
                        )
-        
+
             #merge barcodes and clone_df
             clone_df_full = pd.merge( long_bc , clone_df, how='left', on= 'clone_id')
             clone_df_full = clone_df_full.set_index('barcode')
@@ -1545,68 +1629,68 @@ def Prep_for_CoNGA(
             uclones = clone_df_full['clone_id'].nunique()
             print(f'{mapped_cells} cells with repertoire info')
             print(f'{uclones} unique clonotypes')
-        
+
             write_full_clone_df = True
             if write_full_clone_df:
                 full_file = clones_file[:-4]+'_full.tsv'
                 clone_df_full.to_csv( full_file , sep = '\t')
-                
+
             combo_clones = pd.concat([combo_clones , clone_df_full])
-        
-        
+
+
         #filter out collisions
         combo_clones['collisions'] = combo_clones.index.value_counts()
         doubles = combo_clones[ combo_clones.collisions > 1]
         combo_clones_f = combo_clones[ combo_clones.collisions == 1].copy()
-        combo_clones_f = combo_clones_f.drop( columns = ['collisions'] ) 
-        
+        combo_clones_f = combo_clones_f.drop( columns = ['collisions'] )
+
         #add to obs
-        adata.obs = adata.obs.join(combo_clones_f) 
-        
+        adata.obs = adata.obs.join(combo_clones_f)
+
         #filter out
         print( f'{int(len(doubles) /2) } cells containing TCR and BCR information filtered out')
         adata = adata[ ~ adata.obs.index.isin( doubles.index.to_list() ) , :]
-        
-        
+
+
         # run tcrdist and perform kpca on clones tables without doublets
         new_tcr = (adata.obs[ adata.obs.rep_type == 'tcr'].copy()
                    .drop_duplicates(subset = 'clone_id')
                    )
-        
+
         new_bcr = (adata.obs[ adata.obs.rep_type == 'bcr'].copy()
                    .drop_duplicates(subset = 'clone_id')
                    )
-        
-        
-        tick = 0 
+
+
+        tick = 0
         for df in new_tcr, new_bcr:
-            
+
             organism = adata.uns['organism']
-        
-            if tick == 1: 
+
+            if tick == 1:
                 tag = 'bcr'
                 organism = organism + '_ig'
             else:
                 tag = 'tcr'
-        
-            #calc TCRdist 
+
+            #calc TCRdist
             kpcs = make_tcrdist_kernel_pcs_file_from_clones_file_V2( df, organism)
-            kpcs_df = pd.DataFrame( data= kpcs, index = df.clone_id) 
+            kpcs_df = pd.DataFrame( data= kpcs, index = df.clone_id)
             kpcs_df = kpcs_df.reset_index()
-            
+
             clones_tmp =  ( adata.obs['clone_id'].copy()
                            .reset_index()
                            )
-            
+
             kpcs_full = pd.merge( clones_tmp, kpcs_df, 'left', on= 'clone_id')
             kpcs_full = kpcs_full.set_index('index')
-            
+
             X_kpca = kpcs_full.to_numpy()
             adata.obsm[f'X_pca_{tag}'] = X_kpca
-            
+
             tick += 1
 
-        
+
         return adata
 
 
@@ -1620,12 +1704,12 @@ def make_tcrdist_kernel_pcs_file_from_clones_file_V2(
         verbose = False,
         force_Dmax = None,
 ):
-    
+
 
     # in conga we usually also have cdr3_nucseq but we don't need it for tcrdist; we also don't need the jgene but hey
     tcrs = [ ( ( l.va, l.ja, l.cdr3a ), ( l.vb, l.jb, l.cdr3b ) ) for l in df.itertuples() ]
     #ids = [ l.clone_id for l in df.itertuples() ]
-    
+
     print(f'compute tcrdist distance matrix for {len(tcrs)} clonotypes')
 
     if tcrdist_cpp_available():
@@ -1633,7 +1717,7 @@ def make_tcrdist_kernel_pcs_file_from_clones_file_V2(
         D = calc_tcrdist_matrix_cpp(tcrs, organism, outfile)
     else:
         print('Using Python TCRdist calculator. Consider compiling C++ calculator for faster perfomance.')
-        tcrdist_calculator = TcrDistCalculator(organism) 
+        tcrdist_calculator = TcrDistCalculator(organism)
         D = np.array( [ tcrdist_calculator(x,y) for x in tcrs for y in tcrs ] ).reshape( (len(tcrs), len(tcrs)) )
 
     n_components = min( n_components_in, D.shape[0] )
@@ -1660,7 +1744,150 @@ def make_tcrdist_kernel_pcs_file_from_clones_file_V2(
 
     # expt with saving in numpy format
     #need to make more specific name
-    #array_out =  f'{tag}.dist_{n_components}_kpcs.npy' 
+    #array_out =  f'{tag}.dist_{n_components}_kpcs.npy'
     #np.save( array_out,  xy)
 
     return xy
+
+
+def subset_to_CD4_or_CD8_clusters(
+        adata,
+        which_subset  # 'CD4' or 'CD8'
+):
+    assert adata.uns['organism'] == 'human'
+    assert which_subset in ['CD4', 'CD8']
+
+    clusters_gex = np.array(adata.obs['clusters_gex'])
+    num_clones = adata.shape[0]
+    all_gex = {}
+
+    for gene in ['CD4','CD8A','CD8B']:
+        if gene not in adata.raw.var_names:
+            print('subset_to_CD4_or_CD8_clusters: missing', gene)
+            all_gex[gene] = np.zeros((num_clones,))
+        else:
+            index = list(adata.raw.var_names).index(gene)
+            all_gex[gene] = adata.raw.X[:,index].toarray()[:,0]
+
+    cd8_gex = all_gex['CD8A'] + all_gex['CD8B']
+    cd4_gex = all_gex['CD4']
+
+    num_clusters = np.max(clusters_gex)+1
+    good_clusters = []
+    cd4_rescale = 1/0.6
+    cd8_rescale = 1/4.0
+    good_mask = np.full((num_clones,), False)
+    for c in range(num_clusters):
+        mask = clusters_gex==c
+        cd4 = cd4_rescale * np.sum(cd4_gex[mask])/np.sum(mask)
+        cd8 = cd8_rescale * np.sum(cd8_gex[mask])/np.sum(mask)
+        keep_cluster = (which_subset == 'CD4' and cd4 > cd8 ) or ( which_subset=='CD8' and cd8 > cd4)
+        print('subset_to_CD4_or_CD8_clusters: {} keep_cluster {:2d} {:4d} {:5s} cd4: {:9.3f} cd8: {:9.3f}'\
+              .format(which_subset, c, np.sum(mask), str(keep_cluster), cd4, cd8))
+        if keep_cluster:
+            good_mask |= mask
+
+    adata = adata[good_mask,:].copy()
+    return adata
+
+
+def analyze_CD4_CD8(
+        adata,
+        nbrs_gex,
+        pngfile
+):
+    import matplotlib.pyplot as plt
+    if adata.uns['organism'] != 'human':
+        # only really makes sense for human tcr AB
+        print('analyze_CD4_CD8 incompatible organism:', adata.uns['organism'])
+        return
+
+    clusters_gex = np.array(adata.obs['clusters_gex'])
+    num_clones = adata.shape[0]
+    all_gex = {}
+
+    for gene in ['CD4','CD8A','CD8B']:
+        if gene not in adata.raw.var_names:
+            print('analyze_CD4_CD8: missing', gene)
+            all_gex[gene] = np.zeros((num_clones,))
+        else:
+            index = list(adata.raw.var_names).index(gene)
+            all_gex[gene] = adata.raw.X[:,index].toarray()[:,0]
+
+    # look at neighborhoods
+    xvals = all_gex['CD8A'] + all_gex['CD8B']
+    yvals = all_gex['CD4']
+
+    num_nbrs = nbrs_gex.shape[1]
+
+    xvals = (xvals + xvals[nbrs_gex].sum(axis=1))/(num_nbrs+1)
+    yvals = (yvals + yvals[nbrs_gex].sum(axis=1))/(num_nbrs+1)
+
+    plt.figure(figsize=(8,4))
+    plt.subplot(121)
+    plt.scatter(xvals, yvals, alpha=0.25, c=clusters_gex, cmap='tab20')
+    plt.xlabel('CD8A+CD8B')
+    plt.ylabel('CD4')
+
+
+    plt.subplot(122)
+    xvals = all_gex['CD8A'] + all_gex['CD8B']
+    yvals = all_gex['CD4']
+    num_clusters = np.max(clusters_gex)+1
+    vals = []
+    for c in range(num_clusters):
+        mask = clusters_gex==c
+        x = np.sum(xvals[mask])/np.sum(mask)
+        y = np.sum(yvals[mask])/np.sum(mask)
+        vals.append((x,y,c))
+    plt.scatter([x[0] for x in vals], [x[1] for x in vals], c=[x[2] for x in vals], cmap='tab20', s=50)
+    plt.xlabel('CD8A+CD8B')
+    plt.ylabel('CD4')
+    plt.savefig(pngfile)
+    print('making:', pngfile)
+
+
+
+def save_nbr_info_to_adata(
+        adata,
+        all_nbrs
+):
+    ''' Stash the nbrs info in the adata.obsm array
+    '''
+
+    for nbr_frac in all_nbrs:
+        nbrs_gex, nbrs_tcr = all_nbrs[nbr_frac]
+        for tag, nbrs in [['gex', nbrs_gex], ['tcr', nbrs_tcr]]:
+            obsm_key = f'nbrs_{tag}_{nbr_frac:.6f}'
+            adata.obsm[obsm_key] = nbrs
+            print('saved:', obsm_key, type(adata.obsm[obsm_key]),
+                  adata.obsm[obsm_key].shape, adata.obsm[obsm_key].dtype)
+
+def retrieve_nbr_info_from_adata(
+        adata,
+):
+    ''' Returns the all_nbrs dictionary, which maps from nbr_fracs
+    to lists of [nbrs_gex, nbrs_tcr]
+
+    all_nbrs = { 0.01: [nbrs_gex, nbrs_tcr], ... }
+
+    '''
+
+    all_nbrs = {}
+    for k in adata.obsm_keys():
+        if k[:5] == 'nbrs_' and k.count('_')==2:
+            tagl = k.split('_')
+            _, tag, nbr_frac = k.split('_')
+            expected_tags = ['gex','tcr']
+            assert tag in expected_tags
+            nbr_frac = float(nbr_frac)
+            if nbr_frac not in all_nbrs:
+                all_nbrs[nbr_frac] = [None, None]
+            all_nbrs[nbr_frac][ expected_tags.index(tag) ] = adata.obsm[k]
+
+    for nbr_frac in all_nbrs:
+        assert all_nbrs[nbr_frac][0] is not None
+        assert all_nbrs[nbr_frac][1] is not None
+
+    return all_nbrs
+

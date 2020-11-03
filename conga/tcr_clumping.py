@@ -30,6 +30,9 @@ def estimate_background_tcrdist_distributions(
         num_random_samples = 50000,
         pseudocount = 0.25,
         tmpfile_prefix = None,
+        background_alpha_chains = None, # default is to get these by shuffling tcrs_for_background_generation
+        background_beta_chains = None, #  -- ditto --
+        tcrs_for_background_generation = None, # default is to use 'tcrs'
 ):
     if not util.tcrdist_cpp_available():
         print('conga.tcr_clumping.estimate_background_tcrdist_distributions:: need to compile the C++ tcrdist executables')
@@ -41,26 +44,34 @@ def estimate_background_tcrdist_distributions(
     	tmpfile_prefix = Path(tmpfile_prefix)
 
 
+    if tcrs_for_background_generation is None:
+        # only used when background_alpha_chains and/or background_beta_chains is None
+        tcrs_for_background_generation = tcrs
+
     max_dist = int(0.1+max_dist) ## need an integer
-    num_clones = len(tcrs)
 
-    # parse the V(D)J junction regions of the tcrs to define split-points for shuffling
-    junctions_df = tcr_sampler.parse_tcr_junctions(organism, tcrs)
+    if background_alpha_chains is None or background_beta_chains is None:
+        # parse the V(D)J junction regions of the tcrs to define split-points for shuffling
+        junctions_df = tcr_sampler.parse_tcr_junctions(organism, tcrs_for_background_generation)
 
-    # resample shuffled single-chain tcrs
-    achains_bg = tcr_sampler.resample_shuffled_tcr_chains(organism, num_random_samples, 'A', junctions_df)
-    bchains_bg = tcr_sampler.resample_shuffled_tcr_chains(organism, num_random_samples, 'B', junctions_df)
+        # resample shuffled single-chain tcrs
+        if background_alpha_chains is None:
+            background_alpha_chains = tcr_sampler.resample_shuffled_tcr_chains(
+                organism, num_random_samples, 'A', junctions_df)
+        if background_beta_chains is None:
+            background_beta_chains  = tcr_sampler.resample_shuffled_tcr_chains(
+                organism, num_random_samples, 'B', junctions_df)
 
     # save all tcrs to files
     achains_file = str(tmpfile_prefix) + '_bg_achains.tsv'
     bchains_file = str(tmpfile_prefix) + '_bg_bchains.tsv'
     tcrs_file = str(tmpfile_prefix) + '_tcrs.tsv'
 
-    pd.DataFrame({'va':[x[0] for x in achains_bg], 'cdr3a':[x[2] for x in achains_bg]})\
-      .to_csv(achains_file, sep='\t', index=False)
+    pd.DataFrame({'va'   :[x[0] for x in background_alpha_chains],
+                  'cdr3a':[x[2] for x in background_alpha_chains]}).to_csv(achains_file, sep='\t', index=False)
 
-    pd.DataFrame({'vb':[x[0] for x in bchains_bg], 'cdr3b':[x[2] for x in bchains_bg]})\
-      .to_csv(bchains_file, sep='\t', index=False)
+    pd.DataFrame({'vb'   :[x[0] for x in background_beta_chains ],
+                  'cdr3b':[x[2] for x in background_beta_chains ]}).to_csv(bchains_file, sep='\t', index=False)
 
     pd.DataFrame({'va':[x[0][0] for x in tcrs], 'cdr3a':[x[0][2] for x in tcrs],
                   'vb':[x[1][0] for x in tcrs], 'cdr3b':[x[1][2] for x in tcrs]})\
@@ -88,8 +99,8 @@ def estimate_background_tcrdist_distributions(
 
     counts = np.loadtxt(outfile, dtype=int)
     counts = np.cumsum(counts, axis=1)
-    assert counts.shape == (num_clones, max_dist+1)
-    n_bg_pairs = num_random_samples * num_random_samples
+    assert counts.shape == (len(tcrs), max_dist+1)
+    n_bg_pairs = len(background_alpha_chains) * len(background_beta_chains)
     tcrdist_freqs = np.maximum(pseudocount, counts.astype(float))/n_bg_pairs
 
     for filename in [achains_file, bchains_file, tcrs_file, outfile]:
@@ -105,10 +116,26 @@ def assess_tcr_clumping(
         num_random_samples = 50000, # higher numbers are slower but allow more significant pvalues for extreme clumping
         pvalue_threshold = 1.0,
         verbose=True,
+        also_find_clumps_within_gex_clusters=False,
 ):
+    ''' Returns a pandas dataframe with the following columns:
+    - clone_index
+    - nbr_radius
+    - pvalue_adj
+    - num_nbrs
+    - expected_num_nbrs
+    - raw_count
+    - va, ja, cdr3a, vb, jb, cdr3b (ie, the 6 tcr cols for clone_index clone)
+    - clumping_group: clonotypes within each other's significant nbr_radii are linked
+    - clump_type: string, either 'global' or 'intra_gex_cluster' (latter only if also_find_clumps_within_gex_clusters=T)
+
+    '''
     if not util.tcrdist_cpp_available():
         print('conga.tcr_clumping.assess_tcr_clumping:: need to compile the C++ tcrdist executables')
         exit(1)
+
+    if also_find_clumps_within_gex_clusters:
+        clusters_gex = np.array(adata.obs['clusters_gex'])
 
     organism = adata.uns['organism']
     num_clones = adata.shape[0]
@@ -189,10 +216,11 @@ def assess_tcr_clumping(
                     is_clumped[ii] = True
                     raw_count = ii_freqs[radius]*n_bg_pairs # if count was 0, will be pseudocount
                     if verbose:
-                        print('nbrs: {:2d} {:9.6f} radius: {:2d} pval: {:9.1e} {:9.1f} tcr: {:3d} {} {}'\
+                        print('tcr_nbrs_global: {:2d} {:9.6f} radius: {:2d} pval: {:9.1e} {:9.1f} tcr: {:3d} {} {}'\
                               .format( num_nbrs, mu, radius, pval, raw_count, clone_sizes[ii],
                                        ' '.join(tcrs[ii][0][:3]), ' '.join(tcrs[ii][1][:3])))
-                    dfl.append( OrderedDict(clone_index=ii,
+                    dfl.append( OrderedDict(clump_type='global',
+                                            clone_index=ii,
                                             nbr_radius=radius,
                                             pvalue_adj=pval,
                                             num_nbrs=num_nbrs,
@@ -205,6 +233,36 @@ def assess_tcr_clumping(
                                             jb   =tcrs[ii][1][1],
                                             cdr3b=tcrs[ii][1][2],
                     ))
+                if also_find_clumps_within_gex_clusters:
+                    ii_nbrs = all_nbrs[ii]
+                    ii_cluster = clusters_gex[ii]
+                    ii_cluster_mask = (clusters_gex==ii_cluster)
+                    num_nbrs = np.sum( (x<=radius and clusters_gex[y]==ii_cluster) for x,y in zip(ii_dists, ii_nbrs))
+                    if num_nbrs:
+                        max_nbrs = np.sum( (agroups!=agroups[ii]) & (bgroups!=bgroups[ii]) & ii_cluster_mask)
+                        mu = max_nbrs * ii_freqs[radius]
+                        pval = len(radii) * num_clones * poisson.sf( num_nbrs-1, mu )
+                        if pval< pvalue_threshold:
+                            is_clumped[ii] = True
+                            raw_count = ii_freqs[radius]*n_bg_pairs # if count was 0, will be pseudocount
+                            if verbose:
+                                print('tcr_nbrs_intra: {:2d} {:9.6f} radius: {:2d} pval: {:9.1e} {:9.1f} tcr: {:3d} {} {}'\
+                                      .format( num_nbrs, mu, radius, pval, raw_count, clone_sizes[ii],
+                                               ' '.join(tcrs[ii][0][:3]), ' '.join(tcrs[ii][1][:3])))
+                            dfl.append( OrderedDict(clump_type='intra_gex_cluster',
+                                                    clone_index=ii,
+                                                    nbr_radius=radius,
+                                                    pvalue_adj=pval,
+                                                    num_nbrs=num_nbrs,
+                                                    expected_num_nbrs=mu,
+                                                    raw_count=raw_count,
+                                                    va   =tcrs[ii][0][0],
+                                                    ja   =tcrs[ii][0][1],
+                                                    cdr3a=tcrs[ii][0][2],
+                                                    vb   =tcrs[ii][1][0],
+                                                    jb   =tcrs[ii][1][1],
+                                                    cdr3b=tcrs[ii][1][2],
+                            ))
     results_df = pd.DataFrame(dfl)
     if results_df.shape[0] == 0:
         return results_df

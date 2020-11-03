@@ -15,6 +15,7 @@ parser.add_argument('--outfile_prefix', required=True, help='string that will be
 parser.add_argument('--restart', help='Name of a scanpy h5ad file to restart from; skips preprocessing, clustering, UMAP, etc. Could be the *_final.h5ad file generated at the end of a previous conga run.')
 parser.add_argument('--checkpoint', action='store_true', help='Save a scanpy h5ad checkpoint file after preprocessing')
 parser.add_argument('--rerun_kpca', action='store_true')
+parser.add_argument('--no_kpca', action='store_true')
 parser.add_argument('--use_exact_tcrdist_nbrs', action='store_true', help='The default is to use the nbrs defined by euclidean distances in the tcrdist kernel pc space. This flag will force a re-computation of all the tcrdist distances')
 parser.add_argument('--use_tcrdist_umap', action='store_true')
 parser.add_argument('--use_tcrdist_clusters', action='store_true')
@@ -25,7 +26,10 @@ parser.add_argument('--kpca_default_kernel_Dmax', type=float,
                     help='only used if rerun_kpca and kpca_kernel==None')
 parser.add_argument('--exclude_gex_clusters', type=int, nargs='*')
 parser.add_argument('--exclude_mait_and_inkt_cells', action='store_true')
+parser.add_argument('--subset_to_CD4', action='store_true')
+parser.add_argument('--subset_to_CD8', action='store_true')
 parser.add_argument('--min_cluster_size', type=int, default=5)
+parser.add_argument('--min_cluster_size_for_tcr_clumping_logos', type=int, default=3)
 parser.add_argument('--min_cluster_size_fraction', type=float, default=0.001)
 parser.add_argument('--clustering_method', choices=['louvain','leiden'])
 parser.add_argument('--bad_barcodes_file')
@@ -43,6 +47,8 @@ parser.add_argument('--graph_vs_gex_features', action='store_true')
 # some extra analyses
 parser.add_argument('--cluster_vs_cluster', action='store_true')
 parser.add_argument('--tcr_clumping', action='store_true')
+parser.add_argument('--intra_cluster_tcr_clumping', action='store_true')
+parser.add_argument('--find_batch_biases', action='store_true')
 parser.add_argument('--calc_clone_pmhc_pvals', action='store_true')
 parser.add_argument('--find_pmhc_nbrhood_overlaps', action='store_true') # only if pmhc info is present
 parser.add_argument('--find_distance_correlations', action='store_true')
@@ -53,6 +59,7 @@ parser.add_argument('--make_tcrdist_trees', action='store_true')
 parser.add_argument('--make_hotspot_nbrhood_logos', action='store_true')
 # configure things
 parser.add_argument('--skip_gex_header', action='store_true')
+parser.add_argument('--average_clone_gex', action='store_true')
 parser.add_argument('--skip_gex_header_raw', action='store_true')
 parser.add_argument('--skip_gex_header_nbrZ', action='store_true')
 parser.add_argument('--verbose_nbrs', action='store_true')
@@ -61,6 +68,7 @@ parser.add_argument('--tenx_agbt', action='store_true')
 parser.add_argument('--include_alphadist_in_tcr_feature_logos', action='store_true')
 parser.add_argument('--show_pmhc_info_in_logos', action='store_true')
 parser.add_argument('--gex_header_tcr_score_names', type=str, nargs='*')
+parser.add_argument('--batch_keys', type=str, nargs='*')
 parser.add_argument('--radii_for_tcr_clumping', type=int, nargs='*')
 parser.add_argument('--num_random_samples_for_tcr_clumping', type=int)
 parser.add_argument('--gex_nbrhood_tcr_score_names', type=str, nargs='*')
@@ -107,10 +115,21 @@ if args.all:
         print(f'--all implies --{mode} ==> Running {mode} analysis.')
         setattr(args, mode, True)
 
+if args.no_kpca:
+    print('--no_kpca implies --use_exact_tcrdist_nbrs and --use_tcrdist_umap --use_tcrdist_clusters')
+    print('setting those flags now')
+    args.use_exact_tcrdist_nbrs = True
+    args.use_tcrdist_umap = True
+    args.use_tcrdist_clusters = True
+
+
 ## check consistency of args
 if args.find_pmhc_nbrhood_overlaps or args.calc_clone_pmhc_pvals:
     # we need pmhc info for these analyses; right now that's restricted to the 10x AGBT dataset format
     assert args.tenx_agbt
+
+if args.batch_keys:
+    assert args.gex_data_type == 'h5ad' # need the info already in the obs dict
 
 if args.restart: # these are incompatible with restarting
      assert not (args.calc_clone_pmhc_pvals or
@@ -154,6 +173,18 @@ if args.restart is None:
     assert args.organism
     adata.uns['organism'] = args.organism
     assert 'organism' in adata.uns_keys()
+    if args.batch_keys:
+        adata.uns['batch_keys'] = args.batch_keys
+        for k in args.batch_keys:
+            assert k in adata.obs_keys()
+            vals = np.array(adata.obs[k]).astype(int)
+            #assert np.min(vals)==0
+            counts = Counter(vals)
+            expected_choices = np.max(vals)+1
+            observed_choices = len(counts.keys())
+            print(f'read batch info for key {k} with {expected_choices} possible and {observed_choices} observed choices')
+            # confirm integer-value
+            adata.obs[k] = vals
 
     if args.exclude_vgene_strings:
         tcrs = conga.preprocess.retrieve_tcrs_from_adata(adata)
@@ -218,10 +249,17 @@ if args.restart is None:
         results_df.to_csv(tsvfile, sep='\t', index=False)
 
     if args.make_clone_plots:
-        pngfile = args.outfile_prefix+'_clone_plots.png'
-        conga.plotting.make_clone_plots(adata, 16, pngfile)
+        # need to compute cluster and umaps for these plots
+        # these will be re-computed once we reduce to a single cell per clonotype
+        #
+        print('make_clone_plots: cluster_and_tsne_and_umap')
+        adata = pp.cluster_and_tsne_and_umap( adata, skip_tcr=True )
 
-    adata = conga.preprocess.reduce_to_single_cell_per_clone( adata )
+        conga.plotting.make_clone_gex_umap_plots(adata, args.outfile_prefix)
+
+
+    print('run reduce_to_single_cell_per_clone'); sys.stdout.flush()
+    adata = conga.preprocess.reduce_to_single_cell_per_clone( adata, average_clone_gex=args.average_clone_gex )
     assert 'X_igex' in adata.obsm_keys()
 
     if args.shuffle_tcr_kpcs:
@@ -231,9 +269,12 @@ if args.restart is None:
         adata.obsm['X_pca_tcr'] = X_pca_tcr[reorder,:]
         outlog.write('randomly permuting X_pca_tcr {}\n'.format(X_pca_tcr.shape))
 
-    skip_tcr = (args.use_tcrdist_umap and args.use_tcrdist_clusters)
+    clustering_resolution = 2.0 if (args.subset_to_CD8 or args.subset_to_CD4) else 1.0 # 1.0 is the default
+
+    print('run cluster_and_tsne_and_umap'); sys.stdout.flush()
     adata = conga.preprocess.cluster_and_tsne_and_umap(
-        adata, clustering_method=args.clustering_method, skip_tcr=(args.use_tcrdist_umap and args.use_tcrdist_clusters))
+        adata, louvain_resolution = clustering_resolution, clustering_method=args.clustering_method,
+        skip_tcr=(args.use_tcrdist_umap and args.use_tcrdist_clusters))
 
     if args.checkpoint:
         adata.write_h5ad(args.outfile_prefix+'_checkpoint.h5ad')
@@ -300,6 +341,17 @@ if args.exclude_gex_clusters:
 
     if args.checkpoint:
         adata.write_h5ad(args.outfile_prefix+'_checkpoint.h5ad')
+        adata = conga.preprocess.cluster_and_tsne_and_umap(
+            adata, clustering_method=args.clustering_method,
+            skip_tcr=(args.use_tcrdist_umap and args.use_tcrdist_clusters))
+
+if args.subset_to_CD4 or args.subset_to_CD8:
+    assert not (args.subset_to_CD4 and args.subset_to_CD8)
+    which_subset = 'CD4' if args.subset_to_CD4 else 'CD8'
+    adata = conga.preprocess.subset_to_CD4_or_CD8_clusters(adata, which_subset)
+
+    adata = conga.preprocess.cluster_and_tsne_and_umap(
+        adata, clustering_method=args.clustering_method, skip_tcr=(args.use_tcrdist_umap and args.use_tcrdist_clusters))
 
 
 if args.use_tcrdist_umap or args.use_tcrdist_clusters:
@@ -379,7 +431,6 @@ if args.verbose_nbrs:
             np.savetxt(outfile, nbrs, fmt='%d')
             print('wrote nbrs to file:', outfile)
 
-
 if args.tcr_clumping:
     num_random_samples = 50000 if args.num_random_samples_for_tcr_clumping is None \
                          else args.num_random_samples_for_tcr_clumping
@@ -390,7 +441,8 @@ if args.tcr_clumping:
 
     results = conga.tcr_clumping.assess_tcr_clumping(
         adata, args.outfile_prefix, radii=radii, num_random_samples=num_random_samples,
-        pvalue_threshold = pvalue_threshold)
+        pvalue_threshold = pvalue_threshold,
+        also_find_clumps_within_gex_clusters=args.intra_cluster_tcr_clumping)
 
     if results.shape[0]:
         # add clusters info for results tsvfile
@@ -404,10 +456,17 @@ if args.tcr_clumping:
 
         nbrs_gex, nbrs_tcr = all_nbrs[ max(args.nbr_fracs) ]
 
-        min_cluster_size = max( args.min_cluster_size, int( 0.5 + args.min_cluster_size_fraction * num_clones) )
-
+        #min_cluster_size = max( args.min_cluster_size, int( 0.5 + args.min_cluster_size_fraction * num_clones) )
         conga.plotting.make_tcr_clumping_plots(
-            adata, results, nbrs_gex, nbrs_tcr, min_cluster_size, pvalue_threshold, args.outfile_prefix)
+            adata, results, nbrs_gex, nbrs_tcr, args.min_cluster_size_for_tcr_clumping_logos,
+            pvalue_threshold, args.outfile_prefix)
+
+    num_clones = adata.shape[0]
+    tcr_clumping_pvalues = np.full((num_clones,), num_clones).astype(float)
+    for l in results.itertuples():
+        tcr_clumping_pvalues[l.clone_index] = min(tcr_clumping_pvalues[l.clone_index],
+                                                  l.pvalue_adj)
+    adata.obs['tcr_clumping_pvalues'] = tcr_clumping_pvalues # stash in adata.obs
 
 
 if args.graph_vs_graph: ############################################################################################
@@ -482,6 +541,20 @@ if args.graph_vs_graph: ########################################################
             rank_genes_uns_tag = rank_genes_uns_tag,
             show_pmhc_info_in_logos = args.show_pmhc_info_in_logos,
             gex_header_tcr_score_names = gex_header_tcr_score_names )
+
+batch_bias_results = None
+if args.find_batch_biases:
+    nbrhood_results, hotspot_results = conga.correlations.find_batch_biases(
+        adata, all_nbrs, pval_threshold=0.05)
+    if nbrhood_results.shape[0]:
+        tsvfile = args.outfile_prefix+'_nbrhood_batch_biases.tsv'
+        nbrhood_results.to_csv(tsvfile, sep='\t', index=False)
+
+    if hotspot_results.shape[0]:
+        tsvfile = args.outfile_prefix+'_batch_hotspots.tsv'
+        hotspot_results.to_csv(tsvfile, sep='\t', index=False)
+
+    batch_bias_results = (nbrhood_results, hotspot_results)
 
 
 if args.graph_vs_gex_features: #######################################################################################
@@ -1075,6 +1148,18 @@ if args.find_hotspot_features:
             conga.plotting.make_hotspot_nbrhood_logo_figures(adata, nbrs_gex, nbrs_tcr, nbrhood_results,
                                                              min_cluster_size, args.outfile_prefix,
                                                              pvalue_threshold=1.0)
+
+## make summary plots of top clones and their batch distributions
+if 'batch_keys' in adata.uns_keys():
+    conga_scores, tcr_clumping_pvalues = None, None
+    if args.graph_vs_graph:
+        conga_scores = adata.obs['conga_scores']
+    if args.tcr_clumping:
+        tcr_clumping_pvalues = adata.obs['tcr_clumping_pvalues']
+    conga.plotting.make_clone_batch_clustermaps(
+        adata, args.outfile_prefix, adata.uns['batch_keys'],
+        conga_scores = conga_scores, tcr_clumping_pvalues = tcr_clumping_pvalues,
+        batch_bias_results = batch_bias_results )
 
 
 # just out of curiosity:

@@ -233,6 +233,8 @@ def make_logo_plots(
         nocleanup = False, # dont delete temporary image files (useful for debugging)
         conga_scores = None,
         good_score_mask = None,
+        make_batch_bars = None,
+        batch_keys = None,
 
         ## controls for the gene expression thumbnails that come before the actual logos:
         gex_header_genes=None,
@@ -260,6 +262,12 @@ def make_logo_plots(
 
     if not make_gex_header:
         make_gex_header_raw, make_gex_header_nbrZ = False, False
+
+    # show the distribution of the clones among the different batches
+    if make_batch_bars is None:
+        make_batch_bars = 'batch_keys' in adata.uns_keys()
+    if make_batch_bars and batch_keys is None:
+        batch_keys = adata.uns['batch_keys']
 
     ## unpack data from adata arrays ##################################
     clone_sizes = adata.obs['clone_sizes']
@@ -418,6 +426,8 @@ def make_logo_plots(
 
     # aim for 10in width
     dendro_width = 1.0
+    single_batch_bar_width = 0.25
+    batch_bars_width = 0 if not make_batch_bars else single_batch_bar_width * len(batch_keys)
     title_logo_width = 0.75
     rg_logo_width = 1.5
     score_logo_width = 0.0 if good_bicluster_tcr_scores is None else 0.5
@@ -431,8 +441,8 @@ def make_logo_plots(
 
     gex_logo_width = logo_height * ( gene_width / (math.sqrt(3)+1) )
 
-    fig_width = 2*margin + dendro_width + title_logo_width + rg_logo_width + tcr_logo_width + score_logo_width + \
-                gex_logo_width
+    fig_width = ( 2*margin + dendro_width + title_logo_width + batch_bars_width + rg_logo_width + tcr_logo_width +
+                  score_logo_width + gex_logo_width )
     header_height = (fig_width-2*margin)/6.
 
     num_header2_rows = int(make_gex_header_nbrZ)+int(make_gex_header_raw)
@@ -880,13 +890,44 @@ def make_logo_plots(
         plt.ylim((-1,1))
         plt.axis('off')
 
+        # show the batch distribution
+        if make_batch_bars:
+            for ib, k in enumerate(batch_keys):
+                batch_counts_for_clp = np.array(adata.obsm[k])[nodes,:]
+                left = (margin+dendro_width+title_logo_width+ib*single_batch_bar_width)/fig_width
+                width = single_batch_bar_width/fig_width
+                plt.axes( [left,bottom,width,height] )
+                # bar plot
+                counts = np.sum(batch_counts_for_clp, axis=0)
+                num_batch_key_choices = counts.shape[0]
+                assert num_batch_key_choices >1 # we add a fake one in preprocess.py if necessary
+                fractions = counts.astype(float)/np.sum(counts)
+                if num_batch_key_choices <= 10:
+                    colors = plt.get_cmap('tab10').colors[:num_batch_key_choices]
+                elif num_batch_key_choices <= 20:
+                    colors = plt.get_cmap('tab20').colors[:num_batch_key_choices]
+                else:
+                    cmap = plt.get_cmap('tab20')
+                    colors = [cmap(0.99*x/(num_batch_key_choices-1)) for x in range(num_batch_key_choices)]
+                plt.bar([0]*num_batch_key_choices, height=fractions, width=0.8,
+                        bottom=np.cumsum(fractions)-fractions, color=colors, align='center')
+                # overall counts/fractions
+                batch_counts_for_clp = np.array(adata.obsm[k])[:,:]
+                counts = np.sum(batch_counts_for_clp, axis=0)
+                fractions = counts.astype(float)/np.sum(counts)
+                plt.bar([0.6]*num_batch_key_choices, height=fractions, width=0.4,
+                        bottom=np.cumsum(fractions)-fractions, color=colors, align='center')
+                plt.axis('off')
+                plt.ylim((0,1.05))
+
+
         # make the rank genes logo
         if all_ranks is not None:
             clp_rank_genes = all_ranks[clp]
             for r in range(3):
                 pngfile = '{}.tmp_{}_{}_{}.png'.format(logo_pngfile, clp[0], clp[1], r)
                 start_rank, stop_rank = 3*r, 3*r+3
-                left = (margin+dendro_width+title_logo_width+r*0.333*rg_logo_width)/fig_width
+                left = (margin+dendro_width+title_logo_width+batch_bars_width+r*0.333*rg_logo_width)/fig_width
                 width = 0.333*rg_logo_width/fig_width
                 plt.axes( [left,bottom,width,height] )
                 if len(clp_rank_genes) > start_rank and clp_rank_genes[start_rank][2] < 0.99:
@@ -914,7 +955,7 @@ def make_logo_plots(
 
         # make a tcr logo
         for iab,ab in enumerate('AB'):
-            left = (margin+dendro_width+title_logo_width+rg_logo_width+iab*0.5*tcr_logo_width)/fig_width
+            left = (margin+dendro_width+title_logo_width+batch_bars_width+rg_logo_width+iab*0.5*tcr_logo_width)/fig_width
             width = 0.5*tcr_logo_width/fig_width
 
             plt.axes( [left,bottom,width,height] )
@@ -943,7 +984,7 @@ def make_logo_plots(
             if not include_alphadist_in_tcr_feature_logos:
                 clp_rank_scores = [ x for x in clp_rank_scores if x[0] != 'alphadist' ]
             pngfile = '{}.tmpsc_{}_{}.png'.format(logo_pngfile, clp[0], clp[1])
-            left = (margin+dendro_width+title_logo_width+rg_logo_width+tcr_logo_width)/fig_width
+            left = (margin+dendro_width+title_logo_width+batch_bars_width+rg_logo_width+tcr_logo_width)/fig_width
             width = score_logo_width/fig_width
             plt.axes( [left,bottom,width,height] )
             if len(clp_rank_scores):
@@ -973,7 +1014,7 @@ def make_logo_plots(
 
 
         # make the gex logo
-        left = (margin+dendro_width+title_logo_width+rg_logo_width+tcr_logo_width+score_logo_width)/fig_width
+        left = (margin+dendro_width+title_logo_width+batch_bars_width+rg_logo_width+tcr_logo_width+score_logo_width)/fig_width
         width = gex_logo_width/fig_width
 
         plt.axes( [left,bottom,width,height] )
@@ -1306,46 +1347,219 @@ def make_summary_figure(
 
 
 
-def make_clone_plots(adata, num_clones_to_plot, pngfile, dpi=200):
+def make_clone_gex_umap_plots(
+        adata,
+        outfile_prefix,
+        max_clones = 16,
+        dpi=200,
+):
+
     ''' This is called before we've condensed to a single cell per clone
-    So we don't have PCA or UMAP yet
     '''
 
-
-    print('make_clone_plots: cluster_and_tsne_and_umap')
-    adata = pp.cluster_and_tsne_and_umap( adata, skip_tcr=True )
+    clusters_gex = np.array(adata.obs['clusters_gex'])
 
     tcrs = pp.retrieve_tcrs_from_adata(adata)
 
     unique_tcrs = sorted(set(tcrs))
+    # the clone ids are integer indices into the unique_tcrs list
 
     tcr2clone_id = { x:i for i,x in enumerate(unique_tcrs)}
     clone_ids = np.array( [ tcr2clone_id[x] for x in tcrs ])
 
-    counts = Counter(clone_ids)
+    clone_counts = Counter(clone_ids)
 
-    nrows = int(np.sqrt(num_clones_to_plot))
-    ncols = (num_clones_to_plot-1)//nrows + 1
+    nrows = int(np.sqrt(max_clones))
+    ncols = (max_clones-1)//nrows + 1
 
     plt.figure(figsize=(3*ncols,3*nrows))
     plotno=0
 
     xy = adata.obsm['X_gex_2d']
-    for (clone_id, clone_size) in counts.most_common(num_clones_to_plot):
+    for (clone_id, clone_size) in clone_counts.most_common(max_clones):
         plotno += 1
         plt.subplot(nrows, ncols, plotno)
         plt.scatter(xy[:,0], xy[:,1], s=16, c='gray',alpha=0.2)
         mask = clone_ids==clone_id
-        plt.scatter(xy[mask,0], xy[mask,1], s=16, c='blue', alpha=0.5)
+        plt.scatter(xy[mask,0], xy[mask,1], s=16, c=clusters_gex[mask], #c='blue',
+                    alpha=0.5)
         plt.xlabel('GEX UMAP1')
         plt.ylabel('GEX UMAP2')
         plt.xticks([], [])
         plt.yticks([], [])
-        plt.text(0, 0, '{} cells'.format(clone_size), ha='left', va='bottom', transform=plt.gca().transAxes)
+        plt.text(0, 0, '{} cells'.format(clone_size), ha='left', va='bottom',
+                 transform=plt.gca().transAxes)
     plt.tight_layout()
+    pngfile = outfile_prefix+'_clone_gex_umaps.png'
     print('making:', pngfile)
     plt.savefig(pngfile, dpi=dpi)
 
+
+
+def make_clone_batch_clustermaps(
+        adata,
+        outfile_prefix,
+        batch_keys = None, # if None will look in adata.uns
+        max_clones = 75,
+        min_clone_size = 5,
+        dpi=200,
+        conga_scores = None,             # np.array of pvals
+        tcr_clumping_pvalues = None,      # --""--
+        batch_bias_results = None, # tuple of dataframes: nbrhood_results, hotspot_results
+        cmap_for_row_scores = 'viridis',
+        show_mait_and_inkt_clones = True,
+):
+
+    '''
+    '''
+    try:
+        import seaborn as sns
+    except:
+        print('ERROR seaborn is not installed')
+        return
+
+    if 'batch_keys' not in adata.uns_keys():
+        print('make_clone_batch_clustermaps: no batch_keys in adata.uns')
+        return
+
+    cmap_for_row_scores = plt.get_cmap(cmap_for_row_scores)
+
+    num_clones = adata.shape[0]
+    batch_keys = adata.uns['batch_keys']
+
+    tcrs = pp.retrieve_tcrs_from_adata(adata)
+    organism = adata.uns['organism']
+
+    # sort the clonotypes by clone size
+    clone_sizes = np.array(adata.obs['clone_sizes'])
+    sortl = sorted( [(x,i) for i,x in enumerate(clone_sizes)])
+    sortl.reverse() # now in decreasing order of clone size
+
+    top_clone_indices = [x[1] for x in sortl[:max_clones] if x[0] >= min_clone_size]
+
+    if len(top_clone_indices)<2:
+        print('make_clone_batch_clustermaps:: fewer than 2 clones meet size requirements')
+        return
+
+    for batch_key in batch_keys:
+        batch_freqs = adata.obsm[batch_key].astype(float)/clone_sizes[:,np.newaxis]
+        assert batch_freqs.shape[0] == num_clones
+        num_choices = batch_freqs.shape[1]
+
+        colorbar_row_colors = []
+
+        def transform_adjusted_pvalues_into_unit_range(pvalues,
+                                                       max_pval=1.0, min_pval=1e-5):
+            vals = np.sqrt(np.maximum(0., -1*np.log10(np.maximum(
+                1e-299, np.array(pvalues)/max_pval))))
+            vmax = np.sqrt(-1*np.log10(min_pval/max_pval))
+            retvals = np.maximum(0.001, np.minimum(0.999, vals/vmax))
+            #assert False
+            return retvals
+
+        def get_row_colors_from_pvalues(pvalues, cmap=cmap_for_row_scores):
+            vals =  transform_adjusted_pvalues_into_unit_range(pvalues)
+            retvals = [ cmap(x) for x in vals]
+            #assert False
+            return retvals
+
+
+        if conga_scores is not None: # these are adjusted pvalues
+            colorbar_row_colors.append(get_row_colors_from_pvalues(conga_scores[top_clone_indices]))
+
+        if tcr_clumping_pvalues is not None:
+            colorbar_row_colors.append(get_row_colors_from_pvalues(tcr_clumping_pvalues[top_clone_indices]))
+
+        if batch_bias_results is not None:
+            nbrhood_results, hotspot_results = batch_bias_results
+            tcr_nbrhood_pvals = np.full((num_clones,), num_clones).astype(float)
+            for l in nbrhood_results.itertuples():
+                if l.nbrs_tag == 'tcr' and l.batch_key == batch_key:
+                    tcr_nbrhood_pvals[l.clone_index] = min(
+                        l.pvalue_adj, tcr_nbrhood_pvals[l.clone_index])
+            colorbar_row_colors.append(get_row_colors_from_pvalues(tcr_nbrhood_pvals[top_clone_indices]))
+
+            hotspot_pval = 1.
+            for l in hotspot_results.itertuples():
+                if l.nbrs_tag == 'tcr' and l.batch_key == batch_key:
+                    hotspot_pval = min(l.pvalue_adj, hotspot_pval)
+
+            title = 'batch_key: {} num_choices: {} best_hotspot_pval: {:.1e}'\
+                    .format( batch_key, num_choices, hotspot_pval)
+        else:
+            title = 'batch_key: {} num_choices: {}'\
+                    .format( batch_key, num_choices)
+
+
+        if show_mait_and_inkt_clones and organism in ['human','mouse']:
+            colors = []
+            for ii in top_clone_indices:
+                tcr = tcrs[ii]
+                if organism == 'human':
+                    celltype = 2 * tcr_scoring.is_human_mait_alpha_chain(tcr[0])+\
+                               tcr_scoring.is_human_inkt_tcr(tcr)
+                elif organism == 'mouse':
+                    celltype = 2 * tcr_scoring.is_mouse_mait_alpha_chain(tcr[0])+\
+                               tcr_scoring.is_mouse_inkt_alpha_chain(tcr[0])
+                colors.append(['white','C0','C1'][celltype])
+            colorbar_row_colors.append(colors)
+
+        # show clustermap of clone frequencies for the top clones
+        A = []
+        clone_labels = []
+        def trim_allele(s):
+            return s[:s.index('*')]
+        def get_gene_strings(tcr, organism):
+            if organism.endswith('_ig'):
+                va_prefix = tcr[0][0][2]
+            else:
+                va_prefix = ''
+            (va,ja,*_), (vb,jb,*_) = tcr
+            return (va_prefix+trim_allele(va[4:]), trim_allele(ja[4:]),
+                    trim_allele(vb[4:]), trim_allele(jb[4:]))
+        gene_strings = [get_gene_strings(tcrs[x], organism) for x in top_clone_indices]
+        max_valen = max(len(x[0]) for x in gene_strings)
+        max_jalen = max(len(x[1]) for x in gene_strings)
+        max_vblen = max(len(x[2]) for x in gene_strings)
+        max_jblen = max(len(x[3]) for x in gene_strings)
+        for ii, genes in zip(top_clone_indices, gene_strings):
+            A.append(batch_freqs[ii,:])
+            va,ja,vb,jb = genes
+            cdr3a, cdr3b = tcrs[ii][0][2], tcrs[ii][1][2]
+
+            clone_labels.append('{:3d}  {:{}s} {:{}s} {:18s} {:{}s} {:{}s} {:18s}'\
+                                .format(clone_sizes[ii],
+                                        va, max_valen, ja, max_jalen, cdr3a,
+                                        vb, max_vblen, jb, max_jblen, cdr3b))
+
+        A = np.array(A)
+
+        ## things we might want to add row colors for:
+        ##
+        ## - tcr nbr batch bias for this batch_key
+        ## - conga score
+        ## - tcr clumping score
+        ##
+
+        fig_width, fig_height = (10,14)
+        cm = sns.clustermap(A, metric='euclidean', col_cluster=False, vmin=0, vmax=1,
+                            figsize=(fig_width,fig_height), cmap='Reds',
+                            row_colors=colorbar_row_colors)
+
+        row_indices = cm.dendrogram_row.reordered_ind
+        row_labels = [clone_labels[x] for x in row_indices]
+        cm.ax_heatmap.set_yticks( 0.5+np.arange(A.shape[0]))
+        cm.ax_heatmap.set_yticklabels( row_labels, rotation='horizontal', fontdict={'fontsize':8, 'fontfamily':'monospace'} )
+        cm.ax_heatmap.set_xticks([])
+        cm.ax_heatmap.set_xticklabels([])
+        #cm.fig.suptitle(title)
+        cm.ax_heatmap.set_title(title)
+
+
+        pngfile = f'{outfile_prefix}_clone_clustermap_batch_{batch_key}.png'
+        print('saving', pngfile)
+        cm.savefig(pngfile, dpi=200)
+        #assert False
 
 
 
