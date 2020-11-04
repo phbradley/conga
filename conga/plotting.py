@@ -2247,7 +2247,7 @@ def make_tcr_clumping_plots(
 
     pngfile = f'{outfile_prefix}_tcr_clumping_logos.png'
 
-    if rank_genes_uns_tag not in logo_plot_args:
+    if 'rank_genes_uns_tag' not in logo_plot_args:
         logo_plot_args['rank_genes_uns_tag'] = 'rg_tcr_clumping_biclusters'
 
     make_cluster_logo_plots_figure(
