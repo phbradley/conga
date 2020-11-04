@@ -3,6 +3,7 @@ import random
 import pandas as pd
 import matplotlib.pyplot as plt
 from os.path import exists
+from pathlib import Path
 from collections import Counter
 from sklearn.metrics import pairwise_distances
 from sklearn.utils import sparsefuncs
@@ -21,6 +22,7 @@ from . import util
 from . import pmhc_scoring
 from . import plotting
 from .tcrdist.tcr_distances import TcrDistCalculator
+from .util import tcrdist_cpp_available
 
 # silly hack
 all_sexlinked_genes = frozenset('XIST DDX3Y EIF1AY KDM5D LINC00278 NLGN4Y RPS4Y1 TTTY14 TTTY15 USP9Y UTY ZFY'.split())
@@ -140,7 +142,7 @@ def setup_X_igex( adata ):
     ''' Side effect: will log1p-and-normalize the raw matrix if that's not already done
     '''
     # tmp hacking
-    all_genes_file = util.path_to_data+'igenes_all_v1.txt'
+    all_genes_file = Path.joinpath( Path( util.path_to_data ) , 'igenes_all_v1.txt')
     kir_genes = 'KIR2DL1 KIR2DL3 KIR2DL4 KIR3DL1 KIR3DL2 KIR3DL3 KIR3DX1'.split()
     extra_genes = [ 'CD4','CD8A','CD8B','CCR7', 'SELL','CCL5','KLRF1','KLRG1','IKZF2','PDCD1','GNG4','MME',
                     'ZNF683','KLRD1','NCR3','KIR3DL1','NCAM1','ITGAM','KLRC2','KLRC3', #'MME',
@@ -1147,26 +1149,31 @@ def calculate_tcrdist_nbrs_cpp(
     nbrs exclude self and any clones in same atcr group or btcr group
     '''
     if tmpfile_prefix is None:
-        tmpfile_prefix = './tmp_nbrs{}'.format(random.random())
+        tmpfile_prefix = Path('./tmp_nbrs{}'.format(random.randrange(1,10000)))
+
     print('calculate_tcrdist_nbrs_cpp:', adata.shape, nbr_fracs, tmpfile_prefix)
 
     agroups, bgroups = setup_tcr_groups(adata)
 
-    agroups_filename = tmpfile_prefix+'_agroups.txt'
-    bgroups_filename = tmpfile_prefix+'_bgroups.txt'
+    agroups_filename = str(tmpfile_prefix) +'_agroups.txt'
+    bgroups_filename = str(tmpfile_prefix) +'_bgroups.txt'
     np.savetxt(agroups_filename, agroups, fmt='%d')
     np.savetxt(bgroups_filename, bgroups, fmt='%d')
 
-    tcrs_filename = tmpfile_prefix+'_tcrs.tsv'
+    tcrs_filename = str(tmpfile_prefix) +'_tcrs.tsv'
     adata.obs['va cdr3a vb cdr3b'.split()].to_csv(tcrs_filename, sep='\t', index=False)
 
-    exe = util.path_to_tcrdist_cpp_bin+'find_neighbors'
+    if os.name == 'posix':
+        exe = Path.joinpath( Path(util.path_to_tcrdist_cpp_bin) , 'find_neighbors')
+    else:
+        exe = Path.joinpath( Path(util.path_to_tcrdist_cpp_bin) , 'find_neighbors.exe')
 
     if not exists(exe):
         print('need to compile c++ exe:', exe)
         exit(1)
 
-    db_filename = '{}tcrdist_info_{}.txt'.format(util.path_to_tcrdist_cpp_db, adata.uns['organism'])
+    db_filename = Path.joinpath( Path( util.path_to_tcrdist_cpp_db), 'tcrdist_info_{}.txt'.format(adata.uns['organism']))
+
     if not exists(db_filename):
         print('need to create database file:', db_filename)
         exit(1)
@@ -1174,9 +1181,11 @@ def calculate_tcrdist_nbrs_cpp(
     max_nbr_frac = max(nbr_fracs)
     num_nbrs = max(1, int(max_nbr_frac*adata.shape[0]))
 
-    outprefix = tmpfile_prefix+'_calc_tcrdist'
+    outprefix = str(tmpfile_prefix) +'_calc_tcrdist'
+
     cmd = '{} -f {} -n {} -d {} -o {} -a {} -b {}'\
-          .format(exe, tcrs_filename, num_nbrs, db_filename, outprefix, agroups_filename, bgroups_filename)
+    .format(exe, tcrs_filename, num_nbrs, db_filename, outprefix, agroups_filename, bgroups_filename)
+
     util.run_command(cmd, verbose=True)
 
     knn_indices_filename = outprefix+'_knn_indices.txt'
@@ -1284,8 +1293,6 @@ def make_tcrdist_kernel_pcs_file_from_clones_file(
     if outfile is None: # this is the name expected by read_dataset above (with n_components_in==50)
         outfile = '{}_AB.dist_{}_kpcs'.format(clones_file[:-4], n_components_in)
 
-    tcrdist_calculator = TcrDistCalculator(organism)
-
     df = pd.read_csv(clones_file, sep='\t')
 
     # in conga we usually also have cdr3_nucseq but we don't need it for tcrdist; we also don't need the jgene but hey
@@ -1294,10 +1301,14 @@ def make_tcrdist_kernel_pcs_file_from_clones_file(
 
 
     if input_distfile is None: ## tcr distances
-        if force_tcrdist_cpp or (util.tcrdist_cpp_available() and len(tcrs)>5000):
-            D = calc_tcrdist_matrix_cpp(tcrs, organism)
+        print(f'compute tcrdist distance matrix for {len(tcrs)} clonotypes')
+
+        if tcrdist_cpp_available():
+            print('Using C++ TCRdist calculator')
+            D = calc_tcrdist_matrix_cpp(tcrs, organism, outfile)
         else:
-            print(f'compute tcrdist distance matrix for {len(tcrs)} clonotypes')
+            print('Using Python TCRdist calculator. Consider compiling C++ calculator for faster perfomance.')
+            tcrdist_calculator = TcrDistCalculator(organism)
             D = np.array( [ tcrdist_calculator(x,y) for x in tcrs for y in tcrs ] ).reshape( (len(tcrs), len(tcrs)) )
     else:
         print(f'reload tcrdist distance matrix for {len(tcrs)} clonotypes')
@@ -1360,12 +1371,18 @@ def condense_clones_file_and_barcode_mapping_file_by_tcrdist(
 
     if output_distfile is None and (force_tcrdist_cpp or (util.tcrdist_cpp_available() and N>5000)):
         tcrdist_threshold = int(tcrdist_threshold+0.001) # cpp tcrdist threshold is integer
-        exe = util.path_to_tcrdist_cpp_bin+'find_neighbors'
 
-        db_filename = '{}tcrdist_info_{}.txt'.format(util.path_to_tcrdist_cpp_db, organism)
+        if os.name == 'posix':
+            exe = Path.joinpath( Path(util.path_to_tcrdist_cpp_bin), 'find_neighbors')
+        else:
+            exe = Path.joinpath( Path(util.path_to_tcrdist_cpp_bin) , 'find_neighbors.exe')
 
-        outprefix = old_clones_file+'_calc_tcrdist'
+        db_filename = Path.joinpath( Path(util.path_to_tcrdist_cpp_db) , 'tcrdist_info_{}.txt'.format(organism) )
+
+        outprefix = old_clones_file + '_calc_tcrdist'
+
         cmd = '{} -f {} -t {} -d {} -o {}'.format(exe, old_clones_file, tcrdist_threshold, db_filename, outprefix)
+
         util.run_command(cmd, verbose=True)
 
         nbr_indices_filename = '{}_nbr{}_indices.txt'.format(outprefix, tcrdist_threshold)
@@ -1511,19 +1528,25 @@ def calc_tcrdist_nbrs_umap_clusters_cpp(
     tcrs_filename = outfile_prefix+'_tcrs.tsv'
     adata.obs['va cdr3a vb cdr3b'.split()].to_csv(tcrs_filename, sep='\t', index=False)
 
-    exe = util.path_to_tcrdist_cpp_bin+'find_neighbors'
+    if os.name == 'posix':
+        exe = Path.joinpath( Path(util.path_to_tcrdist_cpp_bin) , 'find_neighbors')
+    else:
+        exe = Path.joinpath( Path(util.path_to_tcrdist_cpp_bin) , 'find_neighbors.exe')
 
     if not exists(exe):
         print('need to compile c++ exe:', exe)
         exit(1)
 
-    db_filename = '{}tcrdist_info_{}.txt'.format(util.path_to_tcrdist_cpp_db, adata.uns['organism'])
+    db_filename = Path.joinpath( Path(util.path_to_tcrdist_cpp_db), 'tcrdist_info_{}.txt'.format(adata.uns['organism']) )
+
     if not exists(db_filename):
         print('need to create database file:', db_filename)
         exit(1)
 
     outprefix = outfile_prefix+'_calc_tcrdist'
+
     cmd = '{} -f {} -n {} -d {} -o {}'.format(exe, tcrs_filename, num_nbrs, db_filename, outprefix)
+
     util.run_command(cmd, verbose=True)
 
     knn_indices_filename = outprefix+'_knn_indices.txt'
@@ -1588,28 +1611,34 @@ def calc_tcrdist_matrix_cpp(
         tmpfile_prefix = None,
 ):
     if tmpfile_prefix is None:
-        tmpfile_prefix = './tmp_tcrdists{}'.format(random.random())
+        tmpfile_prefix = Path('./tmp_tcrdists{}'.format(random.randrange(1,10000)))
 
-    tcrs_filename = tmpfile_prefix+'_tcrs.tsv'
+    tcrs_filename = str(tmpfile_prefix) +'_tcrs.tsv'
+
     df = pd.DataFrame(dict(va=[x[0][0] for x in tcrs], cdr3a=[x[0][2] for x in tcrs],
                            vb=[x[1][0] for x in tcrs], cdr3b=[x[1][2] for x in tcrs]))
     df.to_csv(tcrs_filename, sep='\t', index=False)
 
-    exe = util.path_to_tcrdist_cpp_bin+'find_neighbors'
+    if os.name == 'posix':
+        exe = Path.joinpath( Path(util.path_to_tcrdist_cpp_bin) , 'find_neighbors')
+    else:
+        exe = Path.joinpath( Path(util.path_to_tcrdist_cpp_bin) , 'find_neighbors.exe')
 
     if not exists(exe):
         print('need to compile c++ exe:', exe)
         exit(1)
 
-    db_filename = '{}tcrdist_info_{}.txt'.format(util.path_to_tcrdist_cpp_db, organism)
+    db_filename = Path.joinpath( Path(util.path_to_tcrdist_cpp_db), 'tcrdist_info_{}.txt'.format( organism ) )
+
     if not exists(db_filename):
         print('need to create database file:', db_filename)
         exit(1)
 
     cmd = '{} -f {} --only_tcrdists -d {} -o {}'.format(exe, tcrs_filename, db_filename, tmpfile_prefix)
+
     util.run_command(cmd, verbose=True)
 
-    tcrdist_matrix_filename = tmpfile_prefix+'_tcrdists.txt'
+    tcrdist_matrix_filename = str(tmpfile_prefix) +'_tcrdists.txt'
 
     if not exists(tcrdist_matrix_filename):
         print('find_neighbors failed, missing', tcrdist_matrix_filename)
@@ -1621,6 +1650,261 @@ def calc_tcrdist_matrix_cpp(
         os.remove(filename)
 
     return D
+
+"""
+New experimental functions for enhancing interative flexibility
+"""
+def Prep_for_CoNGA(
+        adata,
+        clones_file,
+        output_prefix = None,
+        second_clones_file = None,
+        write_full_clone_df = True,
+):
+    ''' prepares adata object generated thru std scanpy workflow for CoNGA analysis.
+
+    Uses clones DataFrame generated by make_10x_clone_file or make_10x_clone_file_batch as input.
+    Clonotype information gets stored in adata.obs under multiple keys
+    TCRdist kPCA info in adata.obsm under the key 'X_pca_tcr' or 'X_pca_bcr'
+    returns adata
+
+    '''
+
+    combo_pipe = False
+    single_pipe = False
+    organism = adata.uns['organism']
+
+    if second_clones_file is None:
+        single_pipe = True
+    else:
+        combo_pipe = True
+
+
+    if single_pipe:
+
+        bcmap_file = clones_file +'.barcode_mapping.tsv'
+
+        assert exists(clones_file)
+        assert exists(bcmap_file)
+
+        #these steps might be worth moving up to make_10x_clone_file
+        clone_df = pd.read_csv( clones_file, sep='\t')
+        barcode_map = pd.read_csv( bcmap_file ,sep='\t')
+
+        tag = clone_df.iloc[0,0].split('_')[0]
+
+        if tag == 'bcr':
+            organism = organism + '_ig'
+
+        #melt the barcode map
+        wide_bc = barcode_map['barcodes'].str.split(',', expand=True).copy()
+        wide_bc['clone_id'] = barcode_map['clone_id']
+
+        long_bc = ( wide_bc.melt( id_vars=['clone_id'] , var_name='cell', value_name='barcode')
+                   .dropna()
+                   .drop(columns=['cell'])
+                   .copy()
+                   )
+
+        #merge barcodes and clone_df
+        clone_df_full = pd.merge( long_bc , clone_df, how='left', on= 'clone_id')
+        clone_df_full = clone_df_full.set_index('barcode')
+        clone_df_full['rep_type'] = tag
+        clone_df_full = clone_df_full.rename(columns={ "va_gene": "va", "ja_gene": "ja", "vb_gene": "vb", "jb_gene": "jb"})
+        mapped_cells = len( clone_df_full.index )
+        uclones = clone_df_full['clone_id'].nunique()
+
+        print(f'{mapped_cells} cells with {tag} info')
+        print(f'{uclones} unique {tag} clonotypes')
+
+        if write_full_clone_df:
+            full_file = clones_file[:-4]+'_full.tsv'
+            clone_df_full.to_csv( full_file , sep = '\t')
+
+        #add clone info into obs
+        adata.obs = adata.obs.join(clone_df_full)
+
+        #add kpca to adata.obsm
+
+        # add option to tune kernel pcs parameters in the future
+        kpcs = make_tcrdist_kernel_pcs_file_from_clones_file_V2( clones_file, organism, output_prefix)
+
+        kpcs_df = pd.DataFrame( data= kpcs )
+        kpcs_df['clone_id'] = clone_df['clone_id']
+        clones_tmp = adata.obs['clone_id']
+        kpcs_full = pd.merge( clones_tmp, kpcs_df, how='left',on= 'clone_id')
+        kpcs_full['clone_id'] = adata.obs.index
+
+        X_kpca = kpcs_full.to_numpy()
+        adata.obsm[f'X_pca_{tag}'] = X_kpca
+
+        return adata
+
+    elif combo_pipe:
+
+        bcmap_file_1 = clones_file +'.barcode_mapping.tsv'
+        bcmap_file_2 = second_clones_file +'.barcode_mapping.tsv'
+
+        assert exists(clones_file)
+        assert exists(bcmap_file_1)
+        assert exists(second_clones_file)
+        assert exists(bcmap_file_2)
+
+        list_in = [[clones_file, bcmap_file_1] , [second_clones_file, bcmap_file_2] ]
+        combo_clones = pd.DataFrame()
+
+        for row in list_in:
+            clones_file = row[0]
+            bcmap_file = row[1]
+
+            #these steps might be worth moving up to make_10x_clone_file
+            clone_df = pd.read_csv( clones_file, sep='\t')
+            barcode_map = pd.read_csv( bcmap_file ,sep='\t')
+            tag = clone_df.iloc[0,0].split('_')[0]
+
+            organism = adata.uns['organism']
+
+            if tag == 'bcr':
+                organism = organism + '_ig'
+
+            #melt the barcode map
+            wide_bc = barcode_map['barcodes'].str.split(',', expand=True).copy()
+            wide_bc['clone_id'] = barcode_map['clone_id']
+
+            long_bc = ( wide_bc.melt( id_vars=['clone_id'] , var_name='cell', value_name='barcode')
+                       .dropna()
+                       .drop(columns=['cell'])
+                       .copy()
+                       )
+
+            #merge barcodes and clone_df
+            clone_df_full = pd.merge( long_bc , clone_df, how='left', on= 'clone_id')
+            clone_df_full = clone_df_full.set_index('barcode')
+            clone_df_full['rep_type'] = tag
+            clone_df_full = clone_df_full.rename(columns={ "va_gene": "va", "ja_gene": "ja", "vb_gene": "vb", "jb_gene": "jb"})
+            mapped_cells = len( clone_df_full.index )
+            uclones = clone_df_full['clone_id'].nunique()
+            print(f'{mapped_cells} cells with repertoire info')
+            print(f'{uclones} unique clonotypes')
+
+            write_full_clone_df = True
+            if write_full_clone_df:
+                full_file = clones_file[:-4]+'_full.tsv'
+                clone_df_full.to_csv( full_file , sep = '\t')
+
+            combo_clones = pd.concat([combo_clones , clone_df_full])
+
+
+        #filter out collisions
+        combo_clones['collisions'] = combo_clones.index.value_counts()
+        doubles = combo_clones[ combo_clones.collisions > 1]
+        combo_clones_f = combo_clones[ combo_clones.collisions == 1].copy()
+        combo_clones_f = combo_clones_f.drop( columns = ['collisions'] )
+
+        #add to obs
+        adata.obs = adata.obs.join(combo_clones_f)
+
+        #filter out
+        print( f'{int(len(doubles) /2) } cells containing TCR and BCR information filtered out')
+        adata = adata[ ~ adata.obs.index.isin( doubles.index.to_list() ) , :]
+
+
+        # run tcrdist and perform kpca on clones tables without doublets
+        new_tcr = (adata.obs[ adata.obs.rep_type == 'tcr'].copy()
+                   .drop_duplicates(subset = 'clone_id')
+                   )
+
+        new_bcr = (adata.obs[ adata.obs.rep_type == 'bcr'].copy()
+                   .drop_duplicates(subset = 'clone_id')
+                   )
+
+
+        tick = 0
+        for df in new_tcr, new_bcr:
+
+            organism = adata.uns['organism']
+
+            if tick == 1:
+                tag = 'bcr'
+                organism = organism + '_ig'
+            else:
+                tag = 'tcr'
+
+            #calc TCRdist
+            kpcs = make_tcrdist_kernel_pcs_file_from_clones_file_V2( df, organism)
+            kpcs_df = pd.DataFrame( data= kpcs, index = df.clone_id)
+            kpcs_df = kpcs_df.reset_index()
+
+            clones_tmp =  ( adata.obs['clone_id'].copy()
+                           .reset_index()
+                           )
+
+            kpcs_full = pd.merge( clones_tmp, kpcs_df, 'left', on= 'clone_id')
+            kpcs_full = kpcs_full.set_index('index')
+
+            X_kpca = kpcs_full.to_numpy()
+            adata.obsm[f'X_pca_{tag}'] = X_kpca
+
+            tick += 1
+
+
+        return adata
+
+
+def make_tcrdist_kernel_pcs_file_from_clones_file_V2(
+        df,
+        organism,
+        output_prefix = None,
+        n_components_in=50,
+        kernel=None, # either None (-->default) or 'gaussian'
+        gaussian_kernel_sdev=100.0, #unused unless kernel=='gaussian'
+        verbose = False,
+        force_Dmax = None,
+):
+
+
+    # in conga we usually also have cdr3_nucseq but we don't need it for tcrdist; we also don't need the jgene but hey
+    tcrs = [ ( ( l.va, l.ja, l.cdr3a ), ( l.vb, l.jb, l.cdr3b ) ) for l in df.itertuples() ]
+    #ids = [ l.clone_id for l in df.itertuples() ]
+
+    print(f'compute tcrdist distance matrix for {len(tcrs)} clonotypes')
+
+    if tcrdist_cpp_available():
+        print('Using C++ TCRdist calculator')
+        D = calc_tcrdist_matrix_cpp(tcrs, organism, outfile)
+    else:
+        print('Using Python TCRdist calculator. Consider compiling C++ calculator for faster perfomance.')
+        tcrdist_calculator = TcrDistCalculator(organism)
+        D = np.array( [ tcrdist_calculator(x,y) for x in tcrs for y in tcrs ] ).reshape( (len(tcrs), len(tcrs)) )
+
+    n_components = min( n_components_in, D.shape[0] )
+
+    print(f'running KernelPCA with {kernel} kernel distance matrix shape= {D.shape} D.max()= {D.max()} force_Dmax= {force_Dmax}')
+
+    pca = KernelPCA(kernel='precomputed', n_components=n_components)
+
+    if kernel is None:
+        if force_Dmax is None:
+            force_Dmax = D.max()
+        gram = np.maximum(0.0, 1 - ( D / force_Dmax ))
+    elif kernel == 'gaussian':
+        gram = np.exp(-0.5 * (D/gaussian_kernel_sdev)**2 )
+    else:
+        print('conga.preprocess.make_tcrdist_kernel_pcs_file_from_clones_file:: unrecognized kernel:', kernel)
+        sys.exit(1)
+
+    xy = pca.fit_transform(gram)
+
+    if verbose: #show the eigenvalues
+        for ii in range(n_components):
+            print( 'eigenvalue: {:3d} {:.3f}'.format( ii, pca.lambdas_[ii]))
+
+    # expt with saving in numpy format
+    #need to make more specific name
+    #array_out =  f'{tag}.dist_{n_components}_kpcs.npy'
+    #np.save( array_out,  xy)
+
+    return xy
 
 
 def subset_to_CD4_or_CD8_clusters(

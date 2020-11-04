@@ -80,9 +80,9 @@ Which was installed with the following `conda` commands (following the `scanpy` 
 conda create -n conga_new_env ipython python=3.6
 conda activate conga_new_env   (or source activate conga_new_env)
 conda install seaborn scikit-learn statsmodels numba pytables
-conda install -c conda-forge python-igraph leidenalg
-conda install -c conda-forge louvain
-pip install scanpy
+conda install -c conda-forge python-igraph leidenalg louvain
+conda install -c intel tbb
+pip install scanpy fastcluster
 ```
 
 (And consider also adding `conda install -c conda-forge notebook` for Jupyter notebook stuff.)
@@ -91,6 +91,27 @@ Preliminary results suggest that, at least with default clustering parameters, t
 clustering algorithm seems to give slightly 'better' results than the newer `leiden` algorithm,
 ie finds a few more GEX/TCR associations, probably because there seem to be fewer, larger clusters.
 If the `louvain` package is installed `conga` will use that.
+
+Next, clone the `conga` repository:
+```
+git clone https://github.com/phbradley/conga.git
+```
+Then compile TCRdist using your C++ compiler.
+
+We've successfullly used `g++` from the GNU Compiler Collection (https://gcc.gnu.org/) to compile on
+Linux and MacOS, and from MinGw (http://www.mingw.org/) for Windows.
+
+Using `make` on Linux or MacOS
+```
+cd ~/conga/tcrdist_cpp
+make
+```
+Or without `make` (for Windows)
+```
+cd ~/conga/tcrdist_cpp
+g++ -O3 -std=c++11 -Wall -I ./include/ -o ./bin/find_neighbors ./src/find_neighbors.cc
+g++ -O3 -std=c++11 -Wall -I ./include/ -o ./bin/calc_distributions ./src/calc_distributions.cc
+```
 
 # migrating Seurat data to CoNGA
 We recommend using the write10XCounts function from the DropletUtils package for

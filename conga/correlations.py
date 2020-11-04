@@ -1133,6 +1133,32 @@ def find_hotspot_nbrhoods(
     else:
         return pd.DataFrame()
 
+#Don't pull the code below into main
+
+def find_hotspots( adata, nbrs, pval_threshold = None ):
+    """
+    wrapper function combining Hotspot calculations for TCR and GEX. Returns combined df.
+    nbrs: tuple of (nbrs_gex,nbrs_tcr) from preprocess.calc_nbrs used to look for correlations
+    pval_threshold: pval for Bonferroni test. default is 0.05
+    """
+
+    if pval_threshold is None:
+        pval_threshold = 0.05
+    print(f'conga.correlations.find_hotspots:: Using pval_threshold = {pval_threshold}')
+
+    nbrs_gex, nbrs_tcr = nbrs
+
+    gene_df = find_hotspot_genes(adata , nbrs_tcr, pval_threshold )
+    gene_df['feature_type'] = 'gex'
+
+    tcr_df = find_hotspot_tcr_features(adata , nbrs_gex , pval_threshold  )
+    tcr_df['feature_type'] = 'tcr'
+
+    hotspot_df = pd.concat([gene_df, tcr_df])
+
+    return hotspot_df
+
+
 def find_batch_biases(
         adata,
         all_nbrs,

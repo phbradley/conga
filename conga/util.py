@@ -2,25 +2,34 @@ import numpy as np
 import sys
 from os import system
 import os.path
+from pathlib import Path
+import os
 from scipy.sparse import issparse
 from collections import Counter
+import subprocess
+
 # try not to have any conga imports here
 #
 
 # convenience paths
-path_to_conga = os.path.dirname(os.path.realpath(__file__))
-assert not path_to_conga.endswith('/')
-path_to_conga += '/'
+path_to_conga = Path(__file__).parent
+assert os.path.isdir( path_to_conga )
 
-path_to_data = path_to_conga+'data/'
+path_to_data = Path.joinpath( path_to_conga, 'data')
 assert os.path.isdir( path_to_data )
 
-path_to_tcrdist_cpp_bin = os.path.dirname( path_to_conga[:-1] )+'/tcrdist_cpp/bin/'
-path_to_tcrdist_cpp_db = os.path.dirname( path_to_conga[:-1] )+'/tcrdist_cpp/db/'
+path_to_tcrdist_cpp = Path.joinpath( path_to_conga.parents[0] ,'tcrdist_cpp')
+path_to_tcrdist_cpp_bin = Path.joinpath( path_to_tcrdist_cpp ,'bin')
+path_to_tcrdist_cpp_db = Path.joinpath( path_to_tcrdist_cpp ,'db')
 assert os.path.isdir( path_to_tcrdist_cpp_bin ) and os.path.isdir( path_to_tcrdist_cpp_db )
 
+
 def tcrdist_cpp_available():
-    return os.path.exists(path_to_tcrdist_cpp_bin + 'find_neighbors')
+    if os.name == 'posix':
+        return os.path.exists(Path.joinpath( path_to_tcrdist_cpp_bin ,'find_neighbors'))
+    else:
+        return os.path.exists(Path.joinpath( path_to_tcrdist_cpp_bin ,'find_neighbors.exe'))
+
 
 # not a big deal, but if we have protein ie antibody data we use these to mask it out
 GENE_EXPRESSION_FEATURE_TYPE = 'Gene Expression'
@@ -34,9 +43,16 @@ FUNNY_HUMAN_IG_GENES = ['AC233755.1', 'AC233755.2', # seem to be associated with
                         'IGLL5' ] # correlated with IGLJ1
 
 def run_command( cmd, verbose=False ):
+
     if verbose:
         print('util.run_command: cmd=', cmd)
-    system(cmd)
+
+    if os.name == 'posix':
+        system(cmd)
+    else:
+        cmd_run = 'cmd /c' + cmd
+        subprocess.check_call(list(cmd_run.split(' ')))
+
 
 # different types of repertoire data we might have
 TCR_AB_VDJ_TYPE = 'TCR_AB_VDJ_TYPE'
@@ -46,7 +62,7 @@ IG_VDJ_TYPE = 'IG_VDJ_TYPE'
 organism2vdj_type = {
     'human':TCR_AB_VDJ_TYPE,
     'mouse':TCR_AB_VDJ_TYPE,
-    'human_gd':TCR_AB_VDJ_TYPE,
+    'human_gd':TCR_GD_VDJ_TYPE,
     'mouse_gd':TCR_GD_VDJ_TYPE,
     'human_ig':IG_VDJ_TYPE,
     'mouse_ig':IG_VDJ_TYPE,

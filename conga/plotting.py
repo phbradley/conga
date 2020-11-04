@@ -19,6 +19,7 @@ from .tcrdist.make_tcr_logo import make_tcr_logo_for_tcrs
 from .tcrdist.tcr_distances import TcrDistCalculator
 from .tcrdist.util import assign_colors_to_conga_tcrs
 from .tcrdist.all_genes import all_genes
+from .tcrdist.make_tcr_trees import make_tcr_tree_svg_commands
 import os
 from os.path import exists
 from collections import Counter, OrderedDict
@@ -1786,6 +1787,11 @@ def plot_interesting_features_vs_clustermap(
         print('ERROR seaborn is not installed')
         return
 
+    try:
+        import fastcluster
+    except:
+        print('Consider installing fastcluster to increase clustering speed')
+
     assert dist_tag in ['gex','tcr']
 
     if show_gex_cluster_colorbar is None:
@@ -2229,6 +2235,7 @@ def make_tcr_clumping_plots(
         pvalue_threshold_for_logos,
         outfile_prefix,
         max_color_pvalue = 1e-16, # in the UMAP figure; no brighter beyond there
+        **logo_plot_args,
 ):
     num_clones = adata.shape[0]
     fake_clusters_gex = np.zeros((num_clones,)).astype(int)
@@ -2240,9 +2247,12 @@ def make_tcr_clumping_plots(
 
     pngfile = f'{outfile_prefix}_tcr_clumping_logos.png'
 
+    if rank_genes_uns_tag not in logo_plot_args:
+        logo_plot_args['rank_genes_uns_tag'] = 'rg_tcr_clumping_biclusters'
+
     make_cluster_logo_plots_figure(
         adata, clumping_pvals, pvalue_threshold_for_logos, fake_clusters_gex, fake_clusters_tcr, nbrs_gex, nbrs_tcr,
-        min_cluster_size_for_logos, pngfile, rank_genes_uns_tag='rg_tcr_clumping_biclusters')
+        min_cluster_size_for_logos, pngfile, **logo_plot_args)
 
     # make umaps colored by clumping pvals
     plt.figure(figsize=(12,6))
@@ -2714,3 +2724,132 @@ def analyze_CD4_CD8(
         pngfile = f'{outfile_prefix}_cd4_cd8_{ptag}.png'
         plt.savefig(pngfile)
         print('making:', pngfile)
+
+#Don't pull the code below into main
+
+def plot_hotspot_umap(
+        adata,
+        xy_tag,
+        results_df,
+        pngfile,
+        nbrs = None,
+        compute_nbr_averages=False,
+        nrows=6,
+        ncols=4,
+):
+    """
+    xy_tag: use 'gex' or 'tcr' to set umap space used for plotting the hotspot features
+    results_df : pandas df of hotspot features to plot. Expected columns are pvalue_adj feature feature_type
+    where feature_type is either 'gex' or 'tcr'. We need that since some feature strings can be both. Output
+    from correlations.find_hotspots can be fed in directly
+    """
+    if results_df.shape[0]==0:
+        print('no results to plot:', pngfile)
+        return
+
+    df = results_df.sort_values('pvalue_adj') # ensure sorted
+    df = df.iloc[:nrows*ncols,:]
+
+    xy = adata.obsm['X_{}_2d'.format(xy_tag)]
+    var_names = list(adata.raw.var_names)
+    if df.shape[0] < nrows*ncols:
+        # make fewer panels
+        nrows = max(1, int(np.sqrt(df.shape[0])))
+        ncols = (df.shape[0]-1)//nrows + 1
+
+    plt.figure(figsize=(ncols*3,nrows*3))
+    plotno=0
+    for row in df.itertuples():
+        plotno+=1
+        plt.subplot(nrows, ncols, plotno)
+
+        scores = get_raw_feature_scores( row.feature, adata , row.feature_type )
+        # if row.feature_type == 'gex':
+        #     if row.startswith
+        #     assert row.feature in var_names
+        #     scores = adata.raw.X[:, var_names.index(row.feature)].toarray()[:,0]
+        # else:
+        #     scores = tcr_scoring.make_tcr_score_table(adata,[row.feature])[:,0]
+        if compute_nbr_averages:
+            assert nbrs.shape[0] == adata.shape[0]
+            num_neighbors = nbrs.shape[1] # this will not work for ragged nbr arrays (but we could change it to work)
+            scores = ( scores + scores[ nbrs ].sum(axis=1) )/(num_neighbors+1)
+
+        reorder = np.argsort(scores)
+        plt.scatter(xy[reorder,0], xy[reorder,1], c=scores[reorder], cmap='viridis', s=15)
+        plt.title('{} {:.1e}'.format(row.feature, row.pvalue_adj))
+        plt.xticks([],[])
+        plt.yticks([],[])
+        if (plotno-1)//ncols == nrows-1:
+            plt.xlabel('{} UMAP1'.format(xy_tag.upper()))
+        if plotno%ncols == 1:
+            plt.ylabel('{} UMAP2'.format(xy_tag.upper()))
+
+    plt.tight_layout()
+    plt.savefig(pngfile)
+
+
+def make_tcrdist_trees( adata, output_prefix, group_by = None):
+    """
+    generate TCRdist trees by gene expression cluster
+    group_by: use 'clusters_gex' or 'clusters_tcr' to generate by trees by respective cluster assignments.
+    """
+
+    if group_by is None or group_by == 'clusters_gex':
+        group_by = 'clusters_gex'
+        tag = 'GEX'
+    elif group_by == 'clusters_tcr':
+        group_by = 'clusters_tcr'
+        tag = 'TCR'
+
+    width = 800
+    height = 1000
+    xpad = 25
+    organism = adata.uns['organism']
+    precomputed = False
+    clusters = np.array(adata.obs[group_by])
+
+    num_clusters = np.max(clusters)+1
+    tcrs = pp.retrieve_tcrs_from_adata(adata)
+
+    num_clones = adata.shape[0]
+    if 'conga_scores' in adata.obs_keys():
+        conga_scores = np.maximum( 1e-100, np.array(adata.obs['conga_scores']) ) # no zeros!
+        scores = np.sqrt( np.maximum( 0.0, -1*np.log10( 100*conga_scores/num_clones)))
+    else:
+        scores = np.zeros((adata.shape[0],))
+
+    tcrdist = TcrDistCalculator(organism)
+
+    x_offset = 0
+    all_cmds = []
+
+    #color_score_range = [-1*np.log(10), -1*np.log(1e-5)]
+    color_score_range = [0, 3.0]
+    print('color_score_range:', color_score_range)
+
+    for clust in range(num_clusters):
+        cmask = (clusters==clust)
+        csize = np.sum(cmask)
+        #cinds = np.nonzero(cmask)[0]
+
+        ctcrs   = [x for x,y in zip(  tcrs, cmask) if y]
+        cscores = [x for x,y in zip(scores, cmask) if y]
+
+        if not precomputed:
+            print('computing tcrdist distances:', clust, csize)
+            cdists = np.array([ tcrdist(x,y) for x in ctcrs for y in ctcrs]).reshape(csize,csize)
+        else:
+            assert False # tmp hack
+
+        cmds = make_tcr_tree_svg_commands(
+            ctcrs, organism, [x_offset,0], [width,height], cdists, max_tcrs_for_trees=400, tcrdist_calculator=tcrdist,
+            color_scores=cscores, color_score_range = color_score_range, title=f'{tag} cluster {clust}')
+
+        x_offset += width + xpad
+
+        all_cmds.extend(cmds)
+
+    svgfile = f'{output_prefix}_{tag}_cluster_tcrdist_trees.svg'
+    print('making:', svgfile[:-3]+'png')
+    svg_basic.create_file(all_cmds, x_offset-xpad, height, svgfile, create_png= True )

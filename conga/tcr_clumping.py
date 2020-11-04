@@ -2,6 +2,7 @@
 # import random
 import pandas as pd
 from os.path import exists
+from pathlib import Path
 from collections import OrderedDict#, Counter
 # from sklearn.metrics import pairwise_distances
 # from sklearn.utils import sparsefuncs
@@ -38,7 +39,10 @@ def estimate_background_tcrdist_distributions(
         exit(1)
 
     if tmpfile_prefix is None:
-        tmpfile_prefix = './tmp_nbrs{}'.format(random.random())
+        tmpfile_prefix = Path('./tmp_nbrs{}'.format(random.randrange(1,10000)))
+    else:
+        tmpfile_prefix = Path(tmpfile_prefix)
+
 
     if tcrs_for_background_generation is None:
         # only used when background_alpha_chains and/or background_beta_chains is None
@@ -59,9 +63,9 @@ def estimate_background_tcrdist_distributions(
                 organism, num_random_samples, 'B', junctions_df)
 
     # save all tcrs to files
-    achains_file = tmpfile_prefix+'_bg_achains.tsv'
-    bchains_file = tmpfile_prefix+'_bg_bchains.tsv'
-    tcrs_file = tmpfile_prefix+'_tcrs.tsv'
+    achains_file = str(tmpfile_prefix) + '_bg_achains.tsv'
+    bchains_file = str(tmpfile_prefix) + '_bg_bchains.tsv'
+    tcrs_file = str(tmpfile_prefix) + '_tcrs.tsv'
 
     pd.DataFrame({'va'   :[x[0] for x in background_alpha_chains],
                   'cdr3a':[x[2] for x in background_alpha_chains]}).to_csv(achains_file, sep='\t', index=False)
@@ -75,11 +79,18 @@ def estimate_background_tcrdist_distributions(
 
 
     # compute distributions vs background chains
-    exe = util.path_to_tcrdist_cpp_bin + 'calc_distributions'
-    outfile = tmpfile_prefix+'_dists.txt'
-    db_filename = '{}tcrdist_info_{}.txt'.format(util.path_to_tcrdist_cpp_db, organism)
+    if os.name == 'posix':
+        exe = Path.joinpath( Path(util.path_to_tcrdist_cpp_bin) , 'calc_distributions')
+    else:
+        exe = Path.joinpath( Path(util.path_to_tcrdist_cpp_bin) , 'calc_distributions.exe')
+
+    outfile = str(tmpfile_prefix) + '_dists.tsv'
+
+    db_filename = Path.joinpath( Path(util.path_to_tcrdist_cpp_db) , 'tcrdist_info_{}.txt'.format( organism))
+
     cmd = '{} -f {} -m {} -d {} -a {} -b {} -o {}'\
-          .format(exe, tcrs_file, max_dist, db_filename, achains_file, bchains_file, outfile)
+    .format(exe, tcrs_file, max_dist, db_filename, achains_file, bchains_file, outfile)
+
     util.run_command(cmd, verbose=True)
 
     if not exists(outfile):
@@ -96,8 +107,6 @@ def estimate_background_tcrdist_distributions(
         os.remove(filename)
 
     return tcrdist_freqs
-
-
 
 
 def assess_tcr_clumping(
@@ -133,34 +142,41 @@ def assess_tcr_clumping(
 
     radii = [int(x+0.1) for x in radii] #ensure integers
 
-    outprefix = outfile_prefix+'_tcr_clumping'
+    outprefix = outfile_prefix + '_tcr_clumping'
 
     tcrs = preprocess.retrieve_tcrs_from_adata(adata)
 
     bg_freqs = estimate_background_tcrdist_distributions(
         adata.uns['organism'], tcrs, max(radii), num_random_samples=num_random_samples, tmpfile_prefix=outprefix)
 
-    tcrs_file = outprefix+'_tcrs.tsv'
+    tcrs_file = outprefix +'_tcrs.tsv'
     adata.obs['va cdr3a vb cdr3b'.split()].to_csv(tcrs_file, sep='\t', index=False)
 
 
     # find neighbors in fg tcrs up to max(radii) #######################################
-    exe = util.path_to_tcrdist_cpp_bin+'find_neighbors'
+
+    if os.name == 'posix':
+        exe = Path.joinpath( Path(util.path_to_tcrdist_cpp_bin) , 'find_neighbors')
+    else:
+        exe = Path.joinpath( Path(util.path_to_tcrdist_cpp_bin) , 'find_neighbors.exe')
+
     agroups, bgroups = preprocess.setup_tcr_groups(adata)
     agroups_filename = outprefix+'_agroups.txt'
     bgroups_filename = outprefix+'_bgroups.txt'
     np.savetxt(agroups_filename, agroups, fmt='%d')
     np.savetxt(bgroups_filename, bgroups, fmt='%d')
 
-    db_filename = '{}tcrdist_info_{}.txt'.format(util.path_to_tcrdist_cpp_db, organism)
+    db_filename = Path.joinpath( Path(util.path_to_tcrdist_cpp_db), f'tcrdist_info_{organism}.txt')
 
     tcrdist_threshold = max(radii)
+
     cmd = '{} -f {} -t {} -d {} -o {} -a {} -b {}'\
-          .format(exe, tcrs_file, tcrdist_threshold, db_filename, outprefix, agroups_filename, bgroups_filename)
+    .format(exe, tcrs_file, tcrdist_threshold, db_filename, outprefix, agroups_filename, bgroups_filename)
+
     util.run_command(cmd, verbose=True)
 
-    nbr_indices_filename = '{}_nbr{}_indices.txt'.format(outprefix, tcrdist_threshold)
-    nbr_distances_filename = '{}_nbr{}_distances.txt'.format(outprefix, tcrdist_threshold)
+    nbr_indices_filename = outprefix + '_nbr{}_indices.txt'.format( tcrdist_threshold)
+    nbr_distances_filename = outprefix + '_nbr{}_distances.txt'.format( tcrdist_threshold)
 
     if not exists(nbr_indices_filename) or not exists(nbr_distances_filename):
         print('find_neighbors failed:', exists(nbr_indices_filename), exists(nbr_distances_filename))
