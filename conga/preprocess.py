@@ -1,6 +1,7 @@
 import scanpy as sc
 import random
 import pandas as pd
+import matplotlib.pyplot as plt
 from os.path import exists
 from collections import Counter
 from sklearn.metrics import pairwise_distances
@@ -61,12 +62,13 @@ def normalize_and_log_the_raw_matrix(
 
     print('Normalize and logging matrix...')
 
-    ft_varname = pmhc_scoring.get_feature_types_varname(adata)
+    ft_varname = util.get_feature_types_varname(adata)
     if ft_varname:
         ftypes_counts = Counter(adata.raw.var[ft_varname]).most_common()
         print('feature_types counter:', ftypes_counts)
 
-        ngenes = sum( adata.raw.var[ft_varname] != 'Antibody Capture' )
+        ngenes = sum( adata.raw.var[ft_varname] == util.GENE_EXPRESSION_FEATURE_TYPE)
+        #ngenes = sum( adata.raw.var[ft_varname] != 'Antibody Capture' )
     else:
         ngenes = adata.raw.shape[1]
     n_ab_features = adata.raw.shape[1] - ngenes
@@ -172,7 +174,8 @@ def setup_X_igex( adata ):
 
 def read_adata(
         gex_data, # filename
-        gex_data_type # string describing file type
+        gex_data_type, # string describing file type
+        gex_only = True
 ):
     ''' Split this out so that other code can use it. Read GEX data
     '''
@@ -181,10 +184,10 @@ def read_adata(
         adata = sc.read_h5ad( gex_data )
 
     elif gex_data_type == '10x_mtx':
-        adata = sc.read_10x_mtx( gex_data ) # consider-- do we need gex_only here? is it also an option for this fxn?
+        adata = sc.read_10x_mtx( gex_data, gex_only=gex_only )
 
     elif gex_data_type == '10x_h5':
-        adata = sc.read_10x_h5( gex_data, gex_only=True )
+        adata = sc.read_10x_h5( gex_data, gex_only=gex_only )
 
     elif gex_data_type == 'loom':
         adata = sc.read_loom( gex_data )
@@ -205,6 +208,8 @@ def read_dataset(
         keep_cells_without_tcrs = False,
         kpca_file = None,
         allow_missing_kpca_file = False,
+        gex_only=True, #only applies to 10x-formatted data
+        suffix_for_non_gene_features=None, #None or a string
 ):
     ''' returns adata
 
@@ -214,7 +219,18 @@ def read_dataset(
 
     include_tcr_nucseq = True
 
-    adata = read_adata(gex_data, gex_data_type)
+    adata = read_adata(gex_data, gex_data_type, gex_only=gex_only)
+
+
+    if suffix_for_non_gene_features is not None:
+        feature_types_colname = util.get_feature_types_varname( adata )
+        assert feature_types_colname, 'cant identify non-gene features, no feature_types data column'
+
+        ab_mask = np.array(adata.var[feature_types_colname] != util.GENE_EXPRESSION_FEATURE_TYPE)
+        print(f'adding {suffix_for_non_gene_features} to {np.sum(ab_mask)} non-GEX features: {adata.var_names[ab_mask]}')
+        newnames = [ x+suffix_for_non_gene_features if y else x for x,y in zip(adata.var_names, ab_mask)]
+        adata.var.index = newnames
+
 
     if make_var_names_unique:
         adata.var_names_make_unique() # added
@@ -331,6 +347,7 @@ def filter_normalize_and_hvg(
         exclude_TR_genes = True,
         also_exclude_TR_constant_region_genes = True, ## this is NEW and not the default for the old TCR analysis!!!!
         exclude_sexlinked = False,
+        outfile_prefix_for_qc_plots = None,
 ):
     '''Filters cells and genes to find highly variable genes'''
 
@@ -341,7 +358,7 @@ def filter_normalize_and_hvg(
         print('min_genes not set. Using default ' + str(min_genes) )
 
     if n_genes is None:
-        n_genes=2000 # seems like this default of 2000 is maybe a little stringent. Really these should be set
+        n_genes=2500 # change from 2000 to 2500 on 2020-10-24. Ideally these would be set on a per-dataset basis
         # on a per-dataset basis
         print('n_genes not set. Using default ' + str(n_genes) )
 
@@ -371,6 +388,26 @@ def filter_normalize_and_hvg(
     adata.obs['percent_mito'] = np.sum(adata[:, mito_genesA].X, axis=1).A1 / np.sum(adata.X, axis=1).A1
     adata.obs['n_counts'] = adata.X.sum(axis=1).A1
 
+    if outfile_prefix_for_qc_plots is not None:
+        pngfile = outfile_prefix_for_qc_plots+'_qc_violins.png'
+        sc.pl.violin(adata, ['n_genes', 'n_counts', 'percent_mito'],
+                     jitter=0.4, multi_panel=True, show=False)
+        print('making:', pngfile)
+        plt.savefig(pngfile)
+        plt.close()
+
+        pngfile = outfile_prefix_for_qc_plots+'_counts_vs_genes.png'
+        plt.figure(figsize=(8,8))
+        plt.scatter(adata.obs['n_counts'], adata.obs['n_genes'], s=5, c=adata.obs['percent_mito'])
+        plt.colorbar()
+        plt.xlabel('n_counts')
+        plt.ylabel('n_genes')
+        plt.tight_layout()
+        print('making:', pngfile)
+        plt.savefig(pngfile)
+        plt.close()
+
+
     #filter n_genes and percent_mito based on param
     print('filtered out {} cells with more than {} genes'\
           .format( np.sum( adata.obs['n_genes'] >= n_genes ), n_genes ) )
@@ -384,7 +421,7 @@ def filter_normalize_and_hvg(
 
     adata.raw = adata
 
-    feature_types_colname = pmhc_scoring.get_feature_types_varname( adata )
+    feature_types_colname = util.get_feature_types_varname( adata )
     if feature_types_colname:
         mask = (adata.var[feature_types_colname]=='Antibody Capture' )
         print('num antibody features:', np.sum(mask))
@@ -435,19 +472,82 @@ def filter_normalize_and_hvg(
     return adata
 
 
+
+def calc_X_pca_gex_including_protein_features(
+        adata,
+        exclude_protein_prefixes = ['HTO', 'Hashtag', 'Va7.2', 'TCRV', 'TCRv'],
+        n_components_gex=40,
+        n_components_prot=20,
+        compare_distance_distributions=False, # debugging/qc
+):
+    ''' run pca on the protein data
+
+    '''
+    from sklearn.metrics import pairwise_distances
+    from scipy.stats import describe
+    from sklearn.decomposition import PCA
+
+    # tmp hacking:
+    adata = normalize_and_log_the_raw_matrix( adata ) # prob not necessary
+    num_clones = adata.shape[0]
+
+    # get the gex pcs
+    sc.tl.pca(adata, svd_solver='arpack', n_comps=n_components_gex)
+    X_pca_gex  = np.copy(adata.obsm['X_pca'])
+    del adata.obsm['X_pca'] #dont leave old stuff cluttering around
+
+
+    ft_varname = util.get_feature_types_varname(adata)
+    prot_mask = np.array(adata.raw.var[ft_varname] == 'Antibody Capture')
+    for p in exclude_protein_prefixes:
+        prot_mask &= ~adata.raw.var_names.str.startswith(p)
+    assert np.sum(prot_mask)>0, "no protein features found!"
+    assert np.sum(prot_mask)>=n_components_prot, \
+        f"{n_components_prot} protein PC components requested, only {np.sum(prot_mask)} features found"
+    print('used_protein_features:', list(adata.raw.var_names[prot_mask]))
+    X = adata.raw.X.tocsc()[:,prot_mask].toarray()
+    # normalize to mean=0, sd=1 for each feature (ie, column)
+    mn = np.mean(X, axis=0)
+    sd = np.std(X, axis=0)
+    X = (X-mn[np.newaxis,:])/sd[np.newaxis,:]
+    pca = PCA()
+    X_pca = pca.fit_transform(X)
+    print('pca_variance:', pca.explained_variance_ratio_[:n_components_prot])
+    X_pca_prot = X_pca[:,:n_components_prot]
+
+    if compare_distance_distributions:
+        nrandom = min(1000, num_clones)
+        inds = np.random.permutation(adata.shape[0])[:nrandom]
+        D_prot = pairwise_distances(X_pca_prot[inds,:])
+        D_gex = pairwise_distances(X_pca_gex[inds,:])
+        print('gex_dists: ', describe(D_gex.ravel()))
+        print('prot_dists:', describe(D_prot.ravel()))
+        print('dist_ratio:', np.mean(D_prot.ravel()) / np.mean(D_gex.ravel()))
+
+    X_pca_combo = np.hstack([X_pca_prot, X_pca_gex])
+    print('X_pca_combo:', X_pca_combo.shape)
+
+    adata.obsm['X_pca_gex_only'] = X_pca_gex
+    adata.obsm['X_pca_gex'] = X_pca_combo
+    adata.obsm['X_pca_prot_only'] = X_pca_prot
+    print('replacing the GEX PCs with combined GEX/PROT PCS')
+
+
 def cluster_and_tsne_and_umap(
         adata,
-        louvain_resolution= None,
-        compute_pca_gex= True,
+        clustering_resolution= None,
+        recompute_pca_gex=False, # force recomputing X_pca_gex even if present
         skip_tsne=True, # yes this is silly
         skip_tcr=False,
-        clustering_method=None
+        clustering_method=None,
+        n_neighbors=10, # used for umap and clustering
+        n_gex_pcs=40, # only used if we have to compute them
 ):
     '''calculates neighbors, tsne, louvain for both GEX and TCR
 
     stores in  adata:
 
-    obsm: X_pca_gex
+    obsm: X_pca_gex (if not already present or if recompute_pca_gex==True)
     obsm: X_tsne_gex
     obsm: X_tsne_tcr
     obsm: X_gex_2d (same as) X_umap_gex
@@ -459,35 +559,36 @@ def cluster_and_tsne_and_umap(
     assert clustering_method in [None, 'louvain', 'leiden']
 
     ncells = adata.shape[0]
-    n_components = min(ncells-1, 50)
 
-    if compute_pca_gex:
+    if 'X_pca_gex' not in adata.obsm_keys() or recompute_pca_gex:
         # switch to arpack for better reproducibility
         # re-run now that we have reduced to a single cell per clone
-        sc.tl.pca(adata, svd_solver='arpack', n_comps=n_components)
+        print('computing X_pca_gex using sc.tl.pca')
+        n_gex_pcs = min(ncells-1, n_gex_pcs)
+        sc.tl.pca(adata, svd_solver='arpack', n_comps=n_gex_pcs)
         adata.obsm['X_pca_gex'] = adata.obsm['X_pca']
+
     assert 'X_pca_gex' in adata.obsm_keys()
     if not skip_tcr:
         assert 'X_pca_tcr' in adata.obsm_keys()
 
 
     for tag in ['gex','tcr']:
-        if skip_tcr and tag=='tcr': # hack for analyzing GEX before reducing to clones
+        if skip_tcr and tag=='tcr':
+            # might want to do this if we havent reduced to clones yet
+            # or if we are using exact TCRdist neighbors instead of kernel PCs
             continue
 
         adata.obsm['X_pca'] = adata.obsm['X_pca_'+tag]
-        if tag == 'gex': # tmp hack...
-            # raw to louvain uses 50 for pca, but only 40 for neighbors
-            sc.pp.neighbors(adata, n_neighbors=10, n_pcs=min(40,n_components)) #
-        else:
-            # analyze_sorted_generic uses 50
-            sc.pp.neighbors(adata, n_neighbors=10, n_pcs=n_components) # had a 40 in there...
+        n_pcs = adata.obsm['X_pca'].shape[1]
+        #n_pcs = n_gex_pcs_for_neighbors if tag=='gex' else n_tcr_pcs_for_neighbors
+        sc.pp.neighbors(adata, n_neighbors=n_neighbors, n_pcs=n_pcs)
         if not skip_tsne:
-            sc.tl.tsne(adata, n_pcs=n_components)
+            sc.tl.tsne(adata, n_pcs=n_pcs)
             adata.obsm['X_tsne_'+tag] = adata.obsm['X_tsne']
         sc.tl.umap(adata)
         adata.obsm['X_umap_'+tag] = adata.obsm['X_umap']
-        resolution = 1.0 if louvain_resolution is None else louvain_resolution
+        resolution = 1.0 if clustering_resolution is None else clustering_resolution
         if clustering_method=='louvain':
             cluster_key_added = 'louvain_'+tag
             sc.tl.louvain(adata, resolution=resolution, key_added=cluster_key_added)
@@ -521,12 +622,13 @@ def filter_and_scale(
         adata,
         min_genes = None,
         n_genes= None,
-        percent_mito= None
+        percent_mito= None,
+        outfile_prefix_for_qc_plots = None,
 ):
     ## now process as before
     adata = filter_normalize_and_hvg(
         adata, min_genes=min_genes, n_genes=n_genes, percent_mito=percent_mito,
-        exclude_TR_genes= True, exclude_sexlinked=True)
+        exclude_TR_genes= True, exclude_sexlinked=True, outfile_prefix_for_qc_plots=outfile_prefix_for_qc_plots)
 
     ## should consider adding cell cycle here:
     sc.pp.regress_out(adata, ['n_counts','percent_mito'])
@@ -801,8 +903,6 @@ def _calc_nndists_old( D, nbrs ):
     assert nndists.shape==(num_clones,)
     return nndists
 
-
-
 def calc_nbrs_batched(
         adata,
         nbr_fracs,
@@ -811,6 +911,7 @@ def calc_nbrs_batched(
         also_calc_nndists = False,
         nbr_frac_for_nndists = None,
         target_N_for_batching = 8192,
+        use_exact_tcrdist_nbrs = False,
 ):
     ''' returns dict mapping from nbr_frac to [nbrs_gex, nbrs_tcr]
 
@@ -818,6 +919,9 @@ def calc_nbrs_batched(
     '''
     if also_calc_nndists:
         assert nbr_frac_for_nndists in nbr_fracs
+
+    if use_exact_tcrdist_nbrs:
+        obsm_tag_tcr = None # dont do the standard calculation
 
     N = adata.shape[0]
     # try for a dataset size of target_N, ie batch_size*N = target_N**2, batch_size = target_N**2 / N
@@ -861,13 +965,21 @@ def calc_nbrs_batched(
                     nndists[itag].append( _calc_nndists( D, nbrs ))
                     print('DONE calculating nndists:', nbr_frac)
 
+
     for nbr_frac in nbr_fracs:
         nbrslist_gex, nbrslist_tcr = all_nbrs[nbr_frac]
         all_nbrs[nbr_frac] = [ np.vstack(nbrslist_gex), None if obsm_tag_tcr is None else np.vstack(nbrslist_tcr) ]
 
+    if use_exact_tcrdist_nbrs:
+        tcr_nbrs, tcr_nndists = calculate_tcrdist_nbrs(adata, nbr_fracs, nbr_frac_for_nndists)
+        for nbr_frac in nbr_fracs:
+            nbrs_gex,_ = all_nbrs[nbr_frac]
+            all_nbrs[nbr_frac] = [nbrs_gex, tcr_nbrs[nbr_frac]]
+        nndists[1] = tcr_nndists
+
     if also_calc_nndists:
         nndists_gex = np.hstack(nndists[0])
-        nndists_tcr = None if obsm_tag_tcr is None else np.hstack(nndists[1])
+        nndists_tcr = nndists[1] if use_exact_tcrdist_nbrs else None if obsm_tag_tcr is None else np.hstack(nndists[1])
 
         return all_nbrs, nndists_gex, nndists_tcr
     else:
@@ -882,6 +994,7 @@ def calc_nbrs(
         also_calc_nndists = False,
         nbr_frac_for_nndists = None,
         target_N_for_batching = 8192,
+        use_exact_tcrdist_nbrs = False,
 ):
     ''' returns dict mapping from nbr_frac to [nbrs_gex, nbrs_tcr]
 
@@ -889,10 +1002,13 @@ def calc_nbrs(
     '''
     if adata.shape[0] > 1.25*target_N_for_batching: ## EARLY RETURN
         return calc_nbrs_batched(adata, nbr_fracs, obsm_tag_gex, obsm_tag_tcr, also_calc_nndists, nbr_frac_for_nndists,
-                                 target_N_for_batching)
+                                 target_N_for_batching, use_exact_tcrdist_nbrs=use_exact_tcrdist_nbrs)
 
     if also_calc_nndists:
         assert nbr_frac_for_nndists in nbr_fracs
+
+    if use_exact_tcrdist_nbrs:
+        obsm_tag_tcr = None # dont do the standard calculation
 
     all_nbrs = {}
     for nbr_frac in nbr_fracs:
@@ -923,18 +1039,51 @@ def calc_nbrs(
                 nndists[itag] = _calc_nndists( D, nbrs )
                 print('DONE calculating nndists:', tag, nbr_frac)
 
+
+    if use_exact_tcrdist_nbrs:
+        tcr_nbrs, tcr_nndists = calculate_tcrdist_nbrs(adata, nbr_fracs, nbr_frac_for_nndists)
+        for nbr_frac in nbr_fracs:
+            nbrs_gex,_ = all_nbrs[nbr_frac]
+            all_nbrs[nbr_frac] = [nbrs_gex, tcr_nbrs[nbr_frac]]
+        nndists[1] = tcr_nndists
+
     if also_calc_nndists:
         return all_nbrs, nndists[0], nndists[1]
     else:
         return all_nbrs
 
 
-def recalculate_tcrdist_nbrs(
+def calculate_tcrdist_nbrs(
         adata,
         nbr_fracs,
         nbr_frac_for_nndists = None, # if not None, calculate nndists at this nbr fraction
 ):
-    ''' returns dict mapping from nbr_frac to nbrs_tcr
+    ''' returns all_nbrs, nndists
+
+    all_nbrs is a dict mapping from nbr_frac to nbrs_tcr
+
+    nndists=None if nbr_frac_for_nndists is None
+
+    this is a wrapper function around the c++ or python routines
+
+    nbrs exclude self and any clones in same atcr group or btcr group
+    '''
+    if util.tcrdist_cpp_available():
+        return calculate_tcrdist_nbrs_cpp(adata, nbr_fracs, nbr_frac_for_nndists)
+    else:
+        return calculate_tcrdist_nbrs_python(adata, nbr_fracs, nbr_frac_for_nndists)
+
+
+def calculate_tcrdist_nbrs_python(
+        adata,
+        nbr_fracs,
+        nbr_frac_for_nndists = None, # if not None, calculate nndists at this nbr fraction
+):
+    ''' returns all_nbrs, nndists
+
+    all_nbrs is a dict mapping from nbr_frac to nbrs_tcr
+
+    nndists=None if nbr_frac_for_nndists is None
 
     nbrs exclude self and any clones in same atcr group or btcr group
     '''
@@ -976,11 +1125,12 @@ def recalculate_tcrdist_nbrs(
         assert all_nbrs[nbr_frac].shape == (num_clones, num_neighbors)
 
     if nbr_frac_for_nndists is None:
-        return all_nbrs
+        nndists = None
     else:
         assert len(nndists) == num_clones
-        return all_nbrs, np.array(nndists)
+        nndists = np.array(nndists)
 
+    return all_nbrs, nndists
 
 def calculate_tcrdist_nbrs_cpp(
         adata,
@@ -988,7 +1138,11 @@ def calculate_tcrdist_nbrs_cpp(
         nbr_frac_for_nndists = None,
         tmpfile_prefix = None
 ):
-    ''' returns dict mapping from nbr_frac to nbrs_tcr
+    ''' returns all_nbrs, nndists
+
+    all_nbrs is a dict mapping from nbr_frac to nbrs_tcr
+
+    nndists=None if nbr_frac_for_nndists is None
 
     nbrs exclude self and any clones in same atcr group or btcr group
     '''
@@ -1049,7 +1203,7 @@ def calculate_tcrdist_nbrs_cpp(
         os.remove(filename)
 
     if nbr_frac_for_nndists is None:
-        return all_nbrs
+        nndists = None
     else:
         num_nbrs = max(1, int(nbr_frac_for_nndists*adata.shape[0]))
         assert num_nbrs <= knn_indices.shape[1]
@@ -1058,7 +1212,8 @@ def calculate_tcrdist_nbrs_cpp(
         wts /= np.sum(wts)
         nndists = np.sum( dists * wts[np.newaxis,:], axis=1)
         assert nndists.shape==(adata.shape[0],)
-        return all_nbrs, nndists
+
+    return all_nbrs, nndists
 
 
 def get_vfam(vgene):
@@ -1124,6 +1279,7 @@ def make_tcrdist_kernel_pcs_file_from_clones_file(
         input_distfile = None,
         output_distfile = None,
         force_Dmax = None,
+        force_tcrdist_cpp = False,
 ):
     if outfile is None: # this is the name expected by read_dataset above (with n_components_in==50)
         outfile = '{}_AB.dist_{}_kpcs'.format(clones_file[:-4], n_components_in)
@@ -1138,8 +1294,11 @@ def make_tcrdist_kernel_pcs_file_from_clones_file(
 
 
     if input_distfile is None: ## tcr distances
-        print(f'compute tcrdist distance matrix for {len(tcrs)} clonotypes')
-        D = np.array( [ tcrdist_calculator(x,y) for x in tcrs for y in tcrs ] ).reshape( (len(tcrs), len(tcrs)) )
+        if force_tcrdist_cpp or (util.tcrdist_cpp_available() and len(tcrs)>5000):
+            D = calc_tcrdist_matrix_cpp(tcrs, organism)
+        else:
+            print(f'compute tcrdist distance matrix for {len(tcrs)} clonotypes')
+            D = np.array( [ tcrdist_calculator(x,y) for x in tcrs for y in tcrs ] ).reshape( (len(tcrs), len(tcrs)) )
     else:
         print(f'reload tcrdist distance matrix for {len(tcrs)} clonotypes')
         D = np.loadtxt(input_distfile)
@@ -1346,7 +1505,7 @@ def calc_tcrdist_nbrs_umap_clusters_cpp(
         outfile_prefix,
         umap_key_added = 'X_tcrdist_2d',
         cluster_key_added = 'clusters_tcrdist',
-        louvain_resolution = None,
+        clustering_resolution = None,
         n_components_umap = 2,
 ):
     tcrs_filename = outfile_prefix+'_tcrs.tsv'
@@ -1415,12 +1574,13 @@ def calc_tcrdist_nbrs_umap_clusters_cpp(
     adata.obsm[umap_key_added] = adata.obsm['X_umap']
 
     print('running louvain', adata.shape)
-    resolution = 1.0 if louvain_resolution is None else louvain_resolution
+    resolution = 1.0 if clustering_resolution is None else clustering_resolution
     sc.tl.louvain(adata, resolution=resolution, key_added=cluster_key_added)
     adata.obs[cluster_key_added] = np.copy(adata.obs[cluster_key_added]).astype(int)
     print('DONE running louvain', cluster_key_added)
 
     del adata.obsm['X_pca'] # delete the fake pcas
+    del adata.obsm['X_umap'] # delete the extra umap copy
 
 def calc_tcrdist_matrix_cpp(
         tcrs,
@@ -1465,7 +1625,8 @@ def calc_tcrdist_matrix_cpp(
 
 def subset_to_CD4_or_CD8_clusters(
         adata,
-        which_subset  # 'CD4' or 'CD8'
+        which_subset,  # 'CD4' or 'CD8'
+        use_protein_features = False
 ):
     assert adata.uns['organism'] == 'human'
     assert which_subset in ['CD4', 'CD8']
@@ -1474,21 +1635,42 @@ def subset_to_CD4_or_CD8_clusters(
     num_clones = adata.shape[0]
     all_gex = {}
 
-    for gene in ['CD4','CD8A','CD8B']:
+    if use_protein_features:
+        # these are probably dataset specific:
+        cd4_genes = ['CD4_p']
+        cd8_genes = ['CD8_p', 'CD8a_p']
+    else:
+        cd4_genes = ['CD4']
+        cd8_genes = ['CD8A', 'CD8B']
+
+    print('subset_to_CD4_or_CD8_clusters:', cd4_genes, cd8_genes)
+
+    for gene in cd4_genes+cd8_genes:
         if gene not in adata.raw.var_names:
-            print('subset_to_CD4_or_CD8_clusters: missing', gene)
+            print('WARNING subset_to_CD4_or_CD8_clusters: missing', gene)
             all_gex[gene] = np.zeros((num_clones,))
         else:
             index = list(adata.raw.var_names).index(gene)
             all_gex[gene] = adata.raw.X[:,index].toarray()[:,0]
 
-    cd8_gex = all_gex['CD8A'] + all_gex['CD8B']
-    cd4_gex = all_gex['CD4']
+    cd8_gex = np.copy(all_gex[cd8_genes[0]])
+    for g in cd8_genes[1:]:
+        cd8_gex += all_gex[g]
+    cd8_gex /= len(cd8_genes)
+
+    cd4_gex = np.copy(all_gex[cd4_genes[0]])
+    for g in cd4_genes[1:]:
+        cd4_gex += all_gex[g]
+    cd4_gex /= len(cd4_genes)
 
     num_clusters = np.max(clusters_gex)+1
     good_clusters = []
-    cd4_rescale = 1/0.6
-    cd8_rescale = 1/4.0
+    if use_protein_features:
+        cd4_rescale = 1.0
+        cd8_rescale = 1.0
+    else:
+        cd4_rescale = 1/0.6
+        cd8_rescale = 1/2.0
     good_mask = np.full((num_clones,), False)
     for c in range(num_clusters):
         mask = clusters_gex==c
@@ -1503,61 +1685,6 @@ def subset_to_CD4_or_CD8_clusters(
     adata = adata[good_mask,:].copy()
     return adata
 
-
-def analyze_CD4_CD8(
-        adata,
-        nbrs_gex,
-        pngfile
-):
-    import matplotlib.pyplot as plt
-    if adata.uns['organism'] != 'human':
-        # only really makes sense for human tcr AB
-        print('analyze_CD4_CD8 incompatible organism:', adata.uns['organism'])
-        return
-
-    clusters_gex = np.array(adata.obs['clusters_gex'])
-    num_clones = adata.shape[0]
-    all_gex = {}
-
-    for gene in ['CD4','CD8A','CD8B']:
-        if gene not in adata.raw.var_names:
-            print('analyze_CD4_CD8: missing', gene)
-            all_gex[gene] = np.zeros((num_clones,))
-        else:
-            index = list(adata.raw.var_names).index(gene)
-            all_gex[gene] = adata.raw.X[:,index].toarray()[:,0]
-
-    # look at neighborhoods
-    xvals = all_gex['CD8A'] + all_gex['CD8B']
-    yvals = all_gex['CD4']
-
-    num_nbrs = nbrs_gex.shape[1]
-
-    xvals = (xvals + xvals[nbrs_gex].sum(axis=1))/(num_nbrs+1)
-    yvals = (yvals + yvals[nbrs_gex].sum(axis=1))/(num_nbrs+1)
-
-    plt.figure(figsize=(8,4))
-    plt.subplot(121)
-    plt.scatter(xvals, yvals, alpha=0.25, c=clusters_gex, cmap='tab20')
-    plt.xlabel('CD8A+CD8B')
-    plt.ylabel('CD4')
-
-
-    plt.subplot(122)
-    xvals = all_gex['CD8A'] + all_gex['CD8B']
-    yvals = all_gex['CD4']
-    num_clusters = np.max(clusters_gex)+1
-    vals = []
-    for c in range(num_clusters):
-        mask = clusters_gex==c
-        x = np.sum(xvals[mask])/np.sum(mask)
-        y = np.sum(yvals[mask])/np.sum(mask)
-        vals.append((x,y,c))
-    plt.scatter([x[0] for x in vals], [x[1] for x in vals], c=[x[2] for x in vals], cmap='tab20', s=50)
-    plt.xlabel('CD8A+CD8B')
-    plt.ylabel('CD4')
-    plt.savefig(pngfile)
-    print('making:', pngfile)
 
 
 

@@ -45,7 +45,7 @@ for ii, row in df.iterrows():
 
     clones_df = pd.read_csv(row.clones_file, sep='\t')
     bcmap_df = pd.read_csv(bcmap_file, sep='\t')
-    adata = conga.preprocess.read_adata(row.gex_data, row.gex_data_type)
+    adata = conga.preprocess.read_adata(row.gex_data, row.gex_data_type, gex_only=False)
 
     if args.batch_keys is not None:
         for k in args.batch_keys:

@@ -23,7 +23,10 @@ def tcrdist_cpp_available():
     return os.path.exists(path_to_tcrdist_cpp_bin + 'find_neighbors')
 
 # not a big deal, but if we have protein ie antibody data we use these to mask it out
-EXPECTED_FEATURE_TYPES = ['Gene Expression', 'Antibody Capture']
+GENE_EXPRESSION_FEATURE_TYPE = 'Gene Expression'
+ANTIBODY_CAPTURE_FEATURE_TYPE = 'Antibody Capture'
+
+EXPECTED_FEATURE_TYPES = [GENE_EXPRESSION_FEATURE_TYPE, ANTIBODY_CAPTURE_FEATURE_TYPE]
 
 FUNNY_MOUSE_TRBV_GENE = '5830405F06Rik' # actually seems to be a tcr v gene transcript or correlate with one
 FUNNY_HUMAN_IG_GENES = ['AC233755.1', 'AC233755.2', # seem to be associated with one or more IGHV genes
@@ -107,4 +110,20 @@ def make_clones_file( tcrs, outfilename, subject = 'UNK', epitope = 'UNK_E' ):
         out.write('\t'.join( outl[x] for x in outfields)+'\n')
     out.close()
 
+
+def get_feature_types_varname( adata ):
+    ''' Figure out the correct "feature_types" varname, e.g. feature_types-0 or feature_types-0-0
+    for sorting out which are gene expression features and which are protein/antibody-capture features
+    '''
+    for name in adata.var: # the columns of the var dataframe
+        if name.startswith('feature_types'):
+            ftypes = Counter(adata.var[name])
+            print('get_feature_types_varname:', name, 'feature_type_counts:', ftypes.most_common())
+            for fname, count in ftypes.items():
+                if fname not in EXPECTED_FEATURE_TYPES:
+                    print('WARNING WARNING WARNING !!!! unrecognized feature type', fname, 'with', count, 'features')
+            return name
+    print('unable to find feature_types varname')
+    print(adata.var_names)
+    return None
 

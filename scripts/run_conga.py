@@ -30,8 +30,10 @@ parser.add_argument('--subset_to_CD4', action='store_true')
 parser.add_argument('--subset_to_CD8', action='store_true')
 parser.add_argument('--min_cluster_size', type=int, default=5)
 parser.add_argument('--min_cluster_size_for_tcr_clumping_logos', type=int, default=3)
+parser.add_argument('--min_cluster_size_for_batch_bias_logos', type=int, default=5)
 parser.add_argument('--min_cluster_size_fraction', type=float, default=0.001)
 parser.add_argument('--clustering_method', choices=['louvain','leiden'])
+parser.add_argument('--clustering_resolution', type=float, default = 1.0)
 parser.add_argument('--bad_barcodes_file')
 parser.add_argument('--make_unfiltered_logos', action='store_true')
 #parser.add_argument('--make_avggood_logos', action='store_true') # see old versions on github
@@ -57,9 +59,13 @@ parser.add_argument('--find_hotspot_features', action='store_true')
 parser.add_argument('--plot_cluster_gene_compositions', action='store_true')
 parser.add_argument('--make_tcrdist_trees', action='store_true')
 parser.add_argument('--make_hotspot_nbrhood_logos', action='store_true')
+parser.add_argument('--analyze_CD4_CD8', action='store_true')
+parser.add_argument('--analyze_proteins', action='store_true')
+parser.add_argument('--analyze_special_genes', action='store_true')
 # configure things
 parser.add_argument('--skip_gex_header', action='store_true')
 parser.add_argument('--average_clone_gex', action='store_true')
+parser.add_argument('--include_protein_features', action='store_true')
 parser.add_argument('--skip_gex_header_raw', action='store_true')
 parser.add_argument('--skip_gex_header_nbrZ', action='store_true')
 parser.add_argument('--verbose_nbrs', action='store_true')
@@ -69,13 +75,16 @@ parser.add_argument('--include_alphadist_in_tcr_feature_logos', action='store_tr
 parser.add_argument('--show_pmhc_info_in_logos', action='store_true')
 parser.add_argument('--gex_header_tcr_score_names', type=str, nargs='*')
 parser.add_argument('--batch_keys', type=str, nargs='*')
+parser.add_argument('--exclude_batch_keys_for_biases', type=str, nargs='*')
 parser.add_argument('--radii_for_tcr_clumping', type=int, nargs='*')
 parser.add_argument('--num_random_samples_for_tcr_clumping', type=int)
 parser.add_argument('--gex_nbrhood_tcr_score_names', type=str, nargs='*')
 parser.add_argument('--shuffle_tcr_kpcs', action='store_true') # shuffle the TCR kpcs to test for FDR
 parser.add_argument('--shuffle_gex_nbrs', action='store_true') # for debugging
 parser.add_argument('--exclude_vgene_strings', type=str, nargs='*')
+parser.add_argument('--suffix_for_non_gene_features', type=str)
 parser.add_argument('--max_genes_per_cell', type=int)
+parser.add_argument('--qc_plots', action='store_true')
 
 args = parser.parse_args()
 
@@ -169,7 +178,8 @@ if args.restart is None:
 
     adata = conga.preprocess.read_dataset(
         args.gex_data, args.gex_data_type, args.clones_file, kpca_file=args.kpca_file, # default is None
-        allow_missing_kpca_file=allow_missing_kpca_file)
+        allow_missing_kpca_file=allow_missing_kpca_file, gex_only=False,
+        suffix_for_non_gene_features=args.suffix_for_non_gene_features)
     assert args.organism
     adata.uns['organism'] = args.organism
     assert 'organism' in adata.uns_keys()
@@ -236,7 +246,9 @@ if args.restart is None:
 
     print(adata)
 
-    adata = conga.preprocess.filter_and_scale( adata, n_genes = args.max_genes_per_cell )
+    outfile_prefix_for_qc_plots = None if args.qc_plots is None else args.outfile_prefix
+    adata = conga.preprocess.filter_and_scale( adata, n_genes = args.max_genes_per_cell,
+                                               outfile_prefix_for_qc_plots = outfile_prefix_for_qc_plots )
 
     if args.filter_ribo_norm_low_cells:
         adata = conga.preprocess.filter_cells_by_ribo_norm( adata )
@@ -262,6 +274,12 @@ if args.restart is None:
     adata = conga.preprocess.reduce_to_single_cell_per_clone( adata, average_clone_gex=args.average_clone_gex )
     assert 'X_igex' in adata.obsm_keys()
 
+    if args.include_protein_features:
+        # this fills X_pca_gex_only, X_pca_gex (combo), X_pca_prot
+        # in the adata.obsm array
+        conga.preprocess.calc_X_pca_gex_including_protein_features(
+            adata, compare_distance_distributions=True)
+
     if args.shuffle_tcr_kpcs:
         X_pca_tcr = adata.obsm['X_pca_tcr']
         assert X_pca_tcr.shape[0] == adata.shape[0]
@@ -269,16 +287,17 @@ if args.restart is None:
         adata.obsm['X_pca_tcr'] = X_pca_tcr[reorder,:]
         outlog.write('randomly permuting X_pca_tcr {}\n'.format(X_pca_tcr.shape))
 
-    clustering_resolution = 2.0 if (args.subset_to_CD8 or args.subset_to_CD4) else 1.0 # 1.0 is the default
+    clustering_resolution = 2.0 if (args.subset_to_CD8 or args.subset_to_CD4) else args.clustering_resolution
 
     print('run cluster_and_tsne_and_umap'); sys.stdout.flush()
     adata = conga.preprocess.cluster_and_tsne_and_umap(
-        adata, louvain_resolution = clustering_resolution, clustering_method=args.clustering_method,
+        adata, clustering_resolution = clustering_resolution,
+        clustering_method=args.clustering_method,
         skip_tcr=(args.use_tcrdist_umap and args.use_tcrdist_clusters))
 
     if args.checkpoint:
         adata.write_h5ad(args.outfile_prefix+'_checkpoint.h5ad')
-else:
+else: ############## restarting from a previous conga run #######################
     assert exists(args.restart)
     adata = sc.read_h5ad(args.restart)
     print('recover from h5ad file:', args.restart, adata )
@@ -307,6 +326,7 @@ else:
         # need to redo the cluster/tsne/umap
         adata = conga.preprocess.cluster_and_tsne_and_umap(
             adata, clustering_method=args.clustering_method,
+            clustering_resolution=args.clustering_resolution,
             skip_tcr=(args.use_tcrdist_umap and args.use_tcrdist_clusters))
 
 if args.exclude_gex_clusters:
@@ -337,21 +357,23 @@ if args.exclude_gex_clusters:
         adata = adata[mask].copy()
 
     adata = conga.preprocess.cluster_and_tsne_and_umap(
-        adata, clustering_method=args.clustering_method, skip_tcr=(args.use_tcrdist_umap and args.use_tcrdist_clusters))
+        adata, clustering_method=args.clustering_method,
+        clustering_resolution=args.clustering_resolution,
+        skip_tcr=(args.use_tcrdist_umap and args.use_tcrdist_clusters))
 
     if args.checkpoint:
         adata.write_h5ad(args.outfile_prefix+'_checkpoint.h5ad')
-        adata = conga.preprocess.cluster_and_tsne_and_umap(
-            adata, clustering_method=args.clustering_method,
-            skip_tcr=(args.use_tcrdist_umap and args.use_tcrdist_clusters))
 
 if args.subset_to_CD4 or args.subset_to_CD8:
     assert not (args.subset_to_CD4 and args.subset_to_CD8)
     which_subset = 'CD4' if args.subset_to_CD4 else 'CD8'
-    adata = conga.preprocess.subset_to_CD4_or_CD8_clusters(adata, which_subset)
+    adata = conga.preprocess.subset_to_CD4_or_CD8_clusters(
+        adata, which_subset, use_protein_features=args.include_protein_features)
 
     adata = conga.preprocess.cluster_and_tsne_and_umap(
-        adata, clustering_method=args.clustering_method, skip_tcr=(args.use_tcrdist_umap and args.use_tcrdist_clusters))
+        adata, clustering_method=args.clustering_method,
+        clustering_resolution=args.clustering_resolution,
+        skip_tcr=(args.use_tcrdist_umap and args.use_tcrdist_clusters))
 
 
 if args.use_tcrdist_umap or args.use_tcrdist_clusters:
@@ -372,19 +394,21 @@ nbr_frac_for_nndists = min( x for x in args.nbr_fracs if x*num_clones>=10 or x==
 outlog.write(f'nbr_frac_for_nndists: {nbr_frac_for_nndists}\n')
 obsm_tag_tcr = None if args.use_exact_tcrdist_nbrs else 'X_pca_tcr'
 all_nbrs, nndists_gex, nndists_tcr = conga.preprocess.calc_nbrs(
-    adata, args.nbr_fracs, also_calc_nndists=True, nbr_frac_for_nndists=nbr_frac_for_nndists, obsm_tag_tcr=obsm_tag_tcr)
+    adata, args.nbr_fracs, also_calc_nndists=True, nbr_frac_for_nndists=nbr_frac_for_nndists,
+    obsm_tag_tcr=obsm_tag_tcr, use_exact_tcrdist_nbrs=args.use_exact_tcrdist_nbrs)
 
-if args.use_exact_tcrdist_nbrs:
-    if conga.util.tcrdist_cpp_available():
-        all_tcrdist_nbrs, nndists_tcr = conga.preprocess.calculate_tcrdist_nbrs_cpp(
-            adata, args.nbr_fracs, nbr_frac_for_nndists=nbr_frac_for_nndists)
-    else:
-        all_tcrdist_nbrs, nndists_tcr = conga.preprocess.recalculate_tcrdist_nbrs(
-            adata, args.nbr_fracs, nbr_frac_for_nndists=nbr_frac_for_nndists)
-    for nbr_frac in args.nbr_fracs:
-        nbrs_gex, old_nbrs_tcr = all_nbrs[nbr_frac]
-        assert old_nbrs_tcr is None
-        all_nbrs[nbr_frac] = [nbrs_gex, all_tcrdist_nbrs[nbr_frac]]
+# this is now simplified and moved inside calc_nbrs
+# if args.use_exact_tcrdist_nbrs:
+#     if conga.util.tcrdist_cpp_available():
+#         all_tcrdist_nbrs, nndists_tcr = conga.preprocess.calculate_tcrdist_nbrs_cpp(
+#             adata, args.nbr_fracs, nbr_frac_for_nndists=nbr_frac_for_nndists)
+#     else:
+#         all_tcrdist_nbrs, nndists_tcr = conga.preprocess.recalculate_tcrdist_nbrs(
+#             adata, args.nbr_fracs, nbr_frac_for_nndists=nbr_frac_for_nndists)
+#     for nbr_frac in args.nbr_fracs:
+#         nbrs_gex, old_nbrs_tcr = all_nbrs[nbr_frac]
+#         assert old_nbrs_tcr is None
+#         all_nbrs[nbr_frac] = [nbrs_gex, all_tcrdist_nbrs[nbr_frac]]
 
     ## with the new logic, we don't calculate kpca nbrs at all if args.use_exact_tcrdist_nbrs is True
     ## so we can't check the overlap like we are doing here:
@@ -544,11 +568,20 @@ if args.graph_vs_graph: ########################################################
 
 batch_bias_results = None
 if args.find_batch_biases:
+    pval_threshold = 0.05 # kind of arbitrary
     nbrhood_results, hotspot_results = conga.correlations.find_batch_biases(
-        adata, all_nbrs, pval_threshold=0.05)
+        adata, all_nbrs, pval_threshold=pval_threshold, exclude_batch_keys=args.exclude_batch_keys_for_biases)
     if nbrhood_results.shape[0]:
         tsvfile = args.outfile_prefix+'_nbrhood_batch_biases.tsv'
         nbrhood_results.to_csv(tsvfile, sep='\t', index=False)
+
+        nbrs_gex, nbrs_tcr = all_nbrs[ max(args.nbr_fracs) ]
+
+        #min_cluster_size = max( args.min_cluster_size, int( 0.5 + args.min_cluster_size_fraction * num_clones) )
+        conga.plotting.make_batch_bias_plots(
+            adata, nbrhood_results, nbrs_gex, nbrs_tcr, args.min_cluster_size_for_batch_bias_logos,
+            pval_threshold, args.outfile_prefix)
+
 
     if hotspot_results.shape[0]:
         tsvfile = args.outfile_prefix+'_batch_hotspots.tsv'
@@ -1148,6 +1181,23 @@ if args.find_hotspot_features:
             conga.plotting.make_hotspot_nbrhood_logo_figures(adata, nbrs_gex, nbrs_tcr, nbrhood_results,
                                                              min_cluster_size, args.outfile_prefix,
                                                              pvalue_threshold=1.0)
+
+if args.analyze_CD4_CD8:
+    min_nbrs = 10
+    for nbr_frac in sorted(all_nbrs.keys()):
+        if nbr_frac * adata.shape[0] > min_nbrs:
+            nbr_frac_for_plotting = nbr_frac
+            break
+    else:
+        nbr_frac_for_plotting = max(all_nbrs.keys())
+
+    conga.plotting.analyze_CD4_CD8(adata, all_nbrs[nbr_frac_for_plotting][0], args.outfile_prefix)
+
+if args.analyze_proteins:
+    conga.plotting.analyze_proteins(adata, args.outfile_prefix)
+
+if args.analyze_special_genes:
+    conga.plotting.analyze_special_genes(adata, args.outfile_prefix)
 
 ## make summary plots of top clones and their batch distributions
 if 'batch_keys' in adata.uns_keys():

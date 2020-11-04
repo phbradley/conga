@@ -1137,10 +1137,15 @@ def find_batch_biases(
         adata,
         all_nbrs,
         pval_threshold=0.05,
+        exclude_batch_keys=None
 ):
     ''' Look for graph neighborhoods that are biased in their batch distribution
 
     Returns a tuple of two dataframes: nbrhood_results, hotspot_results
+
+    in nbrhood_results, the hits are grouped by clusters_tcr assignment
+    and shared biased batches into
+    groups using single-linkage clustering, stored in the 'cluster_group' column
 
     '''
     if 'batch_keys' not in adata.uns_keys():
@@ -1149,6 +1154,10 @@ def find_batch_biases(
 
     tcrs = pp.retrieve_tcrs_from_adata(adata)
 
+    # for grouping the hit clones
+    clusters_gex = np.array(adata.obs['clusters_gex'])
+    clusters_tcr = np.array(adata.obs['clusters_tcr'])
+
     num_clones = adata.shape[0]
     batch_keys = adata.uns['batch_keys']
 
@@ -1156,7 +1165,11 @@ def find_batch_biases(
 
     hotspot_results = []
 
+    is_significant = np.full((num_clones,), False)
+
     for bkey in batch_keys:
+        if exclude_batch_keys and bkey in exclude_batch_keys:
+            continue
         bcounts = np.array(adata.obsm[bkey])
         num_choices = bcounts.shape[1]
         assert bcounts.shape == (num_clones, num_choices)
@@ -1200,6 +1213,7 @@ def find_batch_biases(
                         #_,mwu_pval2 = mannwhitneyu( nbr_scores, non_nbr_scores, alternative='less')
                         mwu_pval1 *= num_clones
                         if mwu_pval1 < pval_threshold:
+                            is_significant[ii] = True
                             nbrhood_results.append( OrderedDict(
                                 batch_key=bkey,
                                 batch_choice=ib,
@@ -1225,8 +1239,8 @@ def find_batch_biases(
                 for ii, l in enumerate(results.itertuples()):
                     if l.pvalue_adj <= pval_threshold:
                         hotspot_results.append( OrderedDict(
-                            batch_key=l.feature.split('_')[0],
-                            batch_choice=int(l.feature.split('_')[1]),
+                            batch_key='_'.join(l.feature.split('_')[:-1]),
+                            batch_choice=int(l.feature.split('_')[-1]),
                             nbrs_tag=nbrs_tag,
                             nbr_frac=nbr_frac,
                             pvalue_adj=l.pvalue_adj,
@@ -1237,4 +1251,67 @@ def find_batch_biases(
                           .format(ii, l.Z, l.pvalue_adj, l.feature, nbrs_tag, nbr_frac))
     sys.stdout.flush()
 
-    return pd.DataFrame(nbrhood_results), pd.DataFrame(hotspot_results)
+    # now try identifying groups of related nbrhoods
+    nbrhood_results = pd.DataFrame(nbrhood_results)
+    if nbrhood_results.shape[0]:
+        #
+        significant_inds = np.nonzero(is_significant)[0]
+
+        all_sig_nbrs = {}
+        all_batches = {}
+        for ii in significant_inds:
+            all_sig_nbrs[ii] = set([ii])
+            # the batch-key combos for which ii has a significant bias
+            # itertuples with index=False and name=None returns simple row tuples
+            all_batches[ii] = set( nbrhood_results[nbrhood_results.clone_index==ii][['batch_key','batch_choice']]\
+                                   .itertuples(index=False, name=None))
+
+        for ii in significant_inds:
+            # for nbrs_tag, nbr_frac in set(nbrhood_results[nbrhood_results.clone_index==ii][['nbrs_tag','nbr_frac']]\
+            #                               .itertuples(index=False, name=None)):
+            #     nbrs = all_nbrs[nbr_frac][0] if nbrs_tag=='gex' else all_nbrs[nbr_frac][1]
+            for nbrs_tag in set(nbrhood_results[nbrhood_results.clone_index==ii].nbrs_tag): # should just be 'tcr' now
+                assert nbrs_tag=='tcr' # tmp hack
+                clusters = clusters_gex if nbrs_tag=='gex' else clusters_tcr
+                for jj in np.nonzero( (clusters==clusters[ii]) & is_significant )[0]:
+                    if len(all_batches[ii]&all_batches[jj]):
+                        all_sig_nbrs[ii].add(jj)
+                        all_sig_nbrs[jj].add(ii)
+
+
+        all_smallest_nbr = {}
+        for ii in significant_inds:
+            all_smallest_nbr[ii] = min(all_sig_nbrs[ii])
+
+        while True:
+            updated = False
+            for ii in significant_inds:
+                nbr = all_smallest_nbr[ii]
+                new_nbr = min(nbr, np.min([all_smallest_nbr[x] for x in all_sig_nbrs[ii]]))
+                if nbr != new_nbr:
+                    all_smallest_nbr[ii] = new_nbr
+                    updated = True
+            if not updated:
+                break
+        # define clusters, choose cluster centers
+        clusters = np.array([0]*num_clones) # 0 if not clumped
+
+        cluster_number=0
+        for ii in significant_inds:
+            nbr = all_smallest_nbr[ii]
+            if ii==nbr:
+                cluster_number += 1
+                members = [ x for x,y in all_smallest_nbr.items() if y==nbr]
+                clusters[members] = cluster_number
+
+        for ii, nbrs in all_sig_nbrs.items():
+            for nbr in nbrs:
+                assert clusters[ii] == clusters[nbr] # confirm single-linkage clusters
+
+        assert not np.any(clusters[is_significant]==0)
+        assert np.all(clusters[~is_significant]==0)
+
+        nbrhood_results['cluster_group'] = [ clusters[x.clone_index] for x in nbrhood_results.itertuples()]
+
+
+    return nbrhood_results, pd.DataFrame(hotspot_results) # first is already converted to DF

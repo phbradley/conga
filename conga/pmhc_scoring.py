@@ -7,22 +7,6 @@ import sys
 from collections import Counter
 import pandas as pd
 
-def get_feature_types_varname( adata ):
-    ''' SPECIAL HACK for AGBT dataset
-    Figure out the correct "feature_types" varname, e.g. feature_types-0 or feature_types-0-0
-    '''
-    for name in adata.var: # the columns of the var dataframe
-        if name.startswith('feature_types'):
-            ftypes = Counter(adata.var[name])
-            print('get_feature_types_varname:', name, 'feature_type_counts:', ftypes.most_common())
-            for fname, count in ftypes.items():
-                if fname not in util.EXPECTED_FEATURE_TYPES:
-                    print('WARNING WARNING WARNING !!!! unrecognized feature type', fname, 'with', count, 'features')
-            return name
-    print('unable to find feature_types varname')
-    print(adata.var_names)
-    return None
-
 def get_gene_ids_varname( adata ):
     ''' Figure out the correct "gene_ids" varname, e.g. gene_ids-0 or gene_ids-0-0
     '''
@@ -37,7 +21,7 @@ def get_tenx_agbt_pmhc_var_names( adata ):
     raw = adata.raw
     if raw is None:
         raw = adata
-    ab_capture_mask = ( raw.var[ get_feature_types_varname( adata )] == 'Antibody Capture' )
+    ab_capture_mask = ( raw.var[ util.get_feature_types_varname( adata )] == 'Antibody Capture' )
     not_totalseq_mask = ~raw.var_names.str.contains('TotalSeq')
     pmhc_mask = ab_capture_mask & not_totalseq_mask
 
@@ -51,7 +35,7 @@ def get_pmhc_short_and_long_names_dicts( adata ):
     if raw is None:
         raw = adata
 
-    ab_capture_mask = ( raw.var[ get_feature_types_varname( adata )] == 'Antibody Capture' )
+    ab_capture_mask = ( raw.var[ util.get_feature_types_varname( adata )] == 'Antibody Capture' )
     not_totalseq_mask = ~raw.var_names.str.contains('TotalSeq')
     pmhc_mask = ab_capture_mask & not_totalseq_mask
 
