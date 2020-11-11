@@ -302,6 +302,12 @@ def make_tcr_score_table(adata, scorenames):
                 cols.append( np.zeros( adata.shape[0] ) )
             else:
                 cols.append( np.array(adata.obs['nndists_tcr']) )
+        elif name == 'N_ins': # number of N insertions
+            if 'N_ins' not in adata.obs_keys():
+                print('WARNING N_ins requested but not present in adata.obs!!!!')
+                cols.append( np.zeros( adata.shape[0] ) )
+            else:
+                cols.append( np.array(adata.obs['N_ins']).astype(float) )
         elif name in genes:
             matched = False
             for i_ab,ab in enumerate('AB'):

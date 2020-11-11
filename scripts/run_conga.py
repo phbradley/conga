@@ -69,6 +69,7 @@ parser.add_argument('--include_protein_features', action='store_true')
 parser.add_argument('--skip_gex_header_raw', action='store_true')
 parser.add_argument('--skip_gex_header_nbrZ', action='store_true')
 parser.add_argument('--verbose_nbrs', action='store_true')
+parser.add_argument('--analyze_junctions', action='store_true')
 parser.add_argument('--skip_tcr_scores_in_gex_header', action='store_true')
 parser.add_argument('--tenx_agbt', action='store_true')
 parser.add_argument('--include_alphadist_in_tcr_feature_logos', action='store_true')
@@ -397,35 +398,22 @@ all_nbrs, nndists_gex, nndists_tcr = conga.preprocess.calc_nbrs(
     adata, args.nbr_fracs, also_calc_nndists=True, nbr_frac_for_nndists=nbr_frac_for_nndists,
     obsm_tag_tcr=obsm_tag_tcr, use_exact_tcrdist_nbrs=args.use_exact_tcrdist_nbrs)
 
-# this is now simplified and moved inside calc_nbrs
-# if args.use_exact_tcrdist_nbrs:
-#     if conga.util.tcrdist_cpp_available():
-#         all_tcrdist_nbrs, nndists_tcr = conga.preprocess.calculate_tcrdist_nbrs_cpp(
-#             adata, args.nbr_fracs, nbr_frac_for_nndists=nbr_frac_for_nndists)
-#     else:
-#         all_tcrdist_nbrs, nndists_tcr = conga.preprocess.recalculate_tcrdist_nbrs(
-#             adata, args.nbr_fracs, nbr_frac_for_nndists=nbr_frac_for_nndists)
-#     for nbr_frac in args.nbr_fracs:
-#         nbrs_gex, old_nbrs_tcr = all_nbrs[nbr_frac]
-#         assert old_nbrs_tcr is None
-#         all_nbrs[nbr_frac] = [nbrs_gex, all_tcrdist_nbrs[nbr_frac]]
 
-    ## with the new logic, we don't calculate kpca nbrs at all if args.use_exact_tcrdist_nbrs is True
-    ## so we can't check the overlap like we are doing here:
-    #
-    # all_tcrdist_nbrs = conga.preprocess.recalculate_tcrdist_nbrs(adata, args.nbr_fracs)
-    # for nbr_frac in args.nbr_fracs:
-    #     nbrs_gex, old_nbrs_tcr = all_nbrs[nbr_frac]
-    #     new_nbrs_tcr = all_tcrdist_nbrs[nbr_frac]
-    #     all_nbrs[nbr_frac] = [nbrs_gex, new_nbrs_tcr]
+#
+if args.analyze_junctions:
+    tcrs = conga.preprocess.retrieve_tcrs_from_adata(adata)
+    new_tcrs = conga.tcrdist.tcr_sampler.find_alternate_alleles_for_tcrs(
+        adata.uns['organism'], tcrs, verbose=True)
+    junctions_df = conga.tcrdist.tcr_sampler.parse_tcr_junctions(
+        adata.uns['organism'], new_tcrs)
 
-    #     # compare nbr overlap
-    #     overlap, total = 0, 0
-    #     for nbrs1, nbrs2 in zip(old_nbrs_tcr, new_nbrs_tcr):
-    #         nbrs2_set = frozenset(nbrs2)
-    #         overlap += sum(x in nbrs2_set for x in nbrs1)
-    #         total += len(nbrs1)
-    #     print(f'use_exact_tcrdist_nbrs: nbr_frac= {nbr_frac} overlap_fraction= {overlap/total:.6f} {overlap} {total}')
+    num_inserts = (np.array(junctions_df.a_insert) +
+                   np.array(junctions_df.vd_insert) +
+                   np.array(junctions_df.dj_insert) +
+                   np.array(junctions_df.vj_insert))
+    adata.obs['N_ins'] = num_inserts
+    args.gex_nbrhood_tcr_score_names.append('N_ins')
+
 
 if args.shuffle_gex_nbrs:
     reorder = np.random.permutation(num_clones)

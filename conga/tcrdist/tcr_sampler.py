@@ -1,6 +1,6 @@
 import sys
 import random
-from collections import OrderedDict
+from collections import OrderedDict, Counter
 import pandas as pd
 from .basic import *
 from . import translation
@@ -132,6 +132,120 @@ def get_j_cdr3_nucseq( organism, j_gene, paranoid = False ):
 
 
     return j_nucseq
+
+
+def find_alternate_alleles(
+        organism,
+        v_gene,
+        j_gene,
+        cdr3_nucseq,
+        min_improvement = 2
+        ):
+    ''' Since 10x generally doesn't provide allele (ie *01) information,
+    we may want to see if there's an alternate allele that provides a
+    better explanation of the cdr3 nucleotide sequence
+
+    return new_v_gene, new_j_gene
+
+    only take an alternate allele if its coverage of cdr3_nucseq is greater by at least
+    min_improvement over the current allele
+    '''
+
+    v_prefix = v_gene[:v_gene.index('*')+1]
+    alternate_v_alleles = [ x for x in all_genes[organism] if x.startswith(v_prefix) and x != v_gene]
+
+    j_prefix = j_gene[:j_gene.index('*')+1]
+    alternate_j_alleles = [ x for x in all_genes[organism] if x.startswith(j_prefix) and x != j_gene]
+
+    for vg in [v_gene]+alternate_v_alleles:
+        v_nucseq = get_v_cdr3_nucseq( organism, vg )
+        if not v_nucseq:
+            #print(vg, v_nucseq)
+            continue
+        num_matched = count_matches( v_nucseq, cdr3_nucseq, default_mismatch_score_for_junction_analysis )
+        if vg == v_gene:
+            best_v_gene = vg
+            best_num_matched = num_matched
+        else:
+            if ( num_matched > best_num_matched and ( best_v_gene != v_gene or
+                                                      num_matched - best_num_matched >= min_improvement)):
+                #print('new best v_gene:', vg, best_v_gene, num_matched, best_num_matched)
+                best_v_gene = vg
+                best_num_matched = num_matched
+
+    for jg in [j_gene]+alternate_j_alleles:
+        j_nucseq = get_j_cdr3_nucseq( organism, jg )
+        num_matched = count_matches( ''.join( reversed( list( j_nucseq ) )),
+                                     ''.join( reversed( list( cdr3_nucseq ))),
+                                     default_mismatch_score_for_junction_analysis )
+        if jg == j_gene:
+            best_j_gene = jg
+            best_num_matched = num_matched
+        else:
+            if ( num_matched > best_num_matched and ( best_j_gene != j_gene or
+                                                      num_matched - best_num_matched >= min_improvement)):
+                #print('new best j_gene:', jg, best_j_gene, num_matched, best_num_matched)
+                best_j_gene = jg
+                best_num_matched = num_matched
+    return best_v_gene, best_j_gene
+
+
+def find_alternate_alleles_for_tcrs(
+        organism,
+        tcrs,
+        min_better_ratio=10,
+        min_better_count=5,
+        min_improvement_to_be_called_better=2,
+        verbose=False,
+        ):
+    ''' Try looking for cases where an alternate allele explains more of the cdr3_nucseq
+    than the current allele (which is probably *01 since 10x usually doesn't provide alleles)
+
+    For ones that occur sufficiently often, swap them into the tcrs where they match better
+    '''
+
+    all_counts = {}
+    all_new_genes = []
+    for atcr, btcr in tcrs:
+        new_genes = []
+        for tcr in [atcr, btcr]:
+            v, j, _, cdr3_nucseq = tcr
+            new_v, new_j = find_alternate_alleles(
+                organism, v, j, cdr3_nucseq, min_improvement=min_improvement_to_be_called_better)
+            all_counts.setdefault(v, Counter())[new_v] += 1
+            all_counts.setdefault(j, Counter())[new_j] += 1
+            new_genes.append((new_v, new_j))
+        all_new_genes.append(new_genes)
+
+    allowed_swaps = set()
+    for g, counts in all_counts.items():
+        l = counts.most_common()
+        if l[0][0] != g or (len(l)>1 and l[1][1] >= l[0][1]//min_better_ratio and l[1][1]>=min_better_count):
+            if l[0][0] != g:
+                alt_g = l[0][0]
+            else:
+                alt_g = l[1][0]
+            if verbose:
+                print('find_alternate_alleles_for_tcrs: allow alternate gene:', g, alt_g)
+            allowed_swaps.add(alt_g)
+
+    new_tcrs = []
+    for paired_tcr, paired_new_genes in zip(tcrs, all_new_genes):
+        new_tcr = []
+        for tcr, new_genes in zip(paired_tcr, paired_new_genes):
+            v, j, cdr3, cdr3_nucseq = tcr
+            new_v, new_j = new_genes
+            if new_v in allowed_swaps:
+                v = new_v
+            if new_j in allowed_swaps:
+                j = new_j
+            new_tcr.append((v, j, cdr3, cdr3_nucseq))
+        new_tcr = tuple(new_tcr)
+        if new_tcr != paired_tcr:
+            if verbose:
+                print('find_alternate_alleles_for_tcrs: new_tcr:', new_tcr)
+        new_tcrs.append(new_tcr)
+    return new_tcrs
 
 
 
