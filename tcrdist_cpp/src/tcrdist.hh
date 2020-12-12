@@ -242,7 +242,7 @@ TCRdistCalculator::check_cdr3_ok( string const & cdr3 ) const
 	for ( char const aa : cdr3 ) {
 		if ( amino_acids_.find(aa) == string::npos ) return false;
 	}
-	if ( cdr3.size() <= 5 ) return false;
+	if ( cdr3.size() < 5 ) return false;
 	return true;
 }
 
@@ -294,7 +294,7 @@ TCRdistCalculator::cdr3_distance( string const & a, string const & b ) const
 	int const lenshort( min(alen,blen) ), lenlong( max(alen,blen) ), lendiff( lenlong-lenshort ),
 		gappos( min( 6, 3 + (lenshort-5)/2 ) ), remainder( lenshort-gappos );
 
-	runtime_assert( lenshort > 5 );
+	runtime_assert( lenshort >= 5 );
 
 	Real dist( 0 );
 
@@ -352,7 +352,7 @@ TCRdistCalculator::create_distance_tcr_f(
 	for ( char const aa : cdr3 ) {
 		runtime_assert( amino_acids_.find(aa) != string::npos );
 	}
-	runtime_assert( cdr3.size() > 5 );
+	runtime_assert( cdr3.size() >= 5 );
 	runtime_assert( v_family2vfam_num_.count( vfam ) );
 
 	DistanceTCR_f dtcr;
@@ -384,7 +384,7 @@ TCRdistCalculator::create_distance_tcr_g(
 	for ( char const aa : cdr3 ) {
 		runtime_assert( amino_acids_.find(aa) != string::npos );
 	}
-	runtime_assert( cdr3.size() > 5 );
+	runtime_assert( cdr3.size() >= 5 );
 	runtime_assert( v_gene2v_num_.count( vgene ) );
 
 	DistanceTCR_g dtcr;
@@ -415,7 +415,7 @@ TCRdistCalculator::create_distance_tcr_gs(
 	for ( char const aa : cdr3 ) {
 		runtime_assert( amino_acids_.find(aa) != string::npos );
 	}
-	runtime_assert( cdr3.size() > 5 );
+	runtime_assert( cdr3.size() >= 5 );
 
 	DistanceTCR_gs dtcr;
 	for ( string const & vgene : vgenes ) {

@@ -30,6 +30,11 @@ def tcrdist_cpp_available():
     else:
         return os.path.exists(Path.joinpath( path_to_tcrdist_cpp_bin ,'find_neighbors.exe'))
 
+# this is the (OPTIONAL) obs key used to store a subject-specific identifier
+# right now this is only used to prevent condensing of clonotypes that span subjects,
+# which is pretty unlikely but could happen with certain populations (e.g., MAIT cells)
+#
+SUBJECT_ID_OBS_KEY = 'subject_id'
 
 # not a big deal, but if we have protein ie antibody data we use these to mask it out
 GENE_EXPRESSION_FEATURE_TYPE = 'Gene Expression'

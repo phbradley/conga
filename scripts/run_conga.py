@@ -146,7 +146,7 @@ if args.restart: # these are incompatible with restarting
                  args.bad_barcodes_file or
                  args.filter_ribo_norm_low_cells or
                  args.exclude_vgene_strings or
-                 args.shuffle_tcr_kpcs or
+                 #args.shuffle_tcr_kpcs or
                  args.rerun_kpca )
 
 logfile = args.outfile_prefix+'_log.txt'
@@ -298,7 +298,11 @@ if args.restart is None:
 
     if args.checkpoint:
         adata.write_h5ad(args.outfile_prefix+'_checkpoint.h5ad')
+
+    #############################################################################
 else: ############## restarting from a previous conga run #######################
+    #############################################################################
+
     assert exists(args.restart)
     adata = sc.read_h5ad(args.restart)
     print('recover from h5ad file:', args.restart, adata )
@@ -329,6 +333,23 @@ else: ############## restarting from a previous conga run ######################
             adata, clustering_method=args.clustering_method,
             clustering_resolution=args.clustering_resolution,
             skip_tcr=(args.use_tcrdist_umap and args.use_tcrdist_clusters))
+
+
+    if args.shuffle_tcr_kpcs:
+        # shuffle the kpcs and anything derived from them that is relevant to GvG (this is just for testing)
+        # NOTE: we need to add shuffling of the neighbors if we are going to recover nbr info rather
+        # than recomputing...
+        X_pca_tcr = adata.obsm['X_pca_tcr']
+        assert X_pca_tcr.shape[0] == adata.shape[0]
+        reorder = np.random.permutation(X_pca_tcr.shape[0])
+        adata.obsm['X_pca_tcr'] = X_pca_tcr[reorder,:]
+        adata.obs['clusters_tcr'] = np.array(adata.obs['clusters_tcr'])[reorder]
+        adata.obsm['X_tcr_2d'] = np.array(adata.obsm['X_tcr_2d'])[reorder,:]
+        print('shuffle_tcr_kpcs:: shuffled X_pca_tcr, clusters_tcr, and X_tcr_2d')
+        outlog.write('randomly permuting X_pca_tcr {}\n'.format(X_pca_tcr.shape))
+
+
+
 
 if args.exclude_gex_clusters:
     xl = args.exclude_gex_clusters

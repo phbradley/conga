@@ -334,7 +334,7 @@ def calc_clone_pmhc_pvals(adata, min_log1p_delta=2.0, min_actual_delta=3 ):
                             for ii,m in enumerate(is_pmhc_pos) ] )
     all_pmhc_counts = Counter( top_pmhcs )
 
-    tcrs = pp.retrieve_tcrs_from_adata(adata) # may contain duplicates
+    tcrs = pp.retrieve_tcrs_from_adata(adata, include_subject_id_if_present=True) # may contain duplicates
     unique_tcrs = sorted(set(tcrs))
     num_clones = len(unique_tcrs)
     tcr2clone_id = { y:x for x,y in enumerate(unique_tcrs)}

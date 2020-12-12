@@ -1,5 +1,5 @@
 ########################################################################################################################
-#import matplotlib
+import matplotlib
 #matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import numpy as np
@@ -238,6 +238,9 @@ def make_logo_plots(
         good_score_mask = None,
         make_batch_bars = None,
         batch_keys = None,
+        make_cluster_gex_logos = True,
+        draw_edges_between_conga_hits = True,
+        add_conga_scores_colorbar = False,
 
         ## controls for the gene expression thumbnails that come before the actual logos:
         gex_header_genes=None,
@@ -435,18 +438,19 @@ def make_logo_plots(
     rg_logo_width = 1.5
     score_logo_width = 0.0 if good_bicluster_tcr_scores is None else 0.5
     tcr_logo_width = 8
-    gex_logo_width = 2
     logo_height = 0.5
     frac_scale = 130
     margin = 0.2 # left and right margins actually
     top_margin = 0.2
     bottom_margin = 1.3*margin
+    yspacer_above_logos = 0.1
 
-    gex_logo_width = logo_height * ( gene_width / (math.sqrt(3)+1) )
+    gex_logo_width = logo_height * ( gene_width / (math.sqrt(3)+1) ) if make_cluster_gex_logos else 0.0
 
     fig_width = ( 2*margin + dendro_width + title_logo_width + batch_bars_width + rg_logo_width + tcr_logo_width +
                   score_logo_width + gex_logo_width )
-    header_height = (fig_width-2*margin)/6.
+    conga_scores_colorbar_width = 0.05*fig_width if add_conga_scores_colorbar else 0.0
+    header_height = (fig_width-conga_scores_colorbar_width-2*margin)/6.
 
     num_header2_rows = int(make_gex_header_nbrZ)+int(make_gex_header_raw)
     gex_logo_key_width = 2 # in header2 cols
@@ -460,7 +464,8 @@ def make_logo_plots(
 
     else:
         header2_height = 0.
-    fig_height = top_margin + bottom_margin + header_height + num_header2_rows * header2_height + len(clps)*logo_height
+    fig_height = ( top_margin + bottom_margin + header_height + num_header2_rows * header2_height +
+                   (len(clps)>0)*yspacer_above_logos + len(clps)*logo_height )
 
     # frac_scale is in units of pts^2, and sqrt(frac_scale) is the MAX width in points of the marker
     # there are 72 points per inch
@@ -537,7 +542,7 @@ def make_logo_plots(
         clusters_tag = proj_tag if not ignore_tcr_cluster_colors else 'combo'
         plt.title('{} clusters ({}2D)'.format(clusters_tag, proj_tag), fontsize=9, pad=1) #pad=8)
         if icol==0:
-            plt.text(0.01,0.01,'{} clones'.format(len(all_xy)), ha='left', va='bottom', fontsize=8,
+            plt.text(0.01,0.01,'{} clonotypes'.format(len(all_xy)), ha='left', va='bottom', fontsize=8,
                      transform=plt.gca().transAxes)
             plt.text(0.99,0.01,'{} cells'.format(sum(clone_sizes)), ha='right', va='bottom', fontsize=8,
                      transform=plt.gca().transAxes)
@@ -571,8 +576,9 @@ def make_logo_plots(
         #plt.xlabel('{} UMAP1'.format(TAG))
         #plt.ylabel('{} UMAP2'.format(TAG), fontsize=12,labelpad=1)
         #plt.title('kNN-overlap E-values (Eval=Pval*num_clones)')
-        #cbar = plt.colorbar(ticks=[ math.sqrt(-1*math.log10(x)) for x in [1.0,1e-1,1e-2,1e-3,1e-4,1e-5] ])
-        #cbar.ax.set_yticklabels(['1','0.1','0.01','0.001','1e-4','1e-5'])
+        # if add_conga_scores_colorbar:
+        #     cbar = plt.colorbar(ticks=[ math.sqrt(-1*math.log10(x)) for x in [1.0,1e-1,1e-2,1e-3,1e-4,1e-5] ])
+        #     cbar.ax.set_yticklabels(['1','0.1','0.01','0.001','1e-4','1e-5'])
         xmin,xmax = plt.xlim()
         ymin,ymax = plt.ylim()
         plt.title('CoNGA scores ({}2D)'.format(proj_tag),fontsize=9,pad=1)
@@ -601,33 +607,67 @@ def make_logo_plots(
                     else:
                         inter_lines.append( [ [ all_xy[ii][0], all_xy[ii][1]], [ all_xy[jj][0], all_xy[jj][1] ] ] )
 
-        # the inter-cluspair lines
-        light_gray = '#D3D3D3'
-        line_segments = LineCollection( inter_lines, linewidths=0.25, zorder=1, colors=light_gray, alpha=0.25)
-        plt.gca().add_collection(line_segments)
+        if draw_edges_between_conga_hits:
+            # the inter-cluspair lines
+            light_gray = '#D3D3D3'
+            line_segments = LineCollection( inter_lines, linewidths=0.25, zorder=1, colors=light_gray, alpha=0.25)
+            plt.gca().add_collection(line_segments)
 
-        # the intra-cluspair lines
-        dark_gray = '#888888'
-        line_segments = LineCollection( intra_lines, linewidths=0.25, zorder=1, colors='k')#dark_gray, alpha=0.5)
-        plt.gca().add_collection(line_segments)
+            # the intra-cluspair lines
+            dark_gray = '#888888'
+            line_segments = LineCollection( intra_lines, linewidths=0.25, zorder=1, colors='k')#dark_gray, alpha=0.5)
+            plt.gca().add_collection(line_segments)
 
 
-        for clp,nodes in cluspair2nodes.items():
-            xvals = [ all_xy[x][0] for x in nodes ]
-            yvals = [ all_xy[x][1] for x in nodes ]
+        for clp, nodes in cluspair2nodes.items():
+            xvals = np.array([ all_xy[x][0] for x in nodes ])
+            yvals = np.array([ all_xy[x][1] for x in nodes ])
+            cscores = np.array([ conga_scores[x] for x in nodes ])
+
             if ignore_tcr_cluster_colors:
                 plt.plot( xvals, yvals, zorder=2, marker='o', linestyle='None',
                           color=gex_colors[clp[0]], markeredgecolor='none', markeredgewidth=0 )
             else:
-                plt.plot( xvals, yvals, zorder=2, marker='o', linestyle='None',
-                          color=gex_colors[clp[0]], markerfacecoloralt=tcr_colors[clp[1]],
-                          fillstyle='left', markeredgecolor='none', markeredgewidth=0 )
+                for score_threshold, markersize in [ [1., 6], [1e-1, 7], [1e-2, 8] ]:
+                    mask = cscores <= score_threshold
+                    if np.sum(mask)==0:
+                        continue # nothing to plot
+                    print('score_threshold:', score_threshold, 'num:', np.sum(mask),
+                          'markersize:', markersize)
+                    reorder = np.argsort(cscores[mask])[::-1] # most significant last
+                    plt.plot( xvals[mask][reorder], yvals[mask][reorder], zorder=2,
+                              marker='o', linestyle='None', markersize=markersize,
+                              color=gex_colors[clp[0]], markerfacecoloralt=tcr_colors[clp[1]],
+                              fillstyle='left', markeredgecolor='none', markeredgewidth=0 )
         plt.xticks([],[])
         plt.yticks([],[])
         #plt.ylabel('{} UMAP2'.format(TAG), fontsize=12,labelpad=1)
         plt.xlim((xmin,xmax))
         plt.ylim((ymin,ymax))
-        plt.title('Top-scoring clones ({}2D)'.format(proj_tag),fontsize=9,pad=1)
+        plt.title('CoNGA hits ({}2D)'.format(proj_tag),fontsize=9,pad=1)
+
+        if add_conga_scores_colorbar and icol==1:
+            ax_width = conga_scores_colorbar_width/8.
+            ax_height = 0.72*header_height
+            bottom = (fig_height-top_margin-header_height+0.08*header_height)/fig_height
+            height = ax_height/fig_height
+            left = (margin+6*header_height+2*ax_width)/fig_width
+            width = ax_width/fig_width
+            plt.axes( [left,bottom,width,height] )
+            sm = matplotlib.cm.ScalarMappable(
+                norm=matplotlib.colors.Normalize(vmin=vmin, vmax=vmax), cmap='viridis')
+            sm.set_array(np.sqrt( np.array( [ max(0, -1*np.log10(conga_scores[x])) for x in ks ] )))
+
+            #plt.scatter([],[],c=[],cmap='viridis', vmin=vmin, vmax=vmax)
+            #plt.gca().set_visible(False)
+            cbar = plt.colorbar(mappable=sm, cax=plt.gca(),
+                                ticks=[ math.sqrt(-1*math.log10(x)) for x in [1.0,1e-1,1e-2,1e-3,1e-4,1e-5] ])
+            # cbar = plt.colorbar(
+            #     cax=plt.gca(), ticks=[ math.sqrt(-1*math.log10(x)) for x in [1.0,1e-1,1e-2,1e-3,1e-4,1e-5] ])
+            cbar.ax.set_yticklabels(['1','0.1','0.01','0.001','1e-4','1e-5'], fontsize=7)
+            #cbar.ax.set_ylabel('CoNGA score')
+            cbar.ax.set_title('CoNGA\nscore', loc='left', ha='left', fontsize=9)
+
 
 
         # for making the dendrogram
@@ -684,7 +724,10 @@ def make_logo_plots(
                         plt.xlabel('GEX UMAP1', fontsize=6, labelpad=1)
                 if make_gex_header_nbrZ:
                     plt.text( xmn+pad, ymx, 'raw', va='top', ha='left', fontsize=8)
-                plt.text( xmx, ymx, gene, va='top', ha='right', fontsize=8)
+                    gene_text = gene # no space for both 'clonotype_size' and 'raw'
+                else:
+                    gene_text = gene.replace('clone_sizes', 'clonotype_size')
+                plt.text( xmx, ymx, gene_text, va='top', ha='right', fontsize=8)
 
             if make_gex_header_nbrZ: ## make another plot with the gex-nbrhood averaged scores
                 bottom = (fig_height-top_margin-header_height-num_header2_rows*header2_height)/fig_height
@@ -745,7 +788,7 @@ def make_logo_plots(
 
 
 
-    if len(clps)>0: ## make a key for the gex logo
+    if header2_height > 0.001 and len(clps)>0: ## make a key for the gex logo
         bottom = (fig_height-top_margin-header_height-num_header2_rows*header2_height)/fig_height
         height = header2_height/fig_height
         left = (fig_width-margin-2*header2_height)/fig_width # make these plots square, so height=width
@@ -833,7 +876,8 @@ def make_logo_plots(
         last_row = ( irow == len(leaves)-1 )
         print('clp:',irow,len(leaves),logo_pngfile)
         clp = clps[iclp]
-        bottom = (fig_height-top_margin-header_height-num_header2_rows*header2_height-(irow+1)*logo_height)/fig_height
+        bottom = (fig_height-top_margin-header_height-num_header2_rows*header2_height
+                  -yspacer_above_logos - (irow+1)*logo_height)/fig_height
         height = logo_height/fig_height
 
         num_nodes, fracs, means = all_scores[clp]
@@ -876,8 +920,8 @@ def make_logo_plots(
         plt.text(-1,1,'{}'.format(num_nodes),va='top',ha='left',fontsize=8)
         plt.text( 1,1,'{}'.format(num_cells),va='top',ha='right',fontsize=8)
         if first_row:
-            plt.text(-0.1, 1, 'clones', va='top', ha='right', fontsize=6)
-            plt.text( 0.1, 1, 'cells:', va='top', ha='left', fontsize=6)
+            plt.text( 0.0, 1, 'clonotypes', va='bottom', ha='right', fontsize=6)
+            plt.text( 1.0, 1, 'cells', va='bottom', ha='right', fontsize=6)
 
         if show_pmhc_info_in_logos:
             X_pmhc_clp = np.sum(X_pmhc[nodes,:],axis=0)/len(nodes)
@@ -1016,39 +1060,39 @@ def make_logo_plots(
                          transform=plt.gca().transAxes)
 
 
-        # make the gex logo
-        left = (margin+dendro_width+title_logo_width+batch_bars_width+rg_logo_width+tcr_logo_width+score_logo_width)/fig_width
-        width = gex_logo_width/fig_width
+        if make_cluster_gex_logos: # make the gex logo
+            left = (margin+dendro_width+title_logo_width+batch_bars_width+rg_logo_width+tcr_logo_width+score_logo_width)/fig_width
+            width = gex_logo_width/fig_width
 
-        plt.axes( [left,bottom,width,height] )
+            plt.axes( [left,bottom,width,height] )
 
-        yshift = math.sqrt(3)/2 # 30 60 90 triangle
+            yshift = math.sqrt(3)/2 # 30 60 90 triangle
 
-        xy = []
-        for r in range(3):
-            xoff = 0 if r==1 else 0.5
-            yoff = yshift * ( 1-r )
-            ng = gene_width if r==1 else gene_width-1
-            for ii in range(ng):
-                xy.append( [xoff+ii, yoff] )
+            xy = []
+            for r in range(3):
+                xoff = 0 if r==1 else 0.5
+                yoff = yshift * ( 1-r )
+                ng = gene_width if r==1 else gene_width-1
+                for ii in range(ng):
+                    xy.append( [xoff+ii, yoff] )
 
-        xy = np.array(xy)
-        sizes = [ x*frac_scale for x in fracs ]
-        colors = means
+            xy = np.array(xy)
+            sizes = [ x*frac_scale for x in fracs ]
+            colors = means
 
-        plt.scatter( xy[:,0], xy[:,1], s=sizes, c=colors, cmap = plt.get_cmap('Reds'), vmin=0,
-                     vmax=max_expn_for_gene_logo )
-        plt.xlim( [-0.5, gene_width-0.5] )
-        plt.ylim( [-yshift-0.5, yshift+0.5 ] )
-        plt.xticks([],[])
-        plt.yticks([],[])
-        if last_row:
-            plt.text(0.5,-0.05, 'GEX logo', ha='center', va='top', transform=plt.gca().transAxes)
-            # msg = 'GEX logo genes: row1= {} row2= {} row3= {}'\
-            #     .format(','.join(logo_genes[:gene_width-1]),
-            #             ','.join(logo_genes[gene_width-1:2*gene_width-1]),
-            #             ','.join(logo_genes[2*gene_width-1:]) )
-            # plt.text(1.0,-0.5, msg, ha='right', va='top', transform=plt.gca().transAxes, fontsize=7)
+            plt.scatter( xy[:,0], xy[:,1], s=sizes, c=colors, cmap = plt.get_cmap('Reds'), vmin=0,
+                         vmax=max_expn_for_gene_logo )
+            plt.xlim( [-0.5, gene_width-0.5] )
+            plt.ylim( [-yshift-0.5, yshift+0.5 ] )
+            plt.xticks([],[])
+            plt.yticks([],[])
+            if last_row:
+                plt.text(0.5,-0.05, 'GEX logo', ha='center', va='top', transform=plt.gca().transAxes)
+                # msg = 'GEX logo genes: row1= {} row2= {} row3= {}'\
+                #     .format(','.join(logo_genes[:gene_width-1]),
+                #             ','.join(logo_genes[gene_width-1:2*gene_width-1]),
+                #             ','.join(logo_genes[2*gene_width-1:]) )
+                # plt.text(1.0,-0.5, msg, ha='right', va='top', transform=plt.gca().transAxes, fontsize=7)
 
 
 
@@ -1287,7 +1331,7 @@ def make_summary_figure(
         #add_integers_legend( plt.gca(), C)
         add_categorical_legend( plt.gca(), cluster_names, [C[x] for x in range(num_clusters)] )
         if irow==0:
-            plt.text(0.01,0.01,'{} clones'.format(adata.shape[0]), ha='left', va='bottom', fontsize=8,
+            plt.text(0.01,0.01,'{} clonotypes'.format(adata.shape[0]), ha='left', va='bottom', fontsize=8,
                      transform=plt.gca().transAxes)
 
 
@@ -1362,7 +1406,7 @@ def make_clone_gex_umap_plots(
 
     clusters_gex = np.array(adata.obs['clusters_gex'])
 
-    tcrs = preprocess.retrieve_tcrs_from_adata(adata)
+    tcrs = preprocess.retrieve_tcrs_from_adata(adata, include_subject_id_if_present=True)
 
     unique_tcrs = sorted(set(tcrs))
     # the clone ids are integer indices into the unique_tcrs list

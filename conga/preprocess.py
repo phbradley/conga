@@ -129,12 +129,21 @@ def store_tcrs_in_adata(adata, tcrs):
     return
 
 
-def retrieve_tcrs_from_adata(adata):
+def retrieve_tcrs_from_adata(adata, include_subject_id_if_present=False):
+    ''' include_subject_id_if_present = True means that we add to the tcr-tuples the subject_id
+    as given in the obs array. This will prevent clones from being condensed across individuals
+    '''
     global tcr_keys
-    arrays = [ adata.obs[x] for x in tcr_keys ]
     tcrs = []
-    for va, ja, cdr3a, cdr3a_nucseq, vb, jb, cdr3b, cdr3b_nucseq in zip( *arrays):
-        tcrs.append( ( ( va, ja, cdr3a, cdr3a_nucseq), (vb, jb, cdr3b, cdr3b_nucseq) ) )
+    if include_subject_id_if_present and util.SUBJECT_ID_OBS_KEY in adata.obs_keys():
+        print(f'retrieve_tcrs_from_adata: include_subject_id_if_present is True and {util.SUBJECT_ID_OBS_KEY} present')
+        arrays = [ adata.obs[x] for x in tcr_keys+[util.SUBJECT_ID_OBS_KEY] ]
+        for va, ja, cdr3a, cdr3a_nucseq, vb, jb, cdr3b, cdr3b_nucseq, subject_id in zip( *arrays):
+            tcrs.append( ( ( va, ja, cdr3a, cdr3a_nucseq, subject_id), (vb, jb, cdr3b, cdr3b_nucseq, subject_id) ) )
+    else:
+        arrays = [ adata.obs[x] for x in tcr_keys ]
+        for va, ja, cdr3a, cdr3a_nucseq, vb, jb, cdr3b, cdr3b_nucseq in zip( *arrays):
+            tcrs.append( ( ( va, ja, cdr3a, cdr3a_nucseq), (vb, jb, cdr3b, cdr3b_nucseq) ) )
 
     return tcrs
 
@@ -667,7 +676,7 @@ def reduce_to_single_cell_per_clone(
     sc.tl.pca(adata, svd_solver='arpack', n_comps=min(adata.shape[0]-1, n_pcs))
 
     # for each clone, try to identify the most 'representative' cell based on gex
-    tcrs_with_duplicates = retrieve_tcrs_from_adata(adata)
+    tcrs_with_duplicates = retrieve_tcrs_from_adata(adata, include_subject_id_if_present=True)
     tcrs = sorted( set( tcrs_with_duplicates))
 
     num_clones = len(tcrs)
@@ -789,7 +798,7 @@ def reduce_to_single_cell_per_clone(
         assert new_X_pmhc.shape == ( num_clones, len(pmhc_var_names))
         adata.obsm['X_pmhc'] = new_X_pmhc
 
-    tcrs_redo = retrieve_tcrs_from_adata(adata)
+    tcrs_redo = retrieve_tcrs_from_adata(adata, include_subject_id_if_present=True)
     assert tcrs_redo == tcrs # sanity check
 
     adata = normalize_and_log_the_raw_matrix( adata ) # prob not necessary; already done for X_igex ?
@@ -867,7 +876,7 @@ def filter_cells_by_ribo_norm(adata):
 
 
 def setup_tcr_groups( adata ):
-    tcrs = retrieve_tcrs_from_adata(adata)
+    tcrs = retrieve_tcrs_from_adata(adata, include_subject_id_if_present=True)
 
     atcrs = sorted( set( x[0] for x in tcrs ) )
     btcrs = sorted( set( x[1] for x in tcrs ) )

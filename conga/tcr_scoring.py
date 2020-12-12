@@ -8,6 +8,7 @@ import numpy as np
 from . import util
 from . import preprocess as pp
 from . import imhc_scoring
+from . import cd8_scoring
 from .tcrdist.all_genes import all_genes
 
 
@@ -284,8 +285,10 @@ def make_tcr_score_table(adata, scorenames):
             cols.append( [ float(x==num) for x in clusters_tcr])
         elif name == 'alphadist':
             cols.append( [ alphadist_score_tcr(x) for x in tcrs ])
-        elif name == 'cd8':
+        elif name == 'oldcd8':# the 'old' cd8 score
             cols.append( [ cd8_score_tcr(x) for x in tcrs ])
+        elif name == 'cd8': # see comparison between old/new in cd8_scoring.py
+            cols.append(cd8_scoring.make_cd8_score_table_column(tcrs))
         elif name == 'old_imhc':
             cols.append( [ old_imhc_score_tcr(x) for x in tcrs ])
         elif name == 'imhc':

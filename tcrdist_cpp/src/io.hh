@@ -107,8 +107,8 @@ read_single_chain_tcrs_from_tsv_file(
 	string line;
 	getline(data, line);
 	strings const header(split_to_vector(line, "\t") ); // for debugging only
-	string const vtags(chain == 'A' ? "va va_gene" : "vb vb_gene" );
-	string const cdr3_tag(chain == 'A' ? "cdr3a" : "cdr3b" );
+	string const vtags(chain == 'A' ? "v v_gene va va_gene" : "v v_gene vb vb_gene" );
+	string const cdr3_tag(chain == 'A' ? "cdr3 cdr3a" : "cdr3 cdr3b" );
 	Size const v_index(get_tsv_index(line, split_to_vector(vtags)));
 	Size const cdr3_index(get_tsv_index(line, split_to_vector(cdr3_tag)));
 
