@@ -718,12 +718,13 @@ def reduce_to_single_cell_per_clone(
 
     X_pca = adata.obsm['X_pca']
     clone_sizes = []
+    gex_var = []
     batch_counts = []
     rep_cell_indices = [] # parallel
     new_X_igex = []
 
     ## only used if average_clone_gex is True
-    old_X = adata.raw.X
+    old_raw_X = adata.raw.X
     new_X_rows = []
 
     ## for each clone (tcr) we pick a single representative cell, stored in rep_cell_indices
@@ -745,6 +746,7 @@ def reduce_to_single_cell_per_clone(
 
         if clone_size==1:
             rep_cell_index = clone_cells[0]
+            gex_var.append(0.0)
         else:
             X_pca_clone = X_pca[ clone_cells, : ]
             #print('X_pca_clone:',X_pca_clone.shape)
@@ -753,13 +755,15 @@ def reduce_to_single_cell_per_clone(
             assert D_gex_clone.shape  == ( clone_size,clone_size )
             avgdist = D_gex_clone.sum(axis=1)
             #print('min_avgdist', np.min(avgdist)/clone_size, clone_size, np.argmin(avgdist))
-            rep_cell_index = clone_cells[ np.argmin( avgdist ) ]
+            rep_ind = np.argmin( avgdist )
+            rep_cell_index = clone_cells[rep_ind]
+            gex_var.append(np.sum(D_gex_clone[rep_ind,:]**2)/clone_size)
         rep_cell_indices.append(rep_cell_index)
         if average_clone_gex:
             if clone_size == 1:
-                new_X_rows.append(old_X[clone_cells[0],:])
+                new_X_rows.append(old_raw_X[clone_cells[0],:])
             else:
-                new_X_rows.append(csr_matrix(old_X[clone_cells,:].sum(axis=0)/clone_size))
+                new_X_rows.append(csr_matrix(old_raw_X[clone_cells,:].sum(axis=0)/clone_size))
                 adata.X[rep_cell_index,:] = adata.X[clone_cells,:].sum(axis=0)/clone_size
         new_X_igex.append( np.sum( X_igex[clone_cells,:], axis=0 ) / clone_size )
         if pmhc_var_names:
@@ -772,6 +776,7 @@ def reduce_to_single_cell_per_clone(
     print(f'reduce from {adata.shape[0]} cells to {len(rep_cell_indices)} cells (one per clonotype)')
     adata = adata[ rep_cell_indices, : ].copy() ## seems like we need to copy here, something to do with adata 'views'
     adata.obs['clone_sizes'] = np.array( clone_sizes )
+    adata.obs['gex_variation'] = np.sqrt(np.array( gex_var ))
     adata.obsm['X_igex'] = new_X_igex
     adata.uns['X_igex_genes'] = good_genes
 

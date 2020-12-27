@@ -241,6 +241,8 @@ def make_logo_plots(
         make_cluster_gex_logos = True,
         draw_edges_between_conga_hits = True,
         add_conga_scores_colorbar = False,
+        add_gex_logos_colorbar = False,
+        spacey = False, # add extra space to make everything harder to read
 
         ## controls for the gene expression thumbnails that come before the actual logos:
         gex_header_genes=None,
@@ -444,16 +446,18 @@ def make_logo_plots(
     top_margin = 0.2
     bottom_margin = 1.3*margin
     yspacer_above_logos = 0.1
+    yspacer_below_header = 0.15 if spacey else 0.0
+    xspacer_within_header = 0.15 if spacey else 0.0
 
     gex_logo_width = logo_height * ( gene_width / (math.sqrt(3)+1) ) if make_cluster_gex_logos else 0.0
 
     fig_width = ( 2*margin + dendro_width + title_logo_width + batch_bars_width + rg_logo_width + tcr_logo_width +
                   score_logo_width + gex_logo_width )
-    conga_scores_colorbar_width = 0.05*fig_width if add_conga_scores_colorbar else 0.0
-    header_height = (fig_width-conga_scores_colorbar_width-2*margin)/6.
+    conga_scores_colorbar_width = 0.035*fig_width if add_conga_scores_colorbar else 0.0
+    header_height = (fig_width-conga_scores_colorbar_width-xspacer_within_header-2*margin)/6.
 
     num_header2_rows = int(make_gex_header_nbrZ)+int(make_gex_header_raw)
-    gex_logo_key_width = 2 # in header2 cols
+    gex_logo_key_width = 2 if make_cluster_gex_logos else 0 # in header2 cols
 
     if make_gex_header:
         num_header2_tcr_score_cols = max(gex_logo_key_width,
@@ -465,7 +469,7 @@ def make_logo_plots(
     else:
         header2_height = 0.
     fig_height = ( top_margin + bottom_margin + header_height + num_header2_rows * header2_height +
-                   (len(clps)>0)*yspacer_above_logos + len(clps)*logo_height )
+                   yspacer_below_header + (len(clps)>0)*yspacer_above_logos + len(clps)*logo_height )
 
     # frac_scale is in units of pts^2, and sqrt(frac_scale) is the MAX width in points of the marker
     # there are 72 points per inch
@@ -509,9 +513,9 @@ def make_logo_plots(
     # make a header: 6 square scatter plots across the top
     # left to right:
     # 1 GEX UMAP, colored by GEX clusters
-    # 2 TCR UMAP, colored by TCR clusters
-    # 3 GEX UMAP, colored by conga score
-    # 4 GEX UMAP, only good cells, colored by cluster-pairs
+    # 2 GEX UMAP, colored by conga score
+    # 3 GEX UMAP, only good cells, colored by cluster-pairs
+    # 4 TCR UMAP, colored by TCR clusters
     # 5 TCR UMAP, colored by conga score
     # 6 TCR UMAP, only good cells, colored by cluster-pairs
 
@@ -528,7 +532,7 @@ def make_logo_plots(
             cluster_names = clusters_tcr_names
         bottom = (fig_height-top_margin-header_height)/fig_height
         height = header_height/fig_height
-        left = (margin+3*icol*header_height)/fig_width # make these plots square, so height=width
+        left = (margin+3*icol*header_height+icol*xspacer_within_header)/fig_width # make these plots squares
         width = header_height/fig_width
         plt.axes( [left,bottom,width,height] )
         num_clusters = np.max(clusters)+1
@@ -540,7 +544,13 @@ def make_logo_plots(
         plt.xticks([],[])
         plt.yticks([],[])
         clusters_tag = proj_tag if not ignore_tcr_cluster_colors else 'combo'
-        plt.title('{} clusters ({}2D)'.format(clusters_tag, proj_tag), fontsize=9, pad=1) #pad=8)
+        if spacey:
+            plt.title('{} clusters'.format(clusters_tag), fontsize=9, pad=1) #pad=8)
+            plt.xlabel(f'{proj_tag} UMAP1', fontsize=7, labelpad=1)
+            plt.ylabel(f'{proj_tag} UMAP2', fontsize=7, labelpad=0.0)
+        else:
+            plt.title('{} clusters ({}2D)'.format(clusters_tag, proj_tag), fontsize=9, pad=1) #pad=8)
+
         if icol==0:
             plt.text(0.01,0.01,'{} clonotypes'.format(len(all_xy)), ha='left', va='bottom', fontsize=8,
                      transform=plt.gca().transAxes)
@@ -559,7 +569,7 @@ def make_logo_plots(
         ## now a plot colored by conga score
         bottom = (fig_height-top_margin-header_height)/fig_height
         height = header_height/fig_height
-        left = (margin+(3*icol+1)*header_height)/fig_width # make these plots square, so height=width
+        left = (margin+(3*icol+1)*header_height+icol*xspacer_within_header)/fig_width # make these plots square
         width = header_height/fig_width
         plt.axes( [left,bottom,width,height] )
 
@@ -581,7 +591,11 @@ def make_logo_plots(
         #     cbar.ax.set_yticklabels(['1','0.1','0.01','0.001','1e-4','1e-5'])
         xmin,xmax = plt.xlim()
         ymin,ymax = plt.ylim()
-        plt.title('CoNGA scores ({}2D)'.format(proj_tag),fontsize=9,pad=1)
+        if spacey:
+            plt.title('CoNGA scores',fontsize=9,pad=1)
+            plt.xlabel(f'{proj_tag} UMAP1', fontsize=7, labelpad=1)
+        else:
+            plt.title('CoNGA scores ({}2D)'.format(proj_tag),fontsize=9,pad=1)
         #plt.title('kNN overlap E-values {}-UMAP'.format('GEX' if icol==0 else 'TCR'),fontsize=12,pad=1)
 
 
@@ -589,7 +603,7 @@ def make_logo_plots(
         ## now just showing the top scoring clones
         bottom = (fig_height-top_margin-header_height)/fig_height
         height = header_height/fig_height
-        left = (margin+(3*icol+2)*header_height)/fig_width # make these plots square, so height=width
+        left = (margin+(3*icol+2)*header_height+icol*xspacer_within_header)/fig_width # make these plots square
         width = header_height/fig_width
         plt.axes( [left,bottom,width,height] )
 
@@ -644,14 +658,18 @@ def make_logo_plots(
         #plt.ylabel('{} UMAP2'.format(TAG), fontsize=12,labelpad=1)
         plt.xlim((xmin,xmax))
         plt.ylim((ymin,ymax))
-        plt.title('CoNGA hits ({}2D)'.format(proj_tag),fontsize=9,pad=1)
+        if spacey:
+            plt.title('CoNGA hits', fontsize=9, pad=1) #pad=8)
+            plt.xlabel(f'{proj_tag} UMAP1', fontsize=7, labelpad=1)
+        else:
+            plt.title('CoNGA hits ({}2D)'.format(proj_tag),fontsize=9,pad=1)
 
         if add_conga_scores_colorbar and icol==1:
             ax_width = conga_scores_colorbar_width/8.
             ax_height = 0.72*header_height
             bottom = (fig_height-top_margin-header_height+0.08*header_height)/fig_height
             height = ax_height/fig_height
-            left = (margin+6*header_height+2*ax_width)/fig_width
+            left = (margin+6*header_height+xspacer_within_header+0.5*ax_width)/fig_width
             width = ax_width/fig_width
             plt.axes( [left,bottom,width,height] )
             sm = matplotlib.cm.ScalarMappable(
@@ -703,7 +721,7 @@ def make_logo_plots(
             index = X_igex_genes.index(gene)
 
             if make_gex_header_raw:
-                bottom = (fig_height-top_margin-header_height-header2_height)/fig_height
+                bottom = (fig_height-top_margin-header_height-header2_height-yspacer_below_header)/fig_height
                 height = header2_height/fig_height
                 left = (margin+ig*header2_height)/fig_width # make these plots square, so height=width
                 width = header2_height/fig_width
@@ -730,7 +748,7 @@ def make_logo_plots(
                 plt.text( xmx, ymx, gene_text, va='top', ha='right', fontsize=8)
 
             if make_gex_header_nbrZ: ## make another plot with the gex-nbrhood averaged scores
-                bottom = (fig_height-top_margin-header_height-num_header2_rows*header2_height)/fig_height
+                bottom = (fig_height-top_margin-header_height-num_header2_rows*header2_height-yspacer_below_header)/fig_height
                 height = header2_height/fig_height
                 left = (margin+ig*header2_height)/fig_width # make these plots square, so height=width
                 width = header2_height/fig_width
@@ -761,7 +779,7 @@ def make_logo_plots(
                 irow=ii//num_header2_tcr_score_cols
                 icol=ii%num_header2_tcr_score_cols
                 ## make another plot with the gex-nbrhood averaged TCR scores
-                bottom = (fig_height-top_margin-header_height-(irow+1)*header2_height)/fig_height
+                bottom = (fig_height-top_margin-header_height-(irow+1)*header2_height-yspacer_below_header)/fig_height
                 height = header2_height/fig_height
                 left = (fig_width-margin-(num_header2_tcr_score_cols-icol)*header2_height)/fig_width
                 width = header2_height/fig_width
@@ -782,17 +800,18 @@ def make_logo_plots(
                 _,ymx = plt.ylim()
                 pad = 0.02*(xmx-xmn)
                 plt.text( xmx-pad, ymx,
-                          scoretag.replace('alphadist','ad').replace('nndists_tcr','NNd').replace('cdr3len','len'),
+                          scoretag.replace('alphadist','alphaD').replace('nndists_tcr','NNd').replace('cdr3len','len'),
                           va='top', ha='right', fontsize=8)
                 plt.text( xmn+pad, ymx, 'tcr', va='top', ha='left', fontsize=8)
 
 
 
-    if header2_height > 0.001 and len(clps)>0: ## make a key for the gex logo
-        bottom = (fig_height-top_margin-header_height-num_header2_rows*header2_height)/fig_height
-        height = header2_height/fig_height
+    if header2_height > 0.001 and len(clps)>0 and make_cluster_gex_logos: ## make a key for the gex logo
+        downscale = 0.84 if add_gex_logos_colorbar else 1.0
+        bottom = (fig_height-top_margin-header_height-num_header2_rows*header2_height-yspacer_below_header)/fig_height
+        height = downscale * header2_height/fig_height
         left = (fig_width-margin-2*header2_height)/fig_width # make these plots square, so height=width
-        width = 2*header2_height/fig_width
+        width = downscale * 2*header2_height/fig_width
         plt.axes( [left,bottom,width,height] )
         yshift = math.sqrt(3)/2 # 30 60 90 triangle
         xy = []
@@ -804,14 +823,36 @@ def make_logo_plots(
                 xy.append( [xoff+ii, yoff] )
         xy = np.array(xy)
         color = plt.get_cmap('Reds')(0.2)
-        plt.scatter(xy[:,0], xy[:,1], c=[color], s=350, zorder=1)
+        plt.scatter(xy[:,0], xy[:,1], c=[color], s=310*downscale, zorder=1) # was 350
         for gene,(x,y) in zip( logo_genes, xy ):
-            plt.text(x,y,gene,fontsize=8,ha='center',va='center',rotation=30, zorder=2)
+            plt.text(x,y,gene,fontsize=7,ha='center',va='center',rotation=30, zorder=2) # was 8
         plt.xlim( [-0.5, gene_width-0.5] )
         plt.ylim( [-yshift-0.5, yshift+0.5 ] )
         plt.xticks([],[])
         plt.yticks([],[])
-        #plt.title('key for GEX logo',fontsize=8,va='top',pad=1)
+        if add_gex_logos_colorbar:
+            plt.title('GEX logo genes', fontsize=8, va='bottom', pad=1)
+
+            ax_width = 0.06*width
+            ax_height = 0.75*height
+            ax_bottom = bottom + 0.05*height
+            #bottom = (fig_height-top_margin-header_height+0.08*header_height)/fig_height
+            #height = ax_height/fig_height
+            ax_left = left+width+0.05*width
+            plt.axes( [ax_left,bottom,ax_width,ax_height] )
+            sm = matplotlib.cm.ScalarMappable(
+                norm=matplotlib.colors.Normalize(vmin=0, vmax=1), cmap='Reds')
+            sm.set_array(np.linspace(vmin, vmax, 10))
+
+            #plt.scatter([],[],c=[],cmap='viridis', vmin=vmin, vmax=vmax)
+            #plt.gca().set_visible(False)
+            cbar = plt.colorbar(mappable=sm, cax=plt.gca(), ticks = [0,1])
+            #ticks=[ math.sqrt(-1*math.log10(x)) for x in [1.0,1e-1,1e-2,1e-3,1e-4,1e-5] ])
+            # cbar = plt.colorbar(
+            #     cax=plt.gca(), ticks=[ math.sqrt(-1*math.log10(x)) for x in [1.0,1e-1,1e-2,1e-3,1e-4,1e-5] ])
+            cbar.ax.set_yticklabels(['0', 'max'], fontsize=7)
+            #cbar.ax.set_ylabel('CoNGA score')
+            cbar.ax.set_title('Mean\nexpn', loc='left', ha='left', fontsize=8)
 
 
     if len(clps)>1:
@@ -877,7 +918,7 @@ def make_logo_plots(
         print('clp:',irow,len(leaves),logo_pngfile)
         clp = clps[iclp]
         bottom = (fig_height-top_margin-header_height-num_header2_rows*header2_height
-                  -yspacer_above_logos - (irow+1)*logo_height)/fig_height
+                  -yspacer_below_header-yspacer_above_logos - (irow+1)*logo_height)/fig_height
         height = logo_height/fig_height
 
         num_nodes, fracs, means = all_scores[clp]
@@ -1056,7 +1097,7 @@ def make_logo_plots(
             plt.xticks([],[])
             plt.yticks([],[])
             if last_row:
-                plt.text(1.0, -0.05, 'TCRseq\nfeatures', ha='right', va='top', fontsize=8,
+                plt.text(0.9, -0.05, 'TCRseq\nfeatures', ha='right', va='top', fontsize=8,
                          transform=plt.gca().transAxes)
 
 
@@ -1087,7 +1128,9 @@ def make_logo_plots(
             plt.xticks([],[])
             plt.yticks([],[])
             if last_row:
-                plt.text(0.5,-0.05, 'GEX logo', ha='center', va='top', transform=plt.gca().transAxes)
+                plt.text(0.5,-0.05, 'GEX logo', ha='center', va='top', transform=plt.gca().transAxes, fontsize=9)
+                plt.text(0.5,-0.32, '(radius ~ % pos. cells)', ha='center', va='top', fontsize=7,
+                         transform=plt.gca().transAxes)
                 # msg = 'GEX logo genes: row1= {} row2= {} row3= {}'\
                 #     .format(','.join(logo_genes[:gene_width-1]),
                 #             ','.join(logo_genes[gene_width-1:2*gene_width-1]),
