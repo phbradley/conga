@@ -1,6 +1,6 @@
 # Run this after running setup_all.bash and changing these next few lines if necessary
 #
-# this will launch all four calculations concurrently on your machine. If you want them to run
+# this will launch all three calculations concurrently on your machine. If you want them to run
 # sequentially, remove the '&' symbols at the end of the lines that start "$cmd"
 #
 # change this to point to the correct python executable
