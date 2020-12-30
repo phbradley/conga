@@ -1098,7 +1098,7 @@ if args.find_hotspot_features:
                 pngfile = '{}_hotspot_{}_features_{:.3f}_nbrs_{}_umap.png'\
                           .format(args.outfile_prefix, tag, nbr_frac, plot_tag)
                 print('making:', pngfile)
-                conga.plotting.plot_hotspot_genes(adata, plot_tag, results, pngfile, nbrs=plot_nbrs,
+                conga.plotting.plot_hotspot_umap(adata, plot_tag, results, pngfile, nbrs=plot_nbrs,
                                                   compute_nbr_averages=True)
 
                 if results.shape[0]<2:

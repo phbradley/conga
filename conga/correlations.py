@@ -1133,8 +1133,6 @@ def find_hotspot_nbrhoods(
     else:
         return pd.DataFrame()
 
-#Don't pull the code below into main
-
 def find_hotspots( adata, nbrs, pval_threshold = None ):
     """
     wrapper function combining Hotspot calculations for TCR and GEX. Returns combined df.
@@ -1157,7 +1155,6 @@ def find_hotspots( adata, nbrs, pval_threshold = None ):
     hotspot_df = pd.concat([gene_df, tcr_df])
 
     return hotspot_df
-
 
 def find_batch_biases(
         adata,

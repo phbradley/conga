@@ -30,6 +30,7 @@ from scipy.spatial import distance
 
 
 
+
 default_logo_genes = {
     'human': ['CD4','CD8A','CD8B','CCR7','SELL',
               'GNLY','PRF1','GZMA','IL7R','IKZF2','KLRD1',
@@ -1783,9 +1784,9 @@ def get_raw_feature_scores( feature, adata, feature_type=None):
 
 
 
-def plot_hotspot_genes(
+def plot_hotspot_umap(
         adata,
-        xy_tag, # 'gex' or 'tcr'
+        xy_tag,
         results_df,
         pngfile,
         nbrs = None,
@@ -1793,9 +1794,11 @@ def plot_hotspot_genes(
         nrows=6,
         ncols=4,
 ):
-    """ Expected columns in results_df dataframe: pvalue_adj feature feature_type
-    where feature_type is either 'gex' or 'tcr'
-    need that since some feature strings can be both
+    """
+    xy_tag: use 'gex' or 'tcr' to set umap space used for plotting the hotspot features
+    results_df : pandas df of hotspot features to plot. Expected columns are pvalue_adj feature feature_type
+    where feature_type is either 'gex' or 'tcr'. We need that since some feature strings can be both. Output
+    from correlations.find_hotspots can be fed in directly
     """
     if results_df.shape[0]==0:
         print('no results to plot:', pngfile)
@@ -1817,7 +1820,7 @@ def plot_hotspot_genes(
         plotno+=1
         plt.subplot(nrows, ncols, plotno)
 
-        scores = get_raw_feature_scores( row.feature, adata, row.feature_type )
+        scores = get_raw_feature_scores( row.feature, adata , row.feature_type )
         # if row.feature_type == 'gex':
         #     if row.startswith
         #     assert row.feature in var_names
@@ -1877,7 +1880,8 @@ def plot_interesting_features_vs_clustermap(
     try:
         import fastcluster
     except:
-        print('Consider installing fastcluster to increase clustering speed')
+        print('fastcluster is not available. Consider installing for faster performance.')
+
 
     assert dist_tag in ['gex','tcr']
 
@@ -2016,7 +2020,7 @@ def plot_interesting_features_vs_clustermap(
         colorbar_sorted_tuples.append( [ ('tcrclus'+str(x), cluster_color_dict[x]) for x in range(num_clusters_tcr)])
 
     if show_VJ_gene_segment_colorbars:
-        tcrs = preprocess.retrieve_tcrs_from_adata(adata)
+        tcrs = pp.retrieve_tcrs_from_adata(adata)
         gene_colors, sorted_gene_colors = assign_colors_to_conga_tcrs(tcrs, organism, return_sorted_color_tuples=True)
         colorbar_names.extend('VA JA VB JB'.split())
         colorbar_colors.extend(gene_colors)
