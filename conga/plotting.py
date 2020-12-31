@@ -2020,7 +2020,7 @@ def plot_interesting_features_vs_clustermap(
         colorbar_sorted_tuples.append( [ ('tcrclus'+str(x), cluster_color_dict[x]) for x in range(num_clusters_tcr)])
 
     if show_VJ_gene_segment_colorbars:
-        tcrs = pp.retrieve_tcrs_from_adata(adata)
+        tcrs = preprocess.retrieve_tcrs_from_adata(adata)
         gene_colors, sorted_gene_colors = assign_colors_to_conga_tcrs(tcrs, organism, return_sorted_color_tuples=True)
         colorbar_names.extend('VA JA VB JB'.split())
         colorbar_colors.extend(gene_colors)
@@ -2816,68 +2816,6 @@ def analyze_CD4_CD8(
         plt.savefig(pngfile)
         print('making:', pngfile)
 
-#Don't pull the code below into main
-
-def plot_hotspot_umap(
-        adata,
-        xy_tag,
-        results_df,
-        pngfile,
-        nbrs = None,
-        compute_nbr_averages=False,
-        nrows=6,
-        ncols=4,
-):
-    """
-    xy_tag: use 'gex' or 'tcr' to set umap space used for plotting the hotspot features
-    results_df : pandas df of hotspot features to plot. Expected columns are pvalue_adj feature feature_type
-    where feature_type is either 'gex' or 'tcr'. We need that since some feature strings can be both. Output
-    from correlations.find_hotspots can be fed in directly
-    """
-    if results_df.shape[0]==0:
-        print('no results to plot:', pngfile)
-        return
-
-    df = results_df.sort_values('pvalue_adj') # ensure sorted
-    df = df.iloc[:nrows*ncols,:]
-
-    xy = adata.obsm['X_{}_2d'.format(xy_tag)]
-    var_names = list(adata.raw.var_names)
-    if df.shape[0] < nrows*ncols:
-        # make fewer panels
-        nrows = max(1, int(np.sqrt(df.shape[0])))
-        ncols = (df.shape[0]-1)//nrows + 1
-
-    plt.figure(figsize=(ncols*3,nrows*3))
-    plotno=0
-    for row in df.itertuples():
-        plotno+=1
-        plt.subplot(nrows, ncols, plotno)
-
-        scores = get_raw_feature_scores( row.feature, adata , row.feature_type )
-        # if row.feature_type == 'gex':
-        #     if row.startswith
-        #     assert row.feature in var_names
-        #     scores = adata.raw.X[:, var_names.index(row.feature)].toarray()[:,0]
-        # else:
-        #     scores = tcr_scoring.make_tcr_score_table(adata,[row.feature])[:,0]
-        if compute_nbr_averages:
-            assert nbrs.shape[0] == adata.shape[0]
-            num_neighbors = nbrs.shape[1] # this will not work for ragged nbr arrays (but we could change it to work)
-            scores = ( scores + scores[ nbrs ].sum(axis=1) )/(num_neighbors+1)
-
-        reorder = np.argsort(scores)
-        plt.scatter(xy[reorder,0], xy[reorder,1], c=scores[reorder], cmap='viridis', s=15)
-        plt.title('{} {:.1e}'.format(row.feature, row.pvalue_adj))
-        plt.xticks([],[])
-        plt.yticks([],[])
-        if (plotno-1)//ncols == nrows-1:
-            plt.xlabel('{} UMAP1'.format(xy_tag.upper()))
-        if plotno%ncols == 1:
-            plt.ylabel('{} UMAP2'.format(xy_tag.upper()))
-
-    plt.tight_layout()
-    plt.savefig(pngfile)
 
 
 def make_tcrdist_trees( adata, output_prefix, group_by = None):
@@ -2901,7 +2839,7 @@ def make_tcrdist_trees( adata, output_prefix, group_by = None):
     clusters = np.array(adata.obs[group_by])
 
     num_clusters = np.max(clusters)+1
-    tcrs = pp.retrieve_tcrs_from_adata(adata)
+    tcrs = preprocess.retrieve_tcrs_from_adata(adata)
 
     num_clones = adata.shape[0]
     if 'conga_scores' in adata.obs_keys():
