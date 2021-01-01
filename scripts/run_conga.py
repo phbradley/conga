@@ -955,11 +955,12 @@ if args.find_gex_cluster_degs: # look at differentially expressed genes in gex c
         plt.savefig(pngfile, bbox_inches="tight")
         print('made:', pngfile)
 
-        sc.pl._tools.plot_scatter( adata, 'gex_2d', ncols = 6, color = new_rank_genes_genes, show=False,
-                                   use_raw = True, s=40)
-        pngfile = args.outfile_prefix+'_gex_cluster_degs_tsne.png'
-        plt.savefig(pngfile, bbox_inches="tight")
-        print('made:', pngfile)
+        # this plot_scatter seems to have moved in scanpy; need to update 
+        #sc.pl._tools.plot_scatter( adata, 'gex_2d', ncols = 6, color = new_rank_genes_genes, show=False,
+        #                          use_raw = True, s=40)
+        #pngfile = args.outfile_prefix+'_gex_cluster_degs_tsne.png'
+        #plt.savefig(pngfile, bbox_inches="tight")
+        #print('made:', pngfile)
 
 
     if adata.uns['organism'] == 'human_ig':
