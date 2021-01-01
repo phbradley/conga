@@ -92,23 +92,29 @@ clustering algorithm seems to give slightly 'better' results than the newer `lei
 ie finds a few more GEX/TCR associations, probably because there seem to be fewer, larger clusters.
 If the `louvain` package is installed `conga` will use that.
 
-Next, clone the `conga` repository:
+Next, clone the `conga` repository (type this command wherever you want the `conga/` directory to appear):
 ```
 git clone https://github.com/phbradley/conga.git
 ```
-Then compile TCRdist using your C++ compiler.
+
+*NEW* We recently added a C++ implementation of TCRdist to speed neighbor calculations on
+large datasets and to compute the background TCRdist distributions for the new
+'TCR clumping' analysis. This is not required by the core functionality
+described in the original manuscript, but we highly recommend that you compile
+the C++ TCRdist code using your C++ compiler.
 
 We've successfullly used `g++` from the GNU Compiler Collection (https://gcc.gnu.org/) to compile on
 Linux and MacOS, and from MinGw (http://www.mingw.org/) for Windows.
 
-Using `make` on Linux or MacOS
+Using `make` on Linux or MacOS. (You can edit `conga/tcrdist_cpp/Makefile` to
+point to a C++ compiler other than `g++`)
 ```
-cd ~/conga/tcrdist_cpp
+cd conga/tcrdist_cpp
 make
 ```
 Or without `make` (for Windows)
 ```
-cd ~/conga/tcrdist_cpp
+cd conga/tcrdist_cpp
 g++ -O3 -std=c++11 -Wall -I ./include/ -o ./bin/find_neighbors ./src/find_neighbors.cc
 g++ -O3 -std=c++11 -Wall -I ./include/ -o ./bin/calc_distributions ./src/calc_distributions.cc
 ```
@@ -126,6 +132,23 @@ write10xCounts(x = hs1@assays$RNA@counts, path = './hs1_mtx/')
 ```
 
 # Updates
+
+* 2020-12-31: (EXPERIMENTAL) New mode of analysis, TCR clumping, to detect
+clustered regions of TCR space. This mode will identify TCR clonotypes that have
+more TCRdist neighbors at specified distance thresholds in the analyzed dataset
+than would be expected by chance under
+a simple null model based on shuffling the observed alpha-beta and V-J pairings
+while (mostly) preserving V(D)J rearrangement statistics. Accessed through the
+`conga/scripts/run_conga.py` script with the flag `--tcr_clumping` or when
+using `--all` to run all major analyses. Also accessible in the python package
+via the `conga.tcr_clumping.assess_tcr_clumping` routine. Note that this
+analysis does not use the GEX information at all. Inspired by ALICE from Walczak
+and Mora and TCRnet from the VDJtools folks.
+
+* 2020-12-31: C++ implementation of TCRdist distance calculations for speed and
+to power the 'TCR clumping' analysis. Requires C++ compiler. Code is stored in
+`conga/tcrdist_cpp` and compiled as described above in the Installation section.
+
 * 2020-09-16: (EXPERIMENTAL) Added a preliminary implementation of the
 Hotspot autocorrelation algorithm developed by the Yosef lab, for finding informative features
 in multi-modal data (check out the [github repo](https://github.com/YosefLab/Hotspot)
@@ -275,12 +298,12 @@ ie where each clonotype is connected to the nearest 10 percent of the dataset).
 The colors along the top of the matrix show the GEX cluster assignments of
 each clonotype. The two columns of colors along the left-hand side of the matrix
 show (left column) the P-value and (right column) the feature type (GEX vs TCR)
-of the feature corresponding to that row (P-values and feature types are also 
+of the feature corresponding to that row (P-values and feature types are also
 given in the row names along the right-hand side of the matrix). '[+N]' in the
 row name means that N additional highly-correlated features were filtered out;
 their names will be listed in the tiny blue text along the left-hand side of the
 figure, listed below the name of the representative feature. (Some of these images
-are big and very detailed-- downloading or opening in a separate tab and zooming 
+are big and very detailed-- downloading or opening in a separate tab and zooming
 in may be helpful).
 
 ![clustermap](_images/tcr_hs_pbmc_0.100_nbrs_combo_hotspot_features_vs_gex_clustermap_lessredundant.png)
