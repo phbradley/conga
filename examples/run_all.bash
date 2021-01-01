@@ -11,7 +11,7 @@ CONGA_REPO=/home/pbradley/gitrepos/conga/
 
 # change this to point to wherever you downloaded the 10X example datasets
 # this should be where the clones files and associated data was put by the setup_all.bash script
-DATADIR="./conga_example_datasets/"
+DATADIR="./conga_example_datasets_v1/"
 
 ################################################################################
 
@@ -45,5 +45,3 @@ GEX="${DATADIR}sc5p_v1p1_hs_melanoma_10k_filtered_feature_bc_matrix.h5"
 cmd="nice $PYTHON $SCRIPT --all --organism human_ig --clones_file $CLONES --gex_data $GEX --gex_data_type 10x_h5 --outfile_prefix $OUTPREFIX"
 echo ; echo $cmd
 $cmd > ${OUTPREFIX}.log 2> ${OUTPREFIX}.err &
-
-

@@ -5,7 +5,7 @@ PYTHON=/home/pbradley/anaconda2/envs/scanpy_new/bin/python
 CONGA_REPO=/home/pbradley/gitrepos/conga/
 
 # change this to point to wherever you downloaded the 10X example datasets
-DATADIR="./conga_example_datasets/"
+DATADIR="./conga_example_datasets_v1/"
 
 ########################################
 
@@ -31,4 +31,3 @@ CONTIGS="${DATADIR}sc5p_v1p1_hs_melanoma_10k_b_filtered_contig_annotations.csv"
 cmd="nice $PYTHON $SCRIPT --organism human_ig --filtered_contig_annotations_csvfile $CONTIGS --condense_clonotypes_by_tcrdist --tcrdist_threshold_for_condensing 50"
 echo "Running:" $cmd
 $cmd > setup4.log 2> setup4.err &
-

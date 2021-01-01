@@ -20,11 +20,10 @@ Python scripts are provided in the `scripts/` directory but analysis steps can a
 in jupyter notebooks (for example, [a simple pipeline](simple_conga_pipeline.ipynb) and
 [Seurat to conga](Seurat_to_Conga.ipynb) in the top directory of this repo)
 or in your own python scripts through the interface in the `conga` python package.
-The examples below and in the jupyter notebooks feature publicly available data from 10X Genomics,
-which can be downloaded
-using these links: [GEX data](https://support.10xgenomics.com/single-cell-vdj/datasets/2.2.0/vdj_v1_hs_pbmc_5gex) and
-[TCR data](https://support.10xgenomics.com/single-cell-vdj/datasets/2.2.0/vdj_v1_hs_pbmc_t).
-
+The examples in the `examples/` folder described below and in the jupyter notebooks feature publicly available data from 10x Genomics,
+which can be downloaded in a single
+[zip file](https://www.dropbox.com/s/r7rpsftbtxl89y5/conga_example_datasets_v1.zip?dl=0) or at the
+[10x genomics datasets webpage](https://support.10xgenomics.com/single-cell-vdj/datasets/).
 
 1. **SETUP**: The TCR data is converted to a form that can be read by `conga` and then
 a matrix of `TCRdist` distances is computed. KernelPCA is applied to this distance
@@ -32,14 +31,14 @@ matrix to generate a PC matrix that can be used in clustering and dimensionality
 is accomplished with the python script `scripts/setup_10x_for_conga.py` for 10x datasets. For example:
 
 ```
-python conga/scripts/setup_10x_for_conga.py --filtered_contig_annotations_csvfile vdj_v1_hs_pbmc_t_filtered_contig_annotations.csv --organism human
+python conga/scripts/setup_10x_for_conga.py --filtered_contig_annotations_csvfile vdj_v1_hs_pbmc3_t_filtered_contig_annotations.csv --organism human
 ```
 
 2. **ANALYZE**: The `scripts/run_conga.py` script has an implementation of the main pipeline and can be run
 as follows:
 
 ```
-python conga/scripts/run_conga.py --graph_vs_graph --gex_data data/vdj_v1_hs_pbmc_5gex_filtered_gene_bc_matrices_h5.h5 --gex_data_type 10x_h5 --clones_file vdj_v1_hs_pbmc_t_filtered_contig_annotations_tcrdist_clones.tsv --organism human --outfile_prefix tmp_hs_pbmc
+python conga/scripts/run_conga.py --graph_vs_graph --gex_data data/vdj_v1_hs_pbmc3_5gex_filtered_gene_bc_matrices_h5.h5 --gex_data_type 10x_h5 --clones_file vdj_v1_hs_pbmc3_t_filtered_contig_annotations_tcrdist_clones.tsv --organism human --outfile_prefix tmp_hs_pbmc3
 ```
 
 3. **RE-ANALYZE**: Step 2 will generate a processed `.h5ad` file that contains all the gene expression
@@ -47,7 +46,7 @@ and TCR sequence information along with the results of clustering and dimensiona
 be much faster to perform subsequent re-analysis or downstream analysis by "restarting" from those files.
 
 ```
-python conga/scripts/run_conga.py --restart tmp_hs_pbmc_final.h5ad --graph_vs_tcr_features --graph_vs_gex_features --outfile_prefix tmp_hs_pbmc_restart
+python conga/scripts/run_conga.py --restart tmp_hs_pbmc3_final.h5ad --graph_vs_tcr_features --graph_vs_gex_features --outfile_prefix tmp_hs_pbmc3_restart
 ```
 
 See the examples section below for more details.
@@ -205,6 +204,9 @@ key outputs. For details on the algorithm and additional details on the plots,
 refer to our [bioRxiv preprint](https://www.biorxiv.org/content/10.1101/2020.06.04.134536v1).
 Here we focus on images, but the results of the different analysis
 modes are also saved in a variety of tab-separated-values (`*.tsv`) files.
+You can download a [zip file](https://www.dropbox.com/s/r7rpsftbtxl89y5/conga_example_datasets_v1.zip?dl=0)
+containing all three datasets. Or access them individually from the 10x website
+at the locations given below.
 
 ## Human PBMC dataset
 
