@@ -5,7 +5,8 @@ and workflows. `conga` was developed to detect correlation between
 T cell gene expression profile and TCR sequence in single-cell datasets. We've just
 recently added support for gamma delta TCRs and for B cells, too.
 `conga` is in active development right now so the interface may change in
-the next few months. Questions and requests can be directed to `pbradley` at `fredhutch` dot `org`.
+the next few months. Questions and requests can be directed to `pbradley` at `fredhutch` dot `org` or
+`stefan.schattgen` at `stjude` dot `org`.
 
 Further details on `conga` can be found in the preprint entitled
 **"Linking T cell receptor sequence to transcriptional profiles with clonotype neighbor graph analysis (CoNGA)"**
