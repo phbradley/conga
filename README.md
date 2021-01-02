@@ -186,14 +186,18 @@ still say TCR in a few places...
 # svg to png
 The `conga` image-making pipeline requires an svg to png conversion. There seem to be a variety of
 options for doing this, with the best choice being somewhat platform dependent. We've had good luck with
-ImageMagick `convert` (on linux) and Inkscape (on mac). The conversion is handled in the file
-`conga/convert_svg_to_png.py`, so you can modify that file if things are not working and you have
-a tool installed; `conga` may not be looking in the right place. Also if the fonts
+ImageMagick `convert` (on Linux, MacOS, and Windows) and Inkscape (on mac). 
+
+On Mac, we recommend installing ImageMagick using Homebrew with:
+`brew install imagemagick`
+
+On Windows, we recommend the self-installing executible available from ImageMagick:
+(https://imagemagick.org/script/download.php)
+
+The conversion is handled in the file `conga/convert_svg_to_png.py`, so you can modify that file if things are
+not working and you have a tool installed; `conga` may not be looking in the right place. Also if the fonts
 in the TCR/BCR logos look bad you could try switching the MONOSPACE_FONT_FAMILY
 variable in that python file (see comments at the top of the file).
-
-If you are having trouble and are using anaconda/miniconda, you could try
-`conda install -c conda-forge imagemagick` in the relevant conda environment.
 
 # Examples
 Shell scripts for running `conga` on three publicly available 10X
