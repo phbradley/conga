@@ -485,7 +485,7 @@ def find_significant_tcrdist_matches(
 
 def match_adata_tcrs_to_db_tcrs(
         adata,
-        db_tcrs_tsvfile,
+        db_tcrs_tsvfile=None,
         tmpfile_prefix='',
         adjusted_pvalue_threshold = 1.0, # adjusted for size of adata AND db_tcrs_tsvfile
         tcrs_for_background_generation = None, # default is to use tcrs from adata
@@ -504,6 +504,12 @@ def match_adata_tcrs_to_db_tcrs(
     NOTE: reported pvalues are adjusted for sizes of both adata and db_tcrs_tsvfile
 
     '''
+
+    if db_tcrs_tsvfile is None:
+        print('tcr_clumping.match_adata_tcrs_to_db_tcrs: Matching to default literature TCR database; for more info see conga/data/new_paired_tcr_db_for_matching_nr_README.txt')
+        db_tcrs_tsvfile = Path.joinpath(
+            util.path_to_data, 'new_paired_tcr_db_for_matching_nr.tsv')
+
 
     query_tcrs_df = adata.obs['va ja cdr3a vb jb cdr3b'.split()].copy()
     db_tcrs_df = pd.read_csv(db_tcrs_tsvfile, sep='\t')
