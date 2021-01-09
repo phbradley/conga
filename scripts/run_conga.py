@@ -47,6 +47,8 @@ parser.add_argument('--graph_vs_graph', action='store_true')
 parser.add_argument('--graph_vs_tcr_features', action='store_true')
 parser.add_argument('--graph_vs_gex_features', action='store_true')
 # some extra analyses
+parser.add_argument('--match_to_db')
+parser.add_argument('--pvalue_threshold_for_db_matching', type=float, default=1.0)
 parser.add_argument('--cluster_vs_cluster', action='store_true')
 parser.add_argument('--tcr_clumping', action='store_true')
 parser.add_argument('--intra_cluster_tcr_clumping', action='store_true')
@@ -424,7 +426,7 @@ all_nbrs, nndists_gex, nndists_tcr = conga.preprocess.calc_nbrs(
 if args.analyze_junctions:
     tcrs = conga.preprocess.retrieve_tcrs_from_adata(adata)
     new_tcrs = conga.tcrdist.tcr_sampler.find_alternate_alleles_for_tcrs(
-        adata.uns['organism'], tcrs, verbose=True)
+        adata.uns['organism'], tcrs, verbose=False)
     junctions_df = conga.tcrdist.tcr_sampler.parse_tcr_junctions(
         adata.uns['organism'], new_tcrs)
 
@@ -463,6 +465,20 @@ if args.verbose_nbrs:
             outfile = '{}_{}_nbrs_{:.3f}.txt'.format(args.outfile_prefix, tag, nbr_frac)
             np.savetxt(outfile, nbrs, fmt='%d')
             print('wrote nbrs to file:', outfile)
+
+if args.match_to_db:
+    db_tcrs_tsvfile = args.match_to_db
+    results = conga.tcr_clumping.match_adata_tcrs_to_db_tcrs(
+        adata, db_tcrs_tsvfile, args.outfile_prefix,
+        adjusted_pvalue_threshold= args.pvalue_threshold_for_db_matching)
+
+    if results.shape[0]:
+        outfile = args.outfile_prefix+'db_matches.tsv'
+        results.to_csv(outfile, sep='\t', index=False)
+        print('wrote', results.shape[0], 'matches to', outfile)
+    else:
+        print('match_to_db: no matches below ADJUSTED pval threshold of',
+              args.pvalue_threshold_for_db_matching)
 
 if args.tcr_clumping:
     num_random_samples = 50000 if args.num_random_samples_for_tcr_clumping is None \
@@ -955,7 +971,7 @@ if args.find_gex_cluster_degs: # look at differentially expressed genes in gex c
         plt.savefig(pngfile, bbox_inches="tight")
         print('made:', pngfile)
 
-        # this plot_scatter seems to have moved in scanpy; need to update 
+        # this plot_scatter seems to have moved in scanpy; need to update
         #sc.pl._tools.plot_scatter( adata, 'gex_2d', ncols = 6, color = new_rank_genes_genes, show=False,
         #                          use_raw = True, s=40)
         #pngfile = args.outfile_prefix+'_gex_cluster_degs_tsne.png'

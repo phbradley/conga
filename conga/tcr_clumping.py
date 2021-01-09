@@ -46,7 +46,11 @@ def estimate_background_tcrdist_distributions(
 
     if tcrs_for_background_generation is None:
         # only used when background_alpha_chains and/or background_beta_chains is None
-        tcrs_for_background_generation = tcrs
+        #tcrs_for_background_generation = tcrs
+        # since 10x doesn't always provide allele information, we need to try out alternate
+        # alleles to get the best parses...
+        tcrs_for_background_generation = tcr_sampler.find_alternate_alleles_for_tcrs(
+            organism, tcrs, verbose=False)
 
     max_dist = int(0.1+max_dist) ## need an integer
 
@@ -325,4 +329,216 @@ def assess_tcr_clumping(
 
 
     return results_df
+
+
+def tcrs_from_dataframe_helper(df, add_j_and_nucseq=False):
+    if add_j_and_nucseq:
+        return [ ( (x.va, x.ja, x.cdr3a, x.cdr3a_nucseq),
+                   (x.vb, x.jb, x.cdr3b, x.cdr3b_nucseq) ) for x in df.itertuples() ]
+    else:
+        return [ ( (x.va, None, x.cdr3a), (x.vb, None, x.cdr3b) ) for x in df.itertuples() ]
+
+def find_significant_tcrdist_matches(
+        query_tcrs_df,
+        db_tcrs_df,
+        organism,
+        tmpfile_prefix = '',
+        adjusted_pvalue_threshold = 1.0, # adjusted for size of query_tcrs_df AND db_tcrs_df
+        background_tcrs_df = None, # default is to use query_tcrs_df
+        num_random_samples_for_bg_freqs = 50000,
+        nocleanup=False,
+        fixup_allele_assignments_in_background_tcrs_df=True,
+):
+    ''' Computes paired tcrdist distances between query_tcrs_df and db_tcrs_df and converts
+    to p-values, adjusted for both the number of query and db tcrs
+    (ie, pvalue_adj = num_query_tcrs * num_db_tcrs * pvalue_raw)
+
+    Anything ending in _df is a pandas DataFrame
+
+    Required columns in query_tcrs_df and db_tcrs_df: va, cdr3a, vb, cdr3b
+
+    Required columns in background_tcrs_df: va ja cdr3a cdr3a_nucseq vb jb cdr3b cdr3b_nucseq
+
+    returns results pd.DataFrame with columns:
+
+    * tcrdist
+    * pvalue_adj
+    * va, {ja}, cdr3a, vb, {jb}, cdr3b {}:if present in query_tcrs_df
+    * PLUS all columns in db_tcrs_df prepended with 'db_' string
+
+    NOTE: reported pvalues are adjusted for sizes of both adata and db_tcrs_tsvfile
+
+    '''
+
+    if background_tcrs_df is None:
+        background_tcrs_df = query_tcrs_df
+
+    for tag, df in [ ['query', query_tcrs_df],
+                     ['db', db_tcrs_df],
+                     ['background', background_tcrs_df]]:
+        for ab in 'ab':
+            required_cols = f'cdr3{ab} v{ab}'.split()
+            if tag == 'background':
+                required_cols += f'cdr3{ab}_nucseq j{ab}'.split()
+            for col in required_cols:
+                if col not in df.columns:
+                    print(f'ERROR find_significant_tcrdist_matches:: {tag} df is missing {col} column')
+                    return
+
+    query_tcrs = tcrs_from_dataframe_helper(query_tcrs_df)
+    db_tcrs = tcrs_from_dataframe_helper(db_tcrs_df)
+    background_tcrs = tcrs_from_dataframe_helper(background_tcrs_df, add_j_and_nucseq=True)
+
+    pvalue_adjustment = len(query_tcrs) * len(db_tcrs) # multiply by this to account for multiple tests
+    print('pvalue_adjustment:', pvalue_adjustment, len(query_tcrs), len(db_tcrs))
+
+    if fixup_allele_assignments_in_background_tcrs_df:
+        background_tcrs = tcr_sampler.find_alternate_alleles_for_tcrs(
+            organism, background_tcrs, verbose=False)
+
+
+    max_dist = 200
+
+    bg_freqs = estimate_background_tcrdist_distributions(
+        organism, query_tcrs, max_dist,
+        num_random_samples= num_random_samples_for_bg_freqs,
+        tcrs_for_background_generation= background_tcrs)
+    assert bg_freqs.shape == (len(query_tcrs), max_dist+1)
+
+    adjusted_bg_freqs = pvalue_adjustment * bg_freqs
+
+    could_match = np.any( adjusted_bg_freqs<= adjusted_pvalue_threshold, axis=0)
+    assert could_match.shape == (max_dist+1,)
+
+    max_dist_for_matching = 0 # must be some numpy way of doing this
+    while could_match[max_dist_for_matching] and max_dist_for_matching<max_dist:
+        max_dist_for_matching += 1
+
+    print(f'find_significant_tcrdist_matches:: max_dist: {max_dist} max_dist_for_matching: {max_dist_for_matching}')
+
+    # now run C++ matching code
+    query_tcrs_file = tmpfile_prefix+'temp_query_tcrs.tsv'
+    db_tcrs_file = tmpfile_prefix+'temp_db_tcrs.tsv'
+    query_tcrs_df['va cdr3a vb cdr3b'.split()].to_csv(query_tcrs_file, sep='\t', index=False)
+    db_tcrs_df['va cdr3a vb cdr3b'.split()].to_csv(db_tcrs_file, sep='\t', index=False)
+
+    if os.name == 'posix':
+        exe = Path.joinpath( Path(util.path_to_tcrdist_cpp_bin) , 'find_paired_matches')
+    else:
+        exe = Path.joinpath( Path(util.path_to_tcrdist_cpp_bin) , 'find_paired_matches.exe')
+
+    if not exists(exe):
+        print('ERROR: find_paired_matches:: tcrdist_cpp executable {exe} is missing')
+        print('ERROR: see instructions in github repository README for compiling')
+        return
+
+    db_filename = Path.joinpath( Path(util.path_to_tcrdist_cpp_db), f'tcrdist_info_{organism}.txt')
+
+    outfilename = tmpfile_prefix+'temp_tcr_matching.tsv'
+
+    cmd = '{} -i {} -j {} -t {} -d {} -o {}'\
+          .format(exe, query_tcrs_file, db_tcrs_file, max_dist_for_matching, db_filename, outfilename)
+
+    util.run_command(cmd, verbose=True)
+
+    df = pd.read_csv(outfilename, sep='\t')
+
+    dfl = []
+    for l in df.itertuples():
+        i = l.index1
+        j = l.index2
+        pvalue_adj = pvalue_adjustment * bg_freqs[i][l.tcrdist]
+        if pvalue_adj > adjusted_pvalue_threshold:
+            continue
+        query_row = query_tcrs_df.iloc[i]
+        db_row = db_tcrs_df.iloc[j]
+        assert query_row.cdr3b == l.cdr3b1 # sanity check
+        assert db_row.cdr3b == l.cdr3b2 # ditto
+        D = OrderedDict(tcrdist= l.tcrdist,
+                        pvalue_adj=pvalue_adj,
+                        query_index= i,
+                        db_index= j,
+                        va= query_row.va,
+                        ja= query_row.ja,
+                        cdr3a= query_row.cdr3a,
+                        vb= query_row.vb,
+                        jb= query_row.jb,
+                        cdr3b= query_row.cdr3b)
+        if 'ja' in query_row:
+            D['ja'] = query_row.ja
+        if 'jb' in query_row:
+            D['jb'] = query_row.jb
+        for tag in db_row.index:
+            D['db_'+tag] = db_row[tag]
+        dfl.append(D)
+
+    if not nocleanup:
+        os.remove(outfilename)
+        os.remove(query_tcrs_file)
+        os.remove(db_tcrs_file)
+
+    results_df = pd.DataFrame(dfl)
+    if dfl:
+        results_df.sort_values('pvalue_adj', inplace=True)
+
+    return results_df
+
+
+def match_adata_tcrs_to_db_tcrs(
+        adata,
+        db_tcrs_tsvfile,
+        tmpfile_prefix='',
+        adjusted_pvalue_threshold = 1.0, # adjusted for size of adata AND db_tcrs_tsvfile
+        tcrs_for_background_generation = None, # default is to use tcrs from adata
+        num_random_samples_for_bg_freqs = 50000,
+        nocleanup=False,
+        fixup_allele_assignments_in_background_tcrs_df=True,
+):
+    ''' Compute paired tcrdist distances between tcrs in adata and tcrs in db_tcrs list
+
+    returns results pd.DataFrame with columns tcrdist, va, ja, cdr3a, vb, jb, cdr3b,
+    PLUS all columns in db_tcrs_tsvfile prepended with 'db_' string
+
+    db_tcrs_tsvfile has at a minimum the columns: va (or va_gene) cdr3a vb (or vb_gene) cdr3b
+
+    NOTE: reported pvalues are adjusted for sizes of both adata and db_tcrs_tsvfile
+
+    '''
+
+    query_tcrs_df = adata.obs['va ja cdr3a vb jb cdr3b'.split()].copy()
+    db_tcrs_df = pd.read_csv(db_tcrs_tsvfile, sep='\t')
+
+    # possibly swap legacy column names
+    if 'va' not in db_tcrs_df.columns and 'va_gene' in db_tcrs_df.columns:
+        db_tcrs_df['va'] = db_tcrs_df['va_gene']
+    if 'vb' not in db_tcrs_df.columns and 'vb_gene' in db_tcrs_df.columns:
+        db_tcrs_df['vb'] = db_tcrs_df['vb_gene']
+
+    if tcrs_for_background_generation is None:
+        background_tcrs_df = adata.obs['va ja cdr3a cdr3a_nucseq vb jb cdr3b cdr3b_nucseq'.split()]\
+                                  .copy()
+    else:
+        background_tcrs_df = pd.DataFrame(
+            [ dict(va=x[0], ja=x[1], cdr3a=x[2], cdr3a_nucseq=x[3],
+                   vb=y[0], jb=y[1], cdr3b=y[2], cdr3b_nucseq=y[3])
+              for x,y in tcrs_for_background_generation ])
+
+    results = find_significant_tcrdist_matches(
+        query_tcrs_df,
+        db_tcrs_df,
+        adata.uns['organism'],
+        tmpfile_prefix=tmpfile_prefix,
+        adjusted_pvalue_threshold=adjusted_pvalue_threshold,
+        background_tcrs_df=background_tcrs_df,
+        num_random_samples_for_bg_freqs=num_random_samples_for_bg_freqs,
+        fixup_allele_assignments_in_background_tcrs_df=fixup_allele_assignments_in_background_tcrs_df,
+        nocleanup=nocleanup,
+        )
+
+
+    results.rename(columns={'query_index':'clone_index'}, inplace=True)
+    barcodes = list(adata.obs.index)
+    results['barcode'] = [barcodes[x.clone_index] for x in results.itertuples()]
+
+    return results
 
