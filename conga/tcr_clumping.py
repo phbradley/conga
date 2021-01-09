@@ -327,7 +327,6 @@ def assess_tcr_clumping(
 
     results_df['clumping_group'] = [ clusters[x.clone_index] for x in results_df.itertuples()]
 
-
     return results_df
 
 
@@ -494,9 +493,10 @@ def match_adata_tcrs_to_db_tcrs(
         nocleanup=False,
         fixup_allele_assignments_in_background_tcrs_df=True,
 ):
-    ''' Compute paired tcrdist distances between tcrs in adata and tcrs in db_tcrs list
+    ''' Find significant tcrdist matches tcrs in adata and tcrs in db_tcrs_tsvfile
+    by calling find_significant_tcrdist_matches function above (see that docstring too)
 
-    returns results pd.DataFrame with columns tcrdist, va, ja, cdr3a, vb, jb, cdr3b,
+    returns results pd.DataFrame with columns tcrdist, pvalue_adj, va, ja, cdr3a, vb, jb, cdr3b,
     PLUS all columns in db_tcrs_tsvfile prepended with 'db_' string
 
     db_tcrs_tsvfile has at a minimum the columns: va (or va_gene) cdr3a vb (or vb_gene) cdr3b

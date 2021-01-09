@@ -47,7 +47,8 @@ parser.add_argument('--graph_vs_graph', action='store_true')
 parser.add_argument('--graph_vs_tcr_features', action='store_true')
 parser.add_argument('--graph_vs_gex_features', action='store_true')
 # some extra analyses
-parser.add_argument('--match_to_db')
+parser.add_argument('--match_to_tcr_database', action='store_true', help='Find significant matches to paired tcrs in the database specified by --tcr_database_tsvfile (default is the dataset in conga/data/new_paired_tcr_db_for_matching_nr.tsv')
+parser.add_argument('--tcr_database_tsvfile', help='Must have columns va cdr3a vb cdr3b, minimally; with imgt-recognized allele names; default is conga/data/new_paired_tcr_db_for_matching_nr.tsv')
 parser.add_argument('--pvalue_threshold_for_db_matching', type=float, default=1.0)
 parser.add_argument('--cluster_vs_cluster', action='store_true')
 parser.add_argument('--tcr_clumping', action='store_true')
@@ -107,6 +108,7 @@ import scanpy.neighbors
 from sklearn.metrics import pairwise_distances
 import numpy as np
 import pandas as pd
+from pathlib import Path
 
 start_time = time.time()
 
@@ -466,10 +468,16 @@ if args.verbose_nbrs:
             np.savetxt(outfile, nbrs, fmt='%d')
             print('wrote nbrs to file:', outfile)
 
-if args.match_to_db:
-    db_tcrs_tsvfile = args.match_to_db
+if args.match_to_tcr_database:
+    if args.tcr_database_tsvfile is None:
+        print('Matching to default literature TCR database; for more info see conga/data/new_paired_tcr_db_for_matching_nr_README.txt')
+        args.tcr_database_tsvfile = Path.joinpath(
+            conga.util.path_to_data, 'new_paired_tcr_db_for_matching_nr.tsv')
+
+    print('Matching to paired tcrs in', args.tcr_database_tsvfile)
+
     results = conga.tcr_clumping.match_adata_tcrs_to_db_tcrs(
-        adata, db_tcrs_tsvfile, args.outfile_prefix,
+        adata, args.tcr_database_tsvfile, args.outfile_prefix,
         adjusted_pvalue_threshold= args.pvalue_threshold_for_db_matching)
 
     if results.shape[0]:
@@ -477,7 +485,7 @@ if args.match_to_db:
         results.to_csv(outfile, sep='\t', index=False)
         print('wrote', results.shape[0], 'matches to', outfile)
     else:
-        print('match_to_db: no matches below ADJUSTED pval threshold of',
+        print('match_to_tcr_database: no matches below ADJUSTED pval threshold of',
               args.pvalue_threshold_for_db_matching)
 
 if args.tcr_clumping:
