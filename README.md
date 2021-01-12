@@ -65,7 +65,7 @@ scanpy==1.4.3 anndata==0.6.18 umap-learn==0.3.9 numpy==1.16.2 scipy==1.2.1 panda
 
 which might possibly be installed with the following `conda` command:
 ```
-conda create -n conga_classic_env ipython python=3.6 scanpy=1.4.3 umap-learn=0.3.9
+conda create -n conga_classic_env ipython python=3.6 scanpy=1.4.3 umap-learn=0.3.9 louvain=0.6.1
 ```
 
 
