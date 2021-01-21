@@ -134,25 +134,24 @@ write10xCounts(x = hs1@assays$RNA@counts, path = './hs1_mtx/')
 # Updates
 
 * 2021-01-21: (EXPERIMENTAL) New mode of analysis in which the paired TCR
-sequences in the analyzed dataset are matched to paired sequences in a literature-
-derived database compiled from VDJdb, McPAS, the large 10x dextramer dataset,
+sequences in the analyzed dataset are matched to paired sequences in a literature-derived
+database compiled from VDJdb, McPAS, the large 10x dextramer dataset,
 the protein structure databank, and a few other studies. See the database
 [README](conga/data/new_paired_tcr_db_for_matching_nr_README.txt) for citation
 details and the
 [database itself](conga/data/new_paired_tcr_db_for_matching_nr.tsv).
 This mode of analysis is included in `scripts/run_conga.py --all` or with
-the '--match_to_tcr_database` flag. Or from within the `conga` package
+the `--match_to_tcr_database` flag. Or from within the `conga` package
 using the `conga.tcr_clumping.match_adata_tcrs_to_db_tcrs` function.
 You can also pass in a user-provided paired TCR sequence database for matching
 against using the
 `run_conga.py` command line flag `--tcr_database_tsvfile` or the second
 argument to the `conga.tcr_clumping.match_adata_tcrs_to_db_tcrs`
 function. The statistical significance of matches is evaluated using the
-same background tcrdist calculations that go into the 'TCR clumping'
+same background `tcrdist` calculations that go into the 'TCR clumping'
 analysis described below (which incidentally means that this mode
 requires compilation of the C++ tcrdist executable as described in
 the installation section above).
-
 
 * 2020-12-31: (EXPERIMENTAL) New mode of analysis, TCR clumping, to detect
 clustered regions of TCR space. This mode will identify TCR clonotypes that have
