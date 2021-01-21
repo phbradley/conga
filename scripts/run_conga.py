@@ -123,6 +123,7 @@ if args.all:
     find_hotspot_features
     find_gex_cluster_degs
     tcr_clumping
+    match_to_tcr_database
     make_tcrdist_trees""".split()
 
     for mode in all_modes:
@@ -353,6 +354,13 @@ else: ############## restarting from a previous conga run ######################
         outlog.write('randomly permuting X_pca_tcr {}\n'.format(X_pca_tcr.shape))
 
 
+if 'batch_keys' in adata.uns_keys():
+    # sometimes if there's a single batch key the type changes from a list to
+    # just the single string when we save h5ad and then reload
+    batch_keys = adata.uns['batch_keys']
+    if batch_keys[0] not in adata.obsm_keys() and batch_keys in adata.obsm_keys():
+        print('update adata.uns["batch_keys"] from str to list')
+        adata.uns['batch_keys'] = [adata.uns['batch_keys']]
 
 
 if args.exclude_gex_clusters:

@@ -1509,14 +1509,15 @@ def make_clone_batch_clustermaps(
         print('ERROR seaborn is not installed')
         return
 
-    if 'batch_keys' not in adata.uns_keys():
-        print('make_clone_batch_clustermaps: no batch_keys in adata.uns')
-        return
+    if batch_keys is None:
+        if 'batch_keys' not in adata.uns_keys():
+            print('make_clone_batch_clustermaps: no batch_keys in adata.uns')
+            return
+        batch_keys = adata.uns['batch_keys']
 
     cmap_for_row_scores = plt.get_cmap(cmap_for_row_scores)
 
     num_clones = adata.shape[0]
-    batch_keys = adata.uns['batch_keys']
 
     tcrs = preprocess.retrieve_tcrs_from_adata(adata)
     organism = adata.uns['organism']
