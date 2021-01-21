@@ -60,19 +60,19 @@ We highly recommend using anaconda/miniconda for managing python environments. T
 `conga` manuscript were conducted with the following package versions:
 
 ```
-scanpy==1.4.3 anndata==0.6.18 umap==0.3.9 numpy==1.16.2 scipy==1.2.1 pandas==0.24.1 scikit-learn==0.20.2 statsmodels==0.9.0 python-igraph==0.7.1 louvain==0.6.1
+scanpy==1.4.3 anndata==0.6.18 umap-learn==0.3.9 numpy==1.16.2 scipy==1.2.1 pandas==0.24.1 scikit-learn==0.20.2 statsmodels==0.9.0 python-igraph==0.7.1 louvain==0.6.1
 ```
 
 which might possibly be installed with the following `conda` command:
 ```
-conda create -n conga_classic_env ipython python=3.6 scanpy=1.4.3 umap-learn=0.3.9
+conda create -n conga_classic_env ipython python=3.6 scanpy=1.4.3 umap-learn=0.3.9 louvain=0.6.1
 ```
 
 
 We've also been able to re-run everything, albeit with some numerical changes, with a current (2020-05-25) scanpy
 installation and these package versions:
 ```
-scanpy==1.5.1 anndata==0.7.3 umap==0.4.3 numpy==1.17.5 scipy==1.4.1 pandas==1.0.3 scikit-learn==0.23.1 statsmodels==0.11.1 python-igraph==0.8.2 louvain==0.6.1 leidenalg==0.8.0
+scanpy==1.5.1 anndata==0.7.3 umap-learn==0.4.3 numpy==1.17.5 scipy==1.4.1 pandas==1.0.3 scikit-learn==0.23.1 statsmodels==0.11.1 python-igraph==0.8.2 louvain==0.6.1 leidenalg==0.8.0
 ```
 
 Which was installed with the following `conda` commands (following the `scanpy` docs):
@@ -186,14 +186,18 @@ still say TCR in a few places...
 # svg to png
 The `conga` image-making pipeline requires an svg to png conversion. There seem to be a variety of
 options for doing this, with the best choice being somewhat platform dependent. We've had good luck with
-ImageMagick `convert` (on linux) and Inkscape (on mac). The conversion is handled in the file
-`conga/convert_svg_to_png.py`, so you can modify that file if things are not working and you have
-a tool installed; `conga` may not be looking in the right place. Also if the fonts
+ImageMagick `convert` (on Linux, MacOS, and Windows) and Inkscape (on mac). 
+
+On Mac, we recommend installing ImageMagick using Homebrew with:
+`brew install imagemagick`
+
+On Windows, we recommend the self-installing executible available from ImageMagick:
+(https://imagemagick.org/script/download.php)
+
+The conversion is handled in the file `conga/convert_svg_to_png.py`, so you can modify that file if things are
+not working and you have a tool installed; `conga` may not be looking in the right place. Also if the fonts
 in the TCR/BCR logos look bad you could try switching the MONOSPACE_FONT_FAMILY
 variable in that python file (see comments at the top of the file).
-
-If you are having trouble and are using anaconda/miniconda, you could try
-`conda install -c conda-forge imagemagick` in the relevant conda environment.
 
 # Examples
 Shell scripts for running `conga` on three publicly available 10X
