@@ -117,6 +117,7 @@ Or without `make` (for Windows)
 cd conga/tcrdist_cpp
 g++ -O3 -std=c++11 -Wall -I ./include/ -o ./bin/find_neighbors ./src/find_neighbors.cc
 g++ -O3 -std=c++11 -Wall -I ./include/ -o ./bin/calc_distributions ./src/calc_distributions.cc
+g++ -O3 -std=c++11 -Wall -I ./include/ -o ./bin/find_paired_matches ./src/find_paired_matches.cc
 ```
 
 # migrating Seurat data to CoNGA
