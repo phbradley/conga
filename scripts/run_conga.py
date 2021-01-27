@@ -157,7 +157,10 @@ if args.restart: # these are incompatible with restarting
 logfile = args.outfile_prefix+'_log.txt'
 outlog = open(logfile, 'w')
 outlog.write('sys.argv: {}\n'.format(' '.join(sys.argv)))
-sc.logging.print_versions() # goes to stdout
+try: # scanpy changed and this doesn't seem to work anymore
+    sc.logging.print_versions()
+except:
+    sc.logging.print_header()
 hostname = os.popen('hostname').readlines()[0][:-1]
 outlog.write('hostname: {}\n'.format(hostname))
 
@@ -477,24 +480,20 @@ if args.verbose_nbrs:
             print('wrote nbrs to file:', outfile)
 
 if args.match_to_tcr_database:
-    if args.tcr_database_tsvfile is None:
-        print('Matching to default literature TCR database; for more info see conga/data/new_paired_tcr_db_for_matching_nr_README.txt')
-        args.tcr_database_tsvfile = Path.joinpath(
-            conga.util.path_to_data, 'new_paired_tcr_db_for_matching_nr.tsv')
+    if args.tcr_database_tsvfile or adata.uns['organism'] == 'human':
+        # we only have a built-in database for human alpha-beta tcrs right now
 
-    print('Matching to paired tcrs in', args.tcr_database_tsvfile)
+        results = conga.tcr_clumping.match_adata_tcrs_to_db_tcrs(
+            adata, args.tcr_database_tsvfile, args.outfile_prefix,
+            adjusted_pvalue_threshold= args.pvalue_threshold_for_db_matching)
 
-    results = conga.tcr_clumping.match_adata_tcrs_to_db_tcrs(
-        adata, args.tcr_database_tsvfile, args.outfile_prefix,
-        adjusted_pvalue_threshold= args.pvalue_threshold_for_db_matching)
-
-    if results.shape[0]:
-        outfile = args.outfile_prefix+'db_matches.tsv'
-        results.to_csv(outfile, sep='\t', index=False)
-        print('wrote', results.shape[0], 'matches to', outfile)
-    else:
-        print('match_to_tcr_database: no matches below ADJUSTED pval threshold of',
-              args.pvalue_threshold_for_db_matching)
+        if results.shape[0]:
+            outfile = args.outfile_prefix+'db_matches.tsv'
+            results.to_csv(outfile, sep='\t', index=False)
+            print('wrote', results.shape[0], 'matches to', outfile)
+        else:
+            print('match_to_tcr_database: no matches below ADJUSTED pval threshold of',
+                  args.pvalue_threshold_for_db_matching)
 
 if args.tcr_clumping:
     num_random_samples = 50000 if args.num_random_samples_for_tcr_clumping is None \

@@ -657,6 +657,7 @@ def reduce_to_single_cell_per_clone(
         adata,
         n_pcs=50,
         average_clone_gex=False,
+        use_existing_pca_obsm_tag=None,
 ):
     ''' returns adata
 
@@ -671,12 +672,19 @@ def reduce_to_single_cell_per_clone(
     '''
 
     # compute pcs
-    print('compute pca to find rep cell for each clone', adata.shape)
-    # switch to arpack for better reproducibility
-    sc.tl.pca(adata, svd_solver='arpack', n_comps=min(adata.shape[0]-1, n_pcs))
+    if use_existing_pca_obsm_tag is None:
+        print('compute pca to find rep cell for each clone', adata.shape)
+        # switch to arpack for better reproducibility
+        sc.tl.pca(adata, svd_solver='arpack',
+                  n_comps=min(adata.shape[0]-1, n_pcs))
+        pca_tag = 'X_pca'
+    else:
+        pca_tag = use_existing_pca_obsm_tag
 
-    # for each clone, try to identify the most 'representative' cell based on gex
-    tcrs_with_duplicates = retrieve_tcrs_from_adata(adata, include_subject_id_if_present=True)
+    # for each clone, try to identify the most 'representative' cell
+    #   based on gex
+    tcrs_with_duplicates = retrieve_tcrs_from_adata(
+        adata, include_subject_id_if_present=True)
     tcrs = sorted( set( tcrs_with_duplicates))
 
     num_clones = len(tcrs)
@@ -716,7 +724,7 @@ def reduce_to_single_cell_per_clone(
 
     clone_ids = np.array( [ tcr2clone_id[x] for x in tcrs_with_duplicates ] )
 
-    X_pca = adata.obsm['X_pca']
+    X_pca = adata.obsm[pca_tag]
     clone_sizes = []
     gex_var = []
     batch_counts = []
@@ -808,7 +816,9 @@ def reduce_to_single_cell_per_clone(
 
     adata = normalize_and_log_the_raw_matrix( adata ) # prob not necessary; already done for X_igex ?
 
-    del adata.obsm['X_pca'] # delete the old pcas
+    if use_existing_pca_obsm_tag is None:
+        # delete the temporary pcs we computed just to pick rep cells
+        del adata.obsm['X_pca']
     return adata
 
 
@@ -1576,8 +1586,13 @@ def calc_tcrdist_nbrs_umap_clusters_cpp(
     # distances = sc.neighbors.get_sparse_matrix_from_indices_distances_numpy(
     #     knn_indices, knn_distances, adata.shape[0], num_nbrs)
 
-    distances, connectivities = sc.neighbors.compute_connectivities_umap(
-        knn_indices, knn_distances, adata.shape[0], num_nbrs)
+    try: # HACK: the naming of this function changes across scanpy versions...
+        distances, connectivities = sc.neighbors.compute_connectivities_umap(
+            knn_indices, knn_distances, adata.shape[0], num_nbrs)
+    except:
+        print('try new name for compute_connectivities_umap')
+        distances, connectivities = sc.neighbors._compute_connectivities_umap(
+            knn_indices, knn_distances, adata.shape[0], num_nbrs)
 
     if issparse(connectivities):
         from scipy.sparse.csgraph import connected_components

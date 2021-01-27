@@ -506,10 +506,16 @@ def match_adata_tcrs_to_db_tcrs(
     '''
 
     if db_tcrs_tsvfile is None:
+        if adata.uns['organism'] != 'human':
+            print('ERROR: match_adata_tcrs_to_db_tcrs db_tcrs_tsvfile is None')
+            print('but we only have built-in database for organism=human')
+            return pd.DataFrame() ##### NOTE EARLY RETURN HERE ################
+
         print('tcr_clumping.match_adata_tcrs_to_db_tcrs: Matching to default literature TCR database; for more info see conga/data/new_paired_tcr_db_for_matching_nr_README.txt')
         db_tcrs_tsvfile = Path.joinpath(
             util.path_to_data, 'new_paired_tcr_db_for_matching_nr.tsv')
 
+    print('Matching to paired tcrs in', db_tcrs_tsvfile)
 
     query_tcrs_df = adata.obs['va ja cdr3a vb jb cdr3b'.split()].copy()
     db_tcrs_df = pd.read_csv(db_tcrs_tsvfile, sep='\t')
