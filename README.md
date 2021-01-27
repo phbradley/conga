@@ -78,11 +78,12 @@ scanpy==1.5.1 anndata==0.7.3 umap-learn==0.4.3 numpy==1.17.5 scipy==1.4.1 pandas
 Which was installed with the following `conda` commands (following the `scanpy` docs):
 ```
 conda create -n conga_new_env ipython python=3.6
-conda activate conga_new_env   (or source activate conga_new_env)
+conda activate conga_new_env   # or: "source activate conga_new_env" depending on your conda setup
 conda install seaborn scikit-learn statsmodels numba pytables
 conda install -c conda-forge python-igraph leidenalg louvain
-conda install -c intel tbb
-pip install scanpy fastcluster
+conda install -c intel tbb # optional
+pip install scanpy
+pip install fastcluster # optional
 ```
 
 (And consider also adding `conda install -c conda-forge notebook` for Jupyter notebook stuff.)
