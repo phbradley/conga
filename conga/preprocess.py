@@ -1,3 +1,4 @@
+##############################################################################80
 import scanpy as sc
 import random
 import pandas as pd
@@ -950,7 +951,8 @@ def calc_nbrs_batched(
         obsm_tag_tcr = None # dont do the standard calculation
 
     N = adata.shape[0]
-    # try for a dataset size of target_N, ie batch_size*N = target_N**2, batch_size = target_N**2 / N
+    # try for a dataset size of target_N, ie batch_size*N = target_N**2,
+    #   batch_size = target_N**2 / N
     batch_size = max(10, int(target_N_for_batching**2/N))
     num_batches = (N-1)//batch_size + 1
 
@@ -958,7 +960,16 @@ def calc_nbrs_batched(
 
     all_nbrs = {}
     for nbr_frac in nbr_fracs:
-        all_nbrs[nbr_frac] = [ [], [] ]
+        num_neighbors = max(1, int(nbr_frac*N))
+        all_nbrs[nbr_frac] = []
+        for (tag, obsm_tag) in [['gex', obsm_tag_gex], ['tcr', obsm_tag_tcr]]:
+            if obsm_tag is None:
+                all_nbrs[nbr_frac].append(None)
+                continue
+            print(f'allocating memory for {N*num_neighbors} {tag} nbrs')
+            all_nbrs[nbr_frac].append(np.zeros((N,num_neighbors), dtype=np.int32))
+            print(f'allocated {all_nbrs[nbr_frac][-1].nbytes} bytes memory id=',
+                  id(all_nbrs[nbr_frac][-1]))
 
     nndists = [ [], [] ]
 
@@ -967,34 +978,43 @@ def calc_nbrs_batched(
         b_stop = min(N, (bb+1)*batch_size)
         batch_indices = np.arange(b_start, b_stop)
 
-        for itag, (tag, obsm_tag) in enumerate( [['gex', obsm_tag_gex], ['tcr', obsm_tag_tcr]] ):
+        for itag, (tag, obsm_tag) in enumerate( [['gex', obsm_tag_gex],
+                                                 ['tcr', obsm_tag_tcr]] ):
             if obsm_tag is None:
                 print('skipping nbr calc for', tag, obsm_tag)
                 continue
-            print(f'compute D {tag} batch= {bb} num_batches= {num_batches} N= {N} batch_size= {batch_size}')
+            print(f'compute D {tag} batch= {bb} num_batches= {num_batches}',
+                  f'N= {N} batch_size= {batch_size}')
             X = adata.obsm[obsm_tag]
             D = cdist( X[b_start:b_stop, :], X )
 
+            # note that a clonotype is not included in its own neighbors:
+            # nor will it be nbrs with any clonotypes having an identical nucleotide
+            # sequence tcr chain (to be conservative about bad clonotype definitions)
             for ii in batch_indices:
                 D[ii-b_start, (agroups==agroups[ii]) ] = 1e3
                 D[ii-b_start, (bgroups==bgroups[ii]) ] = 1e3
 
             for nbr_frac in nbr_fracs:
-                num_neighbors = max(1, int(nbr_frac*adata.shape[0]))
+                num_neighbors = max(1, int(nbr_frac*N))
                 print(f'argpartitions: {tag} batch= {bb} nbr_frac= {nbr_frac}')
-                nbrs = np.argpartition( D, num_neighbors-1 )[:,:num_neighbors] # will NOT include self in there
-                assert nbrs.shape == (D.shape[0], num_neighbors)
-                all_nbrs[nbr_frac][itag].append(nbrs)
+                full_nbrs = all_nbrs[nbr_frac][itag]
+                full_nbrs[b_start:b_stop,:] = np.argpartition(
+                    D, num_neighbors-1 )[:,:num_neighbors]
+                print(f'full_nbrs_id {nbr_frac} {id(full_nbrs)}')
+                #assert nbrs.shape == (D.shape[0], num_neighbors)
+                #all_nbrs[nbr_frac][itag].append(nbrs)
 
                 if also_calc_nndists and nbr_frac == nbr_frac_for_nndists:
                     print('calculate nndists:', tag, nbr_frac)
-                    nndists[itag].append( _calc_nndists( D, nbrs ))
+                    nndists[itag].append(
+                        _calc_nndists(D, full_nbrs[b_start:b_stop,:]))
                     print('DONE calculating nndists:', nbr_frac)
 
 
-    for nbr_frac in nbr_fracs:
-        nbrslist_gex, nbrslist_tcr = all_nbrs[nbr_frac]
-        all_nbrs[nbr_frac] = [ np.vstack(nbrslist_gex), None if obsm_tag_tcr is None else np.vstack(nbrslist_tcr) ]
+    # for nbr_frac in nbr_fracs:
+    #     nbrslist_gex, nbrslist_tcr = all_nbrs[nbr_frac]
+    #     all_nbrs[nbr_frac] = [ np.vstack(nbrslist_gex), None if obsm_tag_tcr is None else np.vstack(nbrslist_tcr) ]
 
     if use_exact_tcrdist_nbrs:
         tcr_nbrs, tcr_nndists = calculate_tcrdist_nbrs(adata, nbr_fracs, nbr_frac_for_nndists)
@@ -1027,8 +1047,10 @@ def calc_nbrs(
     nbrs exclude self and any clones in same atcr group or btcr group
     '''
     if adata.shape[0] > 1.25*target_N_for_batching: ## EARLY RETURN
-        return calc_nbrs_batched(adata, nbr_fracs, obsm_tag_gex, obsm_tag_tcr, also_calc_nndists, nbr_frac_for_nndists,
-                                 target_N_for_batching, use_exact_tcrdist_nbrs=use_exact_tcrdist_nbrs)
+        return calc_nbrs_batched(
+            adata, nbr_fracs, obsm_tag_gex, obsm_tag_tcr, also_calc_nndists,
+            nbr_frac_for_nndists, target_N_for_batching,
+            use_exact_tcrdist_nbrs=use_exact_tcrdist_nbrs)
 
     if also_calc_nndists:
         assert nbr_frac_for_nndists in nbr_fracs
@@ -1196,7 +1218,8 @@ def calculate_tcrdist_nbrs_cpp(
         print('need to compile c++ exe:', exe)
         exit(1)
 
-    db_filename = Path.joinpath( Path( util.path_to_tcrdist_cpp_db), 'tcrdist_info_{}.txt'.format(adata.uns['organism']))
+    db_filename = Path.joinpath( Path( util.path_to_tcrdist_cpp_db),
+                                 'tcrdist_info_{}.txt'.format(adata.uns['organism']))
 
     if not exists(db_filename):
         print('need to create database file:', db_filename)
@@ -1208,7 +1231,8 @@ def calculate_tcrdist_nbrs_cpp(
     outprefix = str(tmpfile_prefix) +'_calc_tcrdist'
 
     cmd = '{} -f {} -n {} -d {} -o {} -a {} -b {}'\
-    .format(exe, tcrs_filename, num_nbrs, db_filename, outprefix, agroups_filename, bgroups_filename)
+          .format(exe, tcrs_filename, num_nbrs, db_filename, outprefix,
+                  agroups_filename, bgroups_filename)
 
     util.run_command(cmd, verbose=True)
 
@@ -1216,23 +1240,48 @@ def calculate_tcrdist_nbrs_cpp(
     knn_distances_filename = outprefix+'_knn_distances.txt'
 
     if not exists(knn_indices_filename) or not exists(knn_distances_filename):
-        print('find_neighbors failed:', exists(knn_indices_filename), exists(knn_distances_filename))
+        print('find_neighbors failed:', exists(knn_indices_filename),
+              exists(knn_distances_filename))
         exit(1)
 
-    knn_indices = np.loadtxt(knn_indices_filename, dtype=int)
-    knn_distances = np.loadtxt(knn_distances_filename, dtype=float)
+    # try to conserve memory here. The distances are actually ints
+    # in the [0,1000] (probably mostly [0,500])
+    knn_indices = np.loadtxt(knn_indices_filename, dtype=np.int32)
+    knn_distances = np.loadtxt(knn_distances_filename, dtype=np.float32)
 
     all_nbrs = {}
     all_nbrs[max_nbr_frac] = knn_indices
+    N = adata.shape[0]
+    # probably paranoid here, but I don't like the full argpartition below
+    if N<1000:
+        num_batches = 1
+        batch_size = N
+    else:
+        num_batches = 4
+        batch_size = (N-1)//num_batches + 1
+
     for nbr_frac in nbr_fracs:
         if nbr_frac == max_nbr_frac:
+            print(f'all_nbrs tcrdist using {all_nbrs[nbr_frac].nbytes} bytes',
+                  f'nbr_frac= {nbr_frac}')
             continue
-        num_nbrs = max(1, int(nbr_frac*adata.shape[0]))
+        num_nbrs = max(1, int(nbr_frac*N))
         assert num_nbrs <= knn_indices.shape[1]
-        inds = np.argpartition( knn_distances, num_nbrs-1)[:,:num_nbrs]
-        all_nbrs[nbr_frac] = knn_indices[np.arange(adata.shape[0])[:,np.newaxis], inds]
+        all_nbrs[nbr_frac] = np.zeros((N,num_nbrs), dtype=np.int32)
+        print(f'all_nbrs tcrdist using {all_nbrs[nbr_frac].nbytes} bytes',
+              f'nbr_frac= {nbr_frac}')
+        for bb in range(num_batches):
+            b_start = bb*batch_size
+            b_stop = min(N, (bb+1)*batch_size)
+            #batch_indices = np.arange(b_start, b_stop)
+            inds = np.argpartition(
+                knn_distances[b_start:b_stop,:], num_nbrs-1)[:,:num_nbrs]
+            ar = np.arange(b_start,b_stop)[:,np.newaxis]
+            all_nbrs[nbr_frac][b_start:b_stop,:] = knn_indices[ar,inds]
 
-    for filename in [tcrs_filename, agroups_filename, bgroups_filename, knn_indices_filename, knn_distances_filename]:
+
+    for filename in [tcrs_filename, agroups_filename, bgroups_filename,
+                     knn_indices_filename, knn_distances_filename]:
         os.remove(filename)
 
     if nbr_frac_for_nndists is None:
