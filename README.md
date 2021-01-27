@@ -45,9 +45,10 @@ python conga/scripts/run_conga.py --graph_vs_graph --gex_data data/vdj_v1_hs_pbm
 3. **RE-ANALYZE**: Step 2 will generate a processed `.h5ad` file that contains all the gene expression
 and TCR sequence information along with the results of clustering and dimensionality reduction. It can then
 be much faster to perform subsequent re-analysis or downstream analysis by "restarting" from those files.
+Here we are using the `--all` command line flag which requests all the major analysis modes:
 
 ```
-python conga/scripts/run_conga.py --restart tmp_hs_pbmc3_final.h5ad --graph_vs_tcr_features --graph_vs_gex_features --outfile_prefix tmp_hs_pbmc3_restart
+python conga/scripts/run_conga.py --restart tmp_hs_pbmc3_final.h5ad --all --outfile_prefix tmp_hs_pbmc3_restart
 ```
 
 See the examples section below for more details.
