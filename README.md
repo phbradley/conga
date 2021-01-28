@@ -22,6 +22,7 @@ Paul G. Thomas, and Philip Bradley, accessible on the bioRxiv server
 * [Updates](https://github.com/phbradley/conga#updates)
 * [SVG to PNG](https://github.com/phbradley/conga#svg-to-png)
 * [Examples](https://github.com/phbradley/conga#examples)
+* [The CoNGA data model: where stuff is stored](https://github.com/phbradley/conga#conga-data-model-where-stuff-is-stored)
 
 # Running
 
@@ -459,8 +460,9 @@ cell per clonotype; fills the `adata.obs['clone_sizes']` array and
 potentially `adata.obsm[<batch_key>]` for one or more `<batch_key>`s if
 there is batch structure defined in the input data.
 * `conga.preprocess.cluster_and_tsne_and_umap`: Fills `adata.obsm['X_pca_gex']`,
-`adata.obs['X_gex_2d']`, `adata.obs['X_tcr_2d']`, `adata.obs['clusters_gex']`,
-and `adata.obs['clusters_tcr']`.
+and the `adata.obs` arrays `X_gex_2d`, `X_tcr_2d`,
+`clusters_gex`,
+and `clusters_tcr`.
 
 ### `adata.obs`
 The following 1-D arrays are stored in the `obs` array and can be accessed
@@ -483,9 +485,9 @@ with expressions like `adata.obs['va']`
 The following multidimensional arrays are stored in the `obsm` array after
 setup.
 
-* `X_pca_gex`: The GEX principle components. Used for neighbor-finding,
+* `X_pca_gex`: The GEX principal components. Used for neighbor-finding,
 UMAP projections, etc.
-* `X_pca_tcr`: The TCRdist kernel principle components. May be missing if
+* `X_pca_tcr`: The TCRdist kernel principal components. May be missing if
 we are using the 'exact TCRdist neighbors' mode, which is useful for really
 big datasets where the kernel PCA calculation takes forever.
 * `X_gex_2d`: The 2D landscape projection based on GEX (UMAP by default).
