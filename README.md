@@ -499,7 +499,7 @@ These miscellaneous data are stashed in the `adata.uns` dictionary:
 * `organism`: A string indicating what type of TCR/BCR data is being analyzed.
 CoNGA currently supports the following choices:
     - `human`: human alpha-beta TCRs
-    - `mouse`: human alpha-beta TCRs
+    - `mouse`: mouse alpha-beta TCRs
     - `human_gd`: human gamma-delta TCRs
     - `mouse_gd`: mouse gamma-delta TCRs
     - `human_ig`: human BCRs
