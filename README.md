@@ -16,9 +16,9 @@ Paul G. Thomas, and Philip Bradley, accessible on the bioRxiv server
 
 # Table of Contents
 
-[Running] (https://github.com/phbradley/conga#running)
+[Running](https://github.com/phbradley/conga#running)
 
-[Installation] (https://github.com/phbradley/conga#installation)
+[Installation](https://github.com/phbradley/conga#installation)
 
 [migrating Seurat data to CoNGA](https://github.com/phbradley/conga#migrating-seurat-data-to-conga)
 
