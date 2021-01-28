@@ -14,6 +14,15 @@ by Stefan A. Schattgen, Kate Guion, Jeremy Chase Crawford, Aisha Souquette, Alva
 Paul G. Thomas, and Philip Bradley, accessible on the bioRxiv server
 [here](https://www.biorxiv.org/content/10.1101/2020.06.04.134536v1).
 
+# Table of Contents
+
+[Running] (https://github.com/phbradley/conga#running)
+[Installation] (https://github.com/phbradley/conga#installation)
+[migrating Seurat data to CoNGA](https://github.com/phbradley/conga#migrating-seurat-data-to-conga)
+[Updates](https://github.com/phbradley/conga#updates)
+[SVG to PNG](https://github.com/phbradley/conga#svg-to-png)
+[Examples](https://github.com/phbradley/conga#examples)
+
 # Running
 
 Running `conga` on a single-cell dataset is a two- (or more) step process, as outlined below.
