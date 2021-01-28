@@ -218,12 +218,12 @@ still say TCR in a few places...
 # svg to png
 The `conga` image-making pipeline requires an svg to png conversion. There seem to be a variety of
 options for doing this, with the best choice being somewhat platform dependent. We've had good luck with
-ImageMagick `convert` (on Linux, MacOS, and Windows) and Inkscape (on mac). 
+ImageMagick `convert` (on Linux, MacOS, and Windows) and Inkscape (on mac).
 
 On Mac, we recommend installing ImageMagick using Homebrew with:
 `brew install imagemagick`
 
-On Windows, we recommend the self-installing executible available from ImageMagick:
+On Windows, we recommend the self-installing executable available from ImageMagick:
 (https://imagemagick.org/script/download.php)
 
 The conversion is handled in the file `conga/convert_svg_to_png.py`, so you can modify that file if things are
@@ -435,3 +435,157 @@ value of 10 to zero (blue) with more significant scores trending toward red at
 a value of 1e-8:
 
 ![tcrdist_tree](_images/bcr_hs_melanoma_conga_score_lt_10.0_tcrdist_tree.png)
+
+# CoNGA data model: where stuff is stored
+
+After setup, the conga package stores data in various locations
+in the `scanpy` `AnnData` object. Below we assume that `adata` is
+the name of the AnnData object where the GEX and
+TCR data is stored (this is the naming
+convention followed in CoNGA).
+
+## The core stuff
+CoNGA functionality like graph-vs-graph and graph-vs-feature analyses will
+generally expect these to be set once the setup phase has completed. The
+CoNGA routines that fill these arrays are:
+* `conga.preprocess.read_data`: loads the GEX data into an `AnnData` object
+(here called `adata`); puts the TCR information into the `adata.obs` arrays;
+reads and stores the TCRdist kernel principal components in `adata.obsm` under
+the key `X_pca_tcr`. Eliminates cells without paired TCR information.
+* `conga.preprocess.filter_and_scale`: sets up the `adata.raw` object, does
+some typical single-cell filtering and preprocessing.
+* `conga.preprocess.reduce_to_single_cell_per_clone`: reduces to a single
+cell per clonotype; fills the `adata.obs['clone_sizes']` array and
+potentially `adata.obsm[<batch_key>]` for one or more `<batch_key>`s if
+there is batch structure defined in the input data.
+* `conga.preprocess.cluster_and_tsne_and_umap`: Fills `adata.obsm['X_pca_gex']`,
+`adata.obs['X_gex_2d']`, `adata.obs['X_tcr_2d']`, `adata.obs['clusters_gex']`,
+and `adata.obs['clusters_tcr']`.
+
+### `adata.obs`
+The following 1-D arrays are stored in the `obs` array and can be accessed
+with expressions like `adata.obs['va']`
+
+* `va`: V gene names, alpha chain
+* `ja`: J gene names, alpha chain
+* `cdr3a`: CDR3 amino acid sequences, alpha chain
+* `cdr3a_nucseq`: CDR3 nucleotide sequences, alpha chain
+* `vb`: V gene names, beta chain
+* `jb`: J gene names, beta chain
+* `cdr3b`: CDR3 amino acid sequences, beta chain
+* `cdr3b_nucseq`: CDR3 nucleotide sequences, beta chain
+* `clusters_gex`: GEX cluster assignments, integers, range `[0, num_clusters)`
+* `clusters_tcr`: TCR cluster assignments, integers, range `[0, num_clusters)`
+* `clone_sizes`: The number of cells in each clonotype.
+
+
+### `adata.obsm`
+The following multidimensional arrays are stored in the `obsm` array after
+setup.
+
+* `X_pca_gex`: The GEX principle components. Used for neighbor-finding,
+UMAP projections, etc.
+* `X_pca_tcr`: The TCRdist kernel principle components. May be missing if
+we are using the 'exact TCRdist neighbors' mode, which is useful for really
+big datasets where the kernel PCA calculation takes forever.
+* `X_gex_2d`: The 2D landscape projection based on GEX (UMAP by default).
+* `X_tcr_2d`: The 2D landscape projection based on TCR (UMAP by default).
+
+### `adata.uns`
+These miscellaneous data are stashed in the `adata.uns` dictionary:
+
+* `organism`: A string indicating what type of TCR/BCR data is being analyzed.
+CoNGA currently supports the following choices:
+    - `human`: human alpha-beta TCRs
+    - `mouse`: human alpha-beta TCRs
+    - `human_gd`: human gamma-delta TCRs
+    - `mouse_gd`: mouse gamma-delta TCRs
+    - `human_ig`: human BCRs
+
+### `adata.raw`
+This is where the raw data on gene expression is expected to live.
+
+* `adata.raw.X` Sparse matrix with the gene expression values for each gene.
+These will have been normalized to sum to 10,000 and then `np.log1p`'ed (had the natural logarithm taken after adding 1).
+* `adata.raw.var_names` The gene names; should match the number of columns in
+`adata.raw.X`.
+
+### GEX and TCR neighbors
+Currently the neighborhood information is stored independently of the
+`adata` object, in a dictionary called `all_nbrs`. The keys of this
+dictionary are the neighborhood fractions aka `nbr_fracs`, floats that
+represent the size of the neighborhood as a fraction of the total number
+of clonotypes. The default `nbr_fracs` are `[0.01, 0.1]`. For each `nbr_frac`,
+`all_nbrs[nbr_frac] = [gex_nbrs, tcr_nbrs]` where `gex_nbrs` and `tcr_nbrs`
+are `numpy` arrays of shape `(num_clonotypes,num_nbrs)`, and
+`num_nbrs = int(nbr_frac*num_clonotypes)`. Note that a clonotype is not
+included in its own set of neighbors. Also note that the CoNGA neighbor
+information is distinct from neighbor information
+that `scanpy` uses for UMAP projection and clustering.
+CoNGA neighborhoods are larger than the neighborhoods typically used
+in clustering and dimensionality reduction.
+
+## Extras
+This might be results of calculations that are stored for easier access,
+or optional data that is present in certain circumstances
+(for example when there are batches present).
+It should be OK if any of these are missing.
+
+### `adata.obs`
+The following 1-D arrays are stored in the `obs` array and can be accessed
+with expressions like `adata.obs['va']`
+
+* `is_invariant`: Boolean array recording the presence of
+canonical invariant (MAIT or iNKT) TCR chains.
+* `nndists_tcr`: Nearest-neighbor distances based on TCR sequence.
+Gives an approximate measure of TCR (inverse) density.
+* `nndists_gex`: Nearest-neighbor distances based on GEX.
+Gives an approximate measure of GEX (inverse) density.
+* `conga_scores`: CoNGA scores for each clonotype.
+Filled after the graph-vs-graph analysis has been run.
+* `<batch_key>`: When there are multiple batches present in a dataset
+these can be tracked and visualized in many of the analysis
+and plotting routines.
+Here `<batch_key>` is the name of the batch/category (for example `'outcome'` or `'subject'` or `'timepoint'`).
+The entry in `adata.obs` for each batch key should contain integers in the range `[0,num_batch_classes)`.
+This information is stored in the `adata.obs` array *prior* to condensing to a single
+cell per clonotype, and in the `adata.obsm` array *after* condensing to a single cell per clone
+(since expanded clonotypes can span multiple batch assignments).
+See the FAQ entry on batches in CoNGA (available soon).
+
+### `adata.obsm`
+The following multidimensional arrays are stored in the `obs` array and can be accessed
+with expressions like `adata.obsm[<tag>]`
+
+* `<batch_key>`: When there are multiple batches present in a dataset
+these can be tracked and visualized in many of the analysis
+and plotting routines.
+Here `<batch_key>` is the name of the batch/category (for example `'outcome'` or `'subject'` or `'timepoint'`).
+For each `<batch_key>`, the array stored in `adata.obsm` should have shape
+`(num_clonotypes,num_categories)` where `num_categories` is the number of possible
+batch assignments. For example if there are three timepoints then `num_categories` for the `'timepoint'` batch key would be 3.
+The `(i,j)` entry in the array will give the number of cells in clonotype `i` that were
+assigned to the batch assignment `j`.
+This array is filled automatically when we reduce to a single cell per clonotype,
+based on the information in the array `adata.obs[<batch_key>]` (see above).
+See the FAQ entry on batches in CoNGA (available soon).
+
+### `adata.uns`
+* `batch_keys`: A list of strings that gives the names of the different
+batch types/categories, if present (for example something like `['subject', 'outcome', 'timepoint']`.
+For each name in `adata.uns['batch_keys']` there should be
+an entry in the `adata.obs` array with that name (see above for description of that data).
+When we condense to a single cell per clonotype,
+we add an entry in the `adata.obsm` array with the same name, which contains the counts
+for each batch assignment summed over
+all the cells in each clonotype (so it's a 2D array and hence has to be stored in `obsm` not `obs`.
+
+### `adata.var`
+* `feature_types`: This array is used to detect and exclude
+antibody (site-seq) or other non-gene-expression
+features. If it's missing, then during setup CoNGA will assume that
+all the counts in the `adata.X` array are gene-expression features.
+The expected value for gene expression features in this
+array is the string `'Gene Expression'`. CoNGA will look for and use any column
+in the `adata.var` array whose name starts with
+`feature_types` (since sometimes they get renamed during concatenation).
