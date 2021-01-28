@@ -80,10 +80,28 @@ def normalize_and_log_the_raw_matrix(
 
     counts_per_cell = np.sum( X_gex, axis=1 ).A1 # A1 since X_gex is sparse
     assert np.min( counts_per_cell ) > 0
+
+    ##### PARANOID: we don't want to accidentally normalize and log again
     if np.median( counts_per_cell ) < 100:
-        print('WARNING normalize_and_log_the_raw_matrix: low median counts_per_cell.', np.median(counts_per_cell),'\n',
+        # this actually not that great a check...
+        print('WARNING normalize_and_log_the_raw_matrix:',
+              'low median counts_per_cell.', np.median(counts_per_cell),'\n',
               'has the matrix already been log1p-ed???')
         exit()
+
+    maxval = X_gex.max()
+    print('normalize_and_log_the_raw_matrix: adata.raw.X.max()= ', maxval)
+    if np.isnan(maxval):
+        print('ERROR X matrix has nans!')
+        exit()
+    if maxval < 12.:
+        print('WARNING!!!\n'*20)
+        print('adata.raw.X.max() seems too low', maxval)
+        print('Has the adata.raw.X array already been normalized and logged??')
+        print('normalize_and_log_the_raw_matrix:: problem in setup?')
+        print('confused? contact pbradley@fredhutch.org (sorry for the trouble!)')
+        print('WARNING!!!\n'*20)
+
 
     counts_per_cell /= counts_per_cell_after
 
@@ -1225,8 +1243,9 @@ def calculate_tcrdist_nbrs_cpp(
         print('need to create database file:', db_filename)
         exit(1)
 
+    N = adata.shape[0]
     max_nbr_frac = max(nbr_fracs)
-    num_nbrs = max(1, int(max_nbr_frac*adata.shape[0]))
+    num_nbrs = max(1, int(max_nbr_frac*N))
 
     outprefix = str(tmpfile_prefix) +'_calc_tcrdist'
 
@@ -1246,12 +1265,13 @@ def calculate_tcrdist_nbrs_cpp(
 
     # try to conserve memory here. The distances are actually ints
     # in the [0,1000] (probably mostly [0,500])
+    print(f'reading array of size {N}x{num_nbrs} from {knn_indices_filename}')
     knn_indices = np.loadtxt(knn_indices_filename, dtype=np.int32)
+    print(f'reading array of size {N}x{num_nbrs} from {knn_distances_filename}')
     knn_distances = np.loadtxt(knn_distances_filename, dtype=np.float32)
 
     all_nbrs = {}
     all_nbrs[max_nbr_frac] = knn_indices
-    N = adata.shape[0]
     # probably paranoid here, but I don't like the full argpartition below
     if N<1000:
         num_batches = 1

@@ -640,20 +640,32 @@ def make_logo_plots(
             cscores = np.array([ conga_scores[x] for x in nodes ])
 
             if ignore_tcr_cluster_colors:
-                plt.plot( xvals, yvals, zorder=2, marker='o', linestyle='None',
-                          color=gex_colors[clp[0]], markeredgecolor='none', markeredgewidth=0 )
+                plt.plot( xvals, yvals,
+                          zorder=2,
+                          marker='o',
+                          linestyle='None',
+                          color=gex_colors[clp[0]],
+                          markeredgecolor='none',
+                          markeredgewidth=0 )
             else:
-                for score_threshold, markersize in [ [1., 6], [1e-1, 7], [1e-2, 8] ]:
+                for score_threshold, markersize in [[1., 6],
+                                                    [1e-1, 7],
+                                                    [1e-2, 8]]:
                     mask = cscores <= score_threshold
                     if np.sum(mask)==0:
                         continue # nothing to plot
-                    print('score_threshold:', score_threshold, 'num:', np.sum(mask),
-                          'markersize:', markersize)
-                    reorder = np.argsort(cscores[mask])[::-1] # most significant last
-                    plt.plot( xvals[mask][reorder], yvals[mask][reorder], zorder=2,
-                              marker='o', linestyle='None', markersize=markersize,
-                              color=gex_colors[clp[0]], markerfacecoloralt=tcr_colors[clp[1]],
-                              fillstyle='left', markeredgecolor='none', markeredgewidth=0 )
+                    # most significant last:
+                    reorder = np.argsort(cscores[mask])[::-1]
+                    plt.plot(xvals[mask][reorder], yvals[mask][reorder],
+                             zorder=2,
+                             marker='o',
+                             linestyle='None',
+                             markersize=markersize,
+                             color=gex_colors[clp[0]],
+                             markerfacecoloralt=tcr_colors[clp[1]],
+                             fillstyle='left',
+                             markeredgecolor='none',
+                             markeredgewidth=0 )
         plt.xticks([],[])
         plt.yticks([],[])
         #plt.ylabel('{} UMAP2'.format(TAG), fontsize=12,labelpad=1)
