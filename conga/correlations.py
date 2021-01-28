@@ -34,7 +34,7 @@ def find_neighbor_neighbor_interactions(
 
     '''
     pp.add_mait_info_to_adata_obs(adata) # for annotation of overlaps
-    is_mait = adata.obs['is_mait']
+    is_mait = adata.obs['is_invariant']
 
     num_clones = len(nbrs_gex)
 
@@ -118,7 +118,7 @@ def find_neighbor_cluster_interactions(
 
     '''
     pp.add_mait_info_to_adata_obs(adata) # for annotation of overlaps
-    is_mait = adata.obs['is_mait']
+    is_mait = adata.obs['is_invariant']
 
     num_clones = len(nbrs)
 
@@ -402,7 +402,7 @@ def gex_nbrhood_rank_tcr_scores(
 
     tcrs = pp.retrieve_tcrs_from_adata(adata)
     pp.add_mait_info_to_adata_obs(adata)
-    is_mait = adata.obs['is_mait']
+    is_mait = adata.obs['is_invariant']
     clusters_gex = np.array(adata.obs['clusters_gex'])
     clusters_tcr = np.array(adata.obs['clusters_tcr'])
 
@@ -521,7 +521,7 @@ def tcr_nbrhood_rank_genes_fast(
     clusters_tcr = np.array(adata.obs['clusters_tcr'])
     tcrs = pp.retrieve_tcrs_from_adata(adata)
     pp.add_mait_info_to_adata_obs(adata)
-    is_mait = adata.obs['is_mait']
+    is_mait = adata.obs['is_invariant']
     organism = adata.uns['organism']
     ## done unpacking ###############################
 

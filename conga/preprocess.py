@@ -36,21 +36,27 @@ def set_raw_matrix_is_logged_to_true( adata ):
     adata.uns[ 'raw_matrix_is_logged' ] = True
 
 
-def add_mait_info_to_adata_obs( adata, key_added = 'is_mait' ):
-    ''' Note that for mouse we are actually doing iNKT cells since those are the common ones
-    Also this is a total approximation based on the TCR alpha chain
+def add_mait_info_to_adata_obs( adata, key_added = 'is_invariant' ):
+    ''' This sets up a boolean array reflecting the presence of
+    canonical MAIT or iNKT TCR chains. It uses pretty crude definitions!
+    So for example a MAIT or iNKT cluster might be expected to have
+    many clonotypes matching these but certainly not all.
+    Note that it doesn't use the GEX data at all
     '''
     if key_added in adata.obs:
         #print('adata.obs already has mait info')
         return
     tcrs = retrieve_tcrs_from_adata(adata)
-    organism = 'human' if 'organism' not in adata.uns_keys() else adata.uns['organism']
+    organism = 'human' if 'organism' not in adata.uns_keys() else \
+               adata.uns['organism']
     if 'human' in organism:
         is_mait = [ tcr_scoring.is_human_mait_alpha_chain(x[0]) for x in tcrs ]
+        is_inkt = [ tcr_scoring.is_human_inkt_tcr(x) for x in tcrs ]
     else:
         assert 'mouse' in organism
-        is_mait = [ tcr_scoring.is_mouse_inkt_alpha_chain(x[0]) for x in tcrs ]
-    adata.obs['is_mait'] = is_mait
+        is_mait = [ tcr_scoring.is_mouse_mait_alpha_chain(x[0]) for x in tcrs ]
+        is_inkt = [ tcr_scoring.is_mouse_inkt_alpha_chain(x[0]) for x in tcrs ]
+    adata.obs[key_added] = (np.array(is_mait) | np.array(is_inkt))
 
 
 def normalize_and_log_the_raw_matrix(
