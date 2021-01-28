@@ -16,17 +16,12 @@ Paul G. Thomas, and Philip Bradley, accessible on the bioRxiv server
 
 # Table of Contents
 
-[Running](https://github.com/phbradley/conga#running)
-
-[Installation](https://github.com/phbradley/conga#installation)
-
-[migrating Seurat data to CoNGA](https://github.com/phbradley/conga#migrating-seurat-data-to-conga)
-
-[Updates](https://github.com/phbradley/conga#updates)
-
-[SVG to PNG](https://github.com/phbradley/conga#svg-to-png)
-
-[Examples](https://github.com/phbradley/conga#examples)
+* [Running](https://github.com/phbradley/conga#running)
+* [Installation](https://github.com/phbradley/conga#installation)
+* [Migrating Seurat data to CoNGA](https://github.com/phbradley/conga#migrating-seurat-data-to-conga)
+* [Updates](https://github.com/phbradley/conga#updates)
+* [SVG to PNG](https://github.com/phbradley/conga#svg-to-png)
+* [Examples](https://github.com/phbradley/conga#examples)
 
 # Running
 
@@ -136,7 +131,7 @@ g++ -O3 -std=c++11 -Wall -I ./include/ -o ./bin/calc_distributions ./src/calc_di
 g++ -O3 -std=c++11 -Wall -I ./include/ -o ./bin/find_paired_matches ./src/find_paired_matches.cc
 ```
 
-# migrating Seurat data to CoNGA
+# Migrating Seurat data to CoNGA
 We recommend using the write10XCounts function from the DropletUtils package for
 converting Seurat objects into 10x format for importing into CoNGA/scanpy.
 ```
