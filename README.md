@@ -451,7 +451,7 @@ generally expect these to be set once the setup phase has completed. The
 CoNGA routines that fill these arrays are:
 * `conga.preprocess.read_data`: loads the GEX data into an `AnnData` object
 (here called `adata`); puts the TCR information into the `adata.obs` arrays;
-reads and stores the TCRdist kernel principal components in `adata.obsm` under
+reads the TCRdist kernel principal components and stores them in `adata.obsm` under
 the key `X_pca_tcr`. Eliminates cells without paired TCR information.
 * `conga.preprocess.filter_and_scale`: sets up the `adata.raw` object, does
 some typical single-cell filtering and preprocessing.
@@ -460,8 +460,7 @@ cell per clonotype; fills the `adata.obs['clone_sizes']` array and
 potentially `adata.obsm[<batch_key>]` for one or more `<batch_key>`s if
 there is batch structure defined in the input data.
 * `conga.preprocess.cluster_and_tsne_and_umap`: Fills `adata.obsm['X_pca_gex']`,
-and the `adata.obs` arrays `X_gex_2d`, `X_tcr_2d`,
-`clusters_gex`,
+and the `adata.obs` arrays `X_gex_2d`, `X_tcr_2d`, `clusters_gex`,
 and `clusters_tcr`.
 
 ### `adata.obs`
@@ -540,9 +539,9 @@ with expressions like `adata.obs['va']`
 * `is_invariant`: Boolean array recording the presence of
 canonical invariant (MAIT or iNKT) TCR chains.
 * `nndists_tcr`: Nearest-neighbor distances based on TCR sequence.
-Gives an approximate measure of TCR (inverse) density.
+Gives an approximate measure of (inverse) TCR density.
 * `nndists_gex`: Nearest-neighbor distances based on GEX.
-Gives an approximate measure of GEX (inverse) density.
+Gives an approximate measure of (inverse) GEX density.
 * `conga_scores`: CoNGA scores for each clonotype.
 Filled after the graph-vs-graph analysis has been run.
 * `<batch_key>`: When there are multiple batches present in a dataset
@@ -551,9 +550,9 @@ and plotting routines.
 Here `<batch_key>` is the name of the batch/category (for example `'outcome'` or `'subject'` or `'timepoint'`).
 The entry in `adata.obs` for each batch key should contain integers in the range `[0,num_batch_classes)`.
 This information is stored in the `adata.obs` array *prior* to condensing to a single
-cell per clonotype, and in the `adata.obsm` array *after* condensing to a single cell per clone
+cell per clonotype, and in the `adata.obsm` array *after* condensing to a single cell per clonotype
 (since expanded clonotypes can span multiple batch assignments).
-See the FAQ entry on batches in CoNGA (available soon).
+See the FAQ entry on batches in CoNGA (coming soon).
 
 ### `adata.obsm`
 The following multidimensional arrays are stored in the `obs` array and can be accessed
