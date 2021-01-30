@@ -168,7 +168,12 @@ if args.restart is None:
     allow_missing_kpca_file = args.use_exact_tcrdist_nbrs and args.use_tcrdist_umap and args.use_tcrdist_clusters
 
     assert exists(args.gex_data)
-    assert exists(args.clones_file)
+
+    # adding possibility of getting tcr info from adata
+    if args.clones_file is None:
+        print('WARNING --clones_file flag is missing',
+              'h5ad file must already contain TCR info')
+    #assert exists(args.clones_file)
 
     ## load the dataset
     if args.rerun_kpca:

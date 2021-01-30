@@ -25,6 +25,9 @@ from . import plotting
 from .tcrdist.tcr_distances import TcrDistCalculator
 from .util import tcrdist_cpp_available
 
+# we also allow 'va' in place of 'va_gene' / 'ja' in place of 'ja_gene', etc:
+CLONES_FILE_REQUIRED_COLUMNS = 'clone_id va_gene ja_gene cdr3a cdr3a_nucseq vb_gene jb_gene cdr3b cdr3b_nucseq'.split()
+
 # silly hack
 all_sexlinked_genes = frozenset('XIST DDX3Y EIF1AY KDM5D LINC00278 NLGN4Y RPS4Y1 TTTY14 TTTY15 USP9Y UTY ZFY'.split())
 
@@ -251,6 +254,10 @@ def read_dataset(
 
     stores the tcr-dist kPCA info in adata.obsm under the key 'X_pca_tcr'
     stores the tcr info in adata.obs under multiple keys (see store_tcrs_in_adata(...) function)
+
+    if clones_file is None, gex_data_type must be 'h5ad' and the tcr info
+      must already be in the AnnData object (ie adata) when we load it
+
     '''
 
     include_tcr_nucseq = True
@@ -271,6 +278,23 @@ def read_dataset(
     if make_var_names_unique:
         adata.var_names_make_unique() # added
 
+    if clones_file is None:
+        # adata should already contain the tcr information
+        colnames = 'va ja cdr3a cdr3a_nucseq vb jb cdr3b cdr3b_nucseq'.split()
+        for colname in colnames:
+            if colname not in adata.obs_keys():
+                print('ERROR read_dataset: clones_file = None',
+                      'but adata doesnt already contain', colname)
+                sys.exit()
+        # what about 'X_pca_tcr' ie the kernel PCs??
+        # should we worry about those now?
+        if 'X_pca_tcr' not in adata.obsm_keys():
+            print('WARNING:: reading dataset without clones file',
+                  'kernel PCs will not be set ie X_pca_tcr array',
+                  'will be missing from adata.obsm!!!!!!!!!!!!!', sep='\n')
+        return adata ########################################## EARLY RETURN
+
+
     barcodes = set( adata.obs.index )
     print('total barcodes:',len(barcodes),adata.shape)
 
@@ -288,10 +312,25 @@ def read_dataset(
     clones_file_header = tmpdata.readline()
     tmpdata.close()
     #clones_file_header = popen('head -n1 '+clones_file).readlines()[0]
-    lines = pd.read_csv( clones_file,sep='\t')
+    clones_df = pd.read_csv(clones_file, sep='\t')
+    # allow use of either 'va' or 'va_gene' as column header
+    for vj in 'vj':
+        for ab in 'ab':
+            tag = f'{vj}{ab}_gene'
+            alt_tag = f'{vj}{ab}'
+            if tag not in clones_df.columns and alt_tag in clones_df.columns:
+                clones_df.rename(columns={alt_tag:tag}, inplace=True)
+
+    for colname in CLONES_FILE_REQUIRED_COLUMNS:
+        if colname not in clones_df.columns:
+            print('ERROR clones_file is missing required column:', colname)
+            print('Required columns:', CLONES_FILE_REQUIRED_COLUMNS)
+            print('clones_file:', clones_file)
+            sys.exit()
+
     id2tcr = {}
     tcr2id = {}
-    for l in lines.itertuples(index=False):
+    for l in clones_df.itertuples(index=False):
         if include_tcr_nucseq:
             atcr = ( l.va_gene, l.ja_gene, l.cdr3a, l.cdr3a_nucseq )
             btcr = ( l.vb_gene, l.jb_gene, l.cdr3b, l.cdr3b_nucseq )
