@@ -227,6 +227,7 @@ def read_adata(
 
     elif gex_data_type == '10x_h5':
         adata = sc.read_10x_h5( gex_data, gex_only=gex_only )
+        adata.var_names_make_unique()
 
     elif gex_data_type == 'loom':
         adata = sc.read_loom( gex_data )
