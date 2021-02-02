@@ -1454,7 +1454,7 @@ def make_tcrdist_kernel_pcs_file_from_clones_file(
         D = np.loadtxt(input_distfile)
 
     if output_distfile is not None:
-        np.savetxt( distfile, D.astype(float), fmt='%.1f')
+        np.savetxt( output_distfile, D.astype(float), fmt='%.1f')
 
     n_components = min( n_components_in, D.shape[0] )
 
