@@ -227,6 +227,7 @@ def read_adata(
 
     elif gex_data_type == '10x_h5':
         adata = sc.read_10x_h5( gex_data, gex_only=gex_only )
+        adata.var_names_make_unique()
 
     elif gex_data_type == 'loom':
         adata = sc.read_loom( gex_data )
@@ -1462,7 +1463,7 @@ def make_tcrdist_kernel_pcs_file_from_clones_file(
         D = np.loadtxt(input_distfile)
 
     if output_distfile is not None:
-        np.savetxt( distfile, D.astype(float), fmt='%.1f')
+        np.savetxt( output_distfile, D.astype(float), fmt='%.1f')
 
     n_components = min( n_components_in, D.shape[0] )
 
