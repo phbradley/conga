@@ -555,7 +555,7 @@ cell per clonotype, and in the `adata.obsm` array *after* condensing to a single
 See the FAQ entry on batches in CoNGA (coming soon).
 
 ### `adata.obsm`
-The following multidimensional arrays are stored in the `obs` array and can be accessed
+The following multidimensional arrays are stored in the `obsm` array and can be accessed
 with expressions like `adata.obsm[<tag>]`
 
 * `<batch_key>`: When there are multiple batches present in a dataset
