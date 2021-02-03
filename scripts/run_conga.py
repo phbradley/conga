@@ -81,7 +81,10 @@ parser.add_argument('--gex_header_tcr_score_names', type=str, nargs='*')
 parser.add_argument('--batch_keys', type=str, nargs='*')
 parser.add_argument('--exclude_batch_keys_for_biases', type=str, nargs='*')
 parser.add_argument('--radii_for_tcr_clumping', type=int, nargs='*')
-parser.add_argument('--num_random_samples_for_tcr_clumping', type=int)
+parser.add_argument('--num_random_samples_for_tcr_clumping', type=int,
+                    default=50000)
+parser.add_argument('--num_random_samples_for_tcr_matching', type=int,
+                    default=50000)
 parser.add_argument('--gex_nbrhood_tcr_score_names', type=str, nargs='*')
 parser.add_argument('--shuffle_tcr_kpcs', action='store_true') # shuffle the TCR kpcs to test for FDR
 parser.add_argument('--shuffle_gex_nbrs', action='store_true') # for debugging
@@ -165,7 +168,11 @@ hostname = os.popen('hostname').readlines()[0][:-1]
 outlog.write('hostname: {}\n'.format(hostname))
 
 if args.restart is None:
-    allow_missing_kpca_file = args.use_exact_tcrdist_nbrs and args.use_tcrdist_umap and args.use_tcrdist_clusters
+    allow_missing_kpca_file = (
+        args.use_exact_tcrdist_nbrs and
+        args.use_tcrdist_umap and
+        args.use_tcrdist_clusters
+        )
 
     assert exists(args.gex_data)
 
@@ -176,24 +183,48 @@ if args.restart is None:
     #assert exists(args.clones_file)
 
     ## load the dataset
-    if args.rerun_kpca:
+    if args.rerun_kpca and args.clones_file is not None:
         if args.kpca_file is None:
             args.kpca_file = args.outfile_prefix+'_rerun_tcrdist_kpca.txt'
         else:
-            print('WARNING:: overwriting', args.kpca_file, 'since --rerun_kpca is True')
+            print('WARNING:: overwriting', args.kpca_file,
+                  'since --rerun_kpca is True')
         conga.preprocess.make_tcrdist_kernel_pcs_file_from_clones_file(
             args.clones_file,
             args.organism,
             kernel=args.kpca_kernel,
             outfile=args.kpca_file,
-            gaussian_kernel_sdev=args.kpca_gaussian_kernel_sdev,
-            force_Dmax=args.kpca_default_kernel_Dmax,
+            gaussian_kernel_sdev = args.kpca_gaussian_kernel_sdev,
+            force_Dmax = args.kpca_default_kernel_Dmax,
         )
 
     adata = conga.preprocess.read_dataset(
-        args.gex_data, args.gex_data_type, args.clones_file, kpca_file=args.kpca_file, # default is None
-        allow_missing_kpca_file=allow_missing_kpca_file, gex_only=False,
-        suffix_for_non_gene_features=args.suffix_for_non_gene_features)
+        args.gex_data,
+        args.gex_data_type,
+        args.clones_file,
+        kpca_file = args.kpca_file, # default is None
+        allow_missing_kpca_file = allow_missing_kpca_file,
+        gex_only = False,
+        suffix_for_non_gene_features = args.suffix_for_non_gene_features,
+    )
+
+    if args.rerun_kpca and args.clones_file is None:
+        # do this (compute tcrdist kernel pcs) now rather than before
+        #   dataset loading if we don't have a clones file
+        tcrs = conga.preprocess.retrieve_tcrs_from_adata(adata)
+        kpcs = conga.preprocess.make_tcrdist_kernel_pcs_file_from_clones_file(
+            None,
+            args.organism,
+            kernel=args.kpca_kernel,
+            outfile=args.kpca_file,
+            gaussian_kernel_sdev=args.kpca_gaussian_kernel_sdev,
+            force_Dmax=args.kpca_default_kernel_Dmax,
+            tcrs=tcrs,
+            return_pcs = True,
+        )
+        adata.obsm['X_pca_tcr'] = kpcs
+
+
     assert args.organism
     adata.uns['organism'] = args.organism
     assert 'organism' in adata.uns_keys()
@@ -432,12 +463,18 @@ if args.use_tcrdist_umap or args.use_tcrdist_clusters:
 # all_nbrs is dict from nbr_frac to [nbrs_gex, nbrs_tcr]
 # for nndist calculations, use a smallish nbr_frac, but not too small:
 num_clones = adata.shape[0]
-nbr_frac_for_nndists = min( x for x in args.nbr_fracs if x*num_clones>=10 or x==max(args.nbr_fracs) )
+nbr_frac_for_nndists = min( x for x in args.nbr_fracs
+                            if x*num_clones>=10 or x==max(args.nbr_fracs) )
 outlog.write(f'nbr_frac_for_nndists: {nbr_frac_for_nndists}\n')
 obsm_tag_tcr = None if args.use_exact_tcrdist_nbrs else 'X_pca_tcr'
 all_nbrs, nndists_gex, nndists_tcr = conga.preprocess.calc_nbrs(
-    adata, args.nbr_fracs, also_calc_nndists=True, nbr_frac_for_nndists=nbr_frac_for_nndists,
-    obsm_tag_tcr=obsm_tag_tcr, use_exact_tcrdist_nbrs=args.use_exact_tcrdist_nbrs)
+    adata,
+    args.nbr_fracs,
+    also_calc_nndists = True,
+    nbr_frac_for_nndists = nbr_frac_for_nndists,
+    obsm_tag_tcr = obsm_tag_tcr,
+    use_exact_tcrdist_nbrs = args.use_exact_tcrdist_nbrs,
+)
 
 
 #
@@ -458,7 +495,8 @@ if args.analyze_junctions:
 
 if args.shuffle_gex_nbrs:
     reorder = np.random.permutation(num_clones)
-    print('shuffling gex nbrs: num_shuffle_fixed_points=', np.sum(reorder==np.arange(num_clones)))
+    print('shuffling gex nbrs: num_shuffle_fixed_points=',
+          np.sum(reorder==np.arange(num_clones)))
     reorder_list = list(reorder)
     # reorder maps from the old index to the permuted index, ie new_i = reorder[old_i]
 
@@ -479,7 +517,8 @@ conga.preprocess.setup_tcr_cluster_names(adata) #stores in adata.uns
 
 if args.verbose_nbrs:
     for nbr_frac in args.nbr_fracs:
-        for tag, nbrs in [ ['gex', all_nbrs[nbr_frac][0]], ['tcr', all_nbrs[nbr_frac][1]]]:
+        for tag, nbrs in [['gex', all_nbrs[nbr_frac][0]],
+                          ['tcr', all_nbrs[nbr_frac][1]]]:
             outfile = '{}_{}_nbrs_{:.3f}.txt'.format(args.outfile_prefix, tag, nbr_frac)
             np.savetxt(outfile, nbrs, fmt='%d')
             print('wrote nbrs to file:', outfile)
@@ -489,52 +528,65 @@ if args.match_to_tcr_database:
         # we only have a built-in database for human alpha-beta tcrs right now
 
         results = conga.tcr_clumping.match_adata_tcrs_to_db_tcrs(
-            adata, args.tcr_database_tsvfile, args.outfile_prefix,
-            adjusted_pvalue_threshold= args.pvalue_threshold_for_db_matching)
+            adata,
+            args.tcr_database_tsvfile,
+            args.outfile_prefix,
+            num_random_samples_for_bg_freqs= args.num_random_samples_for_tcr_matching,
+            adjusted_pvalue_threshold= args.pvalue_threshold_for_db_matching
+        )
 
         if results.shape[0]:
             outfile = args.outfile_prefix+'db_matches.tsv'
             results.to_csv(outfile, sep='\t', index=False)
             print('wrote', results.shape[0], 'matches to', outfile)
         else:
-            print('match_to_tcr_database: no matches below ADJUSTED pval threshold of',
-                  args.pvalue_threshold_for_db_matching)
+            print('match_to_tcr_database: no matches below ADJUSTED',
+                  'pval threshold of', args.pvalue_threshold_for_db_matching)
 
 if args.tcr_clumping:
-    num_random_samples = 50000 if args.num_random_samples_for_tcr_clumping is None \
-                         else args.num_random_samples_for_tcr_clumping
+    num_random_samples = args.num_random_samples_for_tcr_clumping
 
-    radii = [24, 48, 72, 96] if args.radii_for_tcr_clumping is None else args.radii_for_tcr_clumping
+    radii = [24, 48, 72, 96] if args.radii_for_tcr_clumping is None else \
+            args.radii_for_tcr_clumping
 
     pvalue_threshold = 0.05 # could use 1.0 maybe?
 
     results = conga.tcr_clumping.assess_tcr_clumping(
-        adata, args.outfile_prefix, radii=radii, num_random_samples=num_random_samples,
+        adata,
+        args.outfile_prefix,
+        radii=radii,
+        num_random_samples=num_random_samples,
         pvalue_threshold = pvalue_threshold,
-        also_find_clumps_within_gex_clusters=args.intra_cluster_tcr_clumping)
+        also_find_clumps_within_gex_clusters=args.intra_cluster_tcr_clumping,
+    )
 
     if results.shape[0]:
         # add clusters info for results tsvfile
         clusters_gex = np.array(adata.obs['clusters_gex'])
         clusters_tcr = np.array(adata.obs['clusters_tcr'])
-        results['clusters_gex'] = [ clusters_gex[x] for x in results.clone_index]
-        results['clusters_tcr'] = [ clusters_tcr[x] for x in results.clone_index]
+        results['clusters_gex'] = [clusters_gex[x] for x in results.clone_index]
+        results['clusters_tcr'] = [clusters_tcr[x] for x in results.clone_index]
 
         tsvfile = args.outfile_prefix+'_tcr_clumping.tsv'
         results.to_csv(tsvfile, sep='\t', index=False)
 
         nbrs_gex, nbrs_tcr = all_nbrs[ max(args.nbr_fracs) ]
 
-        #min_cluster_size = max( args.min_cluster_size, int( 0.5 + args.min_cluster_size_fraction * num_clones) )
         conga.plotting.make_tcr_clumping_plots(
-            adata, results, nbrs_gex, nbrs_tcr, args.min_cluster_size_for_tcr_clumping_logos,
-            pvalue_threshold, args.outfile_prefix)
+            adata,
+            results,
+            nbrs_gex,
+            nbrs_tcr,
+            args.min_cluster_size_for_tcr_clumping_logos,
+            pvalue_threshold,
+            args.outfile_prefix,
+            )
 
     num_clones = adata.shape[0]
     tcr_clumping_pvalues = np.full((num_clones,), num_clones).astype(float)
     for l in results.itertuples():
-        tcr_clumping_pvalues[l.clone_index] = min(tcr_clumping_pvalues[l.clone_index],
-                                                  l.pvalue_adj)
+        tcr_clumping_pvalues[l.clone_index] = min(
+            tcr_clumping_pvalues[l.clone_index], l.pvalue_adj)
     adata.obs['tcr_clumping_pvalues'] = tcr_clumping_pvalues # stash in adata.obs
 
 
@@ -568,7 +620,9 @@ if args.graph_vs_graph: ########################################################
     bic_counts = Counter( (x,y) for x,y,m in zip(clusters_gex, clusters_tcr, good_mask) if m )
 
     # take the LARGER of the two min_cluster_size thresholds
-    min_cluster_size = max( args.min_cluster_size, int( 0.5 + args.min_cluster_size_fraction * num_clones) )
+    min_cluster_size = max(
+        args.min_cluster_size,
+        int( 0.5 + args.min_cluster_size_fraction * num_clones))
 
     num_good_biclusters = sum( 1 for x,y in bic_counts.items() if y>=min_cluster_size )
 
@@ -924,15 +978,27 @@ if args.plot_cluster_gene_compositions:
 
 
 if args.find_gex_cluster_degs: # look at differentially expressed genes in gex clusters
-    obs_tag = 'genex_clusters'
-    adata.obs[obs_tag] = [ str(x) for x in adata.obs['clusters_gex']]#.astype('category')
+    obs_tag = 'clusters_gex_for_degs'
+    adata.obs[obs_tag] = [str(x) for x in adata.obs['clusters_gex']]#.astype('category')
     key_added = 'degs_for_gex_clusters'
     rank_method = 'wilcoxon'
     all_clusters = sorted(set(adata.obs[obs_tag]))
-    sc.tl.rank_genes_groups(adata, groupby=obs_tag, method=rank_method, groups=all_clusters, reference='rest',
-                            key_added=key_added)
+    sc.tl.rank_genes_groups(
+        adata,
+        groupby=obs_tag,
+        method=rank_method,
+        groups=all_clusters,
+        reference='rest',
+        key_added=key_added,
+    )
     n_genes = 25
-    sc.pl.rank_genes_groups(adata, n_genes=n_genes, sharey=False, show=False, key=key_added)
+    sc.pl.rank_genes_groups(
+        adata,
+        n_genes=n_genes,
+        sharey=False,
+        show=False,
+        key=key_added,
+    )
     pngfile = args.outfile_prefix+'_gex_cluster_degs.png'
     plt.savefig(pngfile, bbox_inches="tight")
     print('made:', pngfile)

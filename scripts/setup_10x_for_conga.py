@@ -18,6 +18,7 @@ parser.add_argument('--kpca_gaussian_kernel_sdev', default=100.0, type=float,
 parser.add_argument('--kpca_outfile')
 parser.add_argument('--condense_clonotypes_by_tcrdist', action='store_true')
 parser.add_argument('--tcrdist_threshold_for_condensing', type=float, default=50.)
+parser.add_argument('--verbose', action='store_true')
 
 args = parser.parse_args()
 
@@ -51,8 +52,14 @@ if args.input_clones_file is None:
     #    tmp_clones_filesuffix = '.uncondensed.tsv'
     #    output_clones_file += tmp_suffix # make a temporary version
 
-    make_10x_clones_file(args.filtered_contig_annotations_csvfile, args.organism, output_clones_file,
-                         stringent=stringent, consensus_annotations_csvfile=args.consensus_annotations_csvfile)
+    make_10x_clones_file(
+        args.filtered_contig_annotations_csvfile,
+        args.organism,
+        output_clones_file,
+        stringent=stringent,
+        consensus_annotations_csvfile=args.consensus_annotations_csvfile,
+        verbose=args.verbose
+        )
 
     if args.condense_clonotypes_by_tcrdist:
         oldfile = output_clones_file

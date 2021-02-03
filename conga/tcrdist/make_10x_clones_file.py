@@ -109,30 +109,42 @@ def read_tcr_data(
     df['productive'] = df['productive'].astype(str) #sometimes it already is if there are 'Nones' in there...
     clonotype2barcodes = {}
     clonotype2tcrs_backup = {} ## in case we dont have a consensus_annotations_csvfile
+
+    if verbose:
+        print('read:', df.shape[0], 'lines from', contig_annotations_csvfile)
+
     for l in df.itertuples():
         bc = l.barcode
         clonotype = clone_id_prefix + l.raw_clonotype_id
-        # annoying: pandas sometimes converts to True/False booleans and sometimes not.
+        # annoying: pandas sometimes converts to True/False booleans
+        #  and sometimes not.
         assert l.productive in [ 'None', 'False', 'True']
         if clonotype =='None':
+            if verbose:
+                print('skip: clonotype==None', l)
             continue
         if clonotype not in clonotype2barcodes:
             clonotype2barcodes[clonotype] = []
         if bc in clonotype2barcodes[clonotype]:
             pass
-            #print 'repeat barcode'
         else:
             clonotype2barcodes[clonotype].append( bc )
 
         ## experimenting here ########################################3
         if l.productive != 'True':
+            if verbose:
+                print('skip: productive!=True', l)
             continue
         if l.cdr3.lower() == 'none' or l.cdr3_nt.lower() == 'none':
+            if verbose:
+                print('skip: bad_cdr3', l)
             continue
 
         chain = l.chain
         ab = get_ab_from_10x_chain(chain, organism)
         if ab is None:
+            if verbose:
+                print('skip: ab=None', l)
             continue
         if clonotype not in clonotype2tcrs_backup:
             clonotype2tcrs_backup[ clonotype ] = {'A':Counter(), 'B':Counter() }
@@ -166,6 +178,9 @@ def read_tcr_data(
 
 
     if consensus_annotations_csvfile is None:
+        # this is now the default-- we don't really need the code below
+        #  and it won't be run unless user also provides a
+        #  consensus_annotations_csvfile
         clonotype2tcrs = clonotype2tcrs_backup
     else:
 
@@ -633,11 +648,19 @@ def setup_filtered_clonotype_dicts(
 
 
     print('ab_counts:', ab_counts.most_common())
-    old_good_clonotypes = [ x for x,y in clonotype2tcrs.items() if len(y['A']) >= 1 and len(y['B']) >= 1 ]
-    old_num_barcodes = sum( len(clonotype2barcodes[x]) for x in old_good_clonotypes )
-    new_num_barcodes = sum( len(x) for x in list(new_clonotype2barcodes.values()) )
+    old_good_clonotypes = [ x for x,y in clonotype2tcrs.items()
+                            if len(y['A']) >= 1 and len(y['B']) >= 1 ]
+    old_unpaired_clonotypes = [ x for x,y in clonotype2tcrs.items()
+                                if len(y['A']) < 1 or len(y['B']) < 1 ]
+    old_num_unpaired_barcodes = sum( len(clonotype2barcodes[x])
+                                     for x in old_unpaired_clonotypes )
+    old_num_paired_barcodes = sum( len(clonotype2barcodes[x])
+                                   for x in old_good_clonotypes )
+    new_num_barcodes = sum(len(x) for x in new_clonotype2barcodes.values())
 
-    print('old_num_barcodes:', old_num_barcodes, 'new_num_barcodes:', new_num_barcodes)
+    print('old_unpaired_barcodes:', old_num_unpaired_barcodes,
+          'old_paired_barcodes:', old_num_paired_barcodes,
+          'new_stringent_paired_barcodes:', new_num_barcodes)
 
     return new_clonotype2tcrs, new_clonotype2barcodes
 
@@ -648,16 +671,23 @@ def make_10x_clones_file(
         clones_file, # the OUTPUT file, the one we're making
         stringent = True, # dont believe the 10x clonotypes; reduce 'duplicated' and 'fake' clones
         consensus_annotations_csvfile = None,
+        verbose = False,
 ):
 
-    clonotype2tcrs, clonotype2barcodes = read_tcr_data( organism, filtered_contig_annotations_csvfile,
-                                                        consensus_annotations_csvfile )
+    clonotype2tcrs, clonotype2barcodes = read_tcr_data(
+        organism,
+        filtered_contig_annotations_csvfile,
+        consensus_annotations_csvfile,
+        verbose=verbose
+    )
 
     if stringent:
-        clonotype2tcrs, clonotype2barcodes = setup_filtered_clonotype_dicts( clonotype2tcrs, clonotype2barcodes )
+        clonotype2tcrs, clonotype2barcodes = setup_filtered_clonotype_dicts(
+            clonotype2tcrs, clonotype2barcodes )
 
 
-    _make_clones_file( organism, clones_file, clonotype2tcrs, clonotype2barcodes )
+    _make_clones_file( organism, clones_file, clonotype2tcrs,
+                       clonotype2barcodes )
 
 def make_10x_clones_file_batch(
         metadata_file,

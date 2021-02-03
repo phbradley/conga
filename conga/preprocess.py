@@ -246,7 +246,7 @@ def read_dataset(
         make_var_names_unique = True,
         keep_cells_without_tcrs = False,
         kpca_file = None,
-        allow_missing_kpca_file = False,
+        allow_missing_kpca_file = False, # only relevant if clones_file!=None
         gex_only=True, #only applies to 10x-formatted data
         suffix_for_non_gene_features=None, #None or a string
 ):
@@ -1427,15 +1427,22 @@ def make_tcrdist_kernel_pcs_file_from_clones_file(
         output_distfile = None,
         force_Dmax = None,
         force_tcrdist_cpp = False,
+        tcrs = None,
+        return_pcs = False, # default is to write to a file
 ):
-    if outfile is None: # this is the name expected by read_dataset above (with n_components_in==50)
+    if (not return_pcs) and outfile is None:
+        # this is the name expected by read_dataset above
+        #  (with n_components_in==50)
         outfile = '{}_AB.dist_{}_kpcs'.format(clones_file[:-4], n_components_in)
 
-    df = pd.read_csv(clones_file, sep='\t')
+    if tcrs is None:
+        df = pd.read_csv(clones_file, sep='\t')
 
-    # in conga we usually also have cdr3_nucseq but we don't need it for tcrdist; we also don't need the jgene but hey
-    tcrs = [ ( ( l.va_gene, l.ja_gene, l.cdr3a ), ( l.vb_gene, l.jb_gene, l.cdr3b ) ) for l in df.itertuples() ]
-    ids = [ l.clone_id for l in df.itertuples() ]
+        # in conga we usually also have cdr3_nucseq but we don't need it
+        #  for tcrdist; we also don't need the jgene but hey
+        tcrs = [((l.va_gene, l.ja_gene, l.cdr3a),
+                 (l.vb_gene, l.jb_gene, l.cdr3b)) for l in df.itertuples()]
+        ids = [l.clone_id for l in df.itertuples()]
 
 
     if input_distfile is None: ## tcr distances
@@ -1445,9 +1452,11 @@ def make_tcrdist_kernel_pcs_file_from_clones_file(
             print('Using C++ TCRdist calculator')
             D = calc_tcrdist_matrix_cpp(tcrs, organism, outfile)
         else:
-            print('Using Python TCRdist calculator. Consider compiling C++ calculator for faster perfomance.')
+            print('Using Python TCRdist calculator. Consider compiling',
+                  'C++ calculator for faster perfomance.')
             tcrdist_calculator = TcrDistCalculator(organism)
-            D = np.array( [ tcrdist_calculator(x,y) for x in tcrs for y in tcrs ] ).reshape( (len(tcrs), len(tcrs)) )
+            D = np.array([tcrdist_calculator(x,y) for x in tcrs for y in tcrs])\
+                  .reshape((len(tcrs), len(tcrs)))
     else:
         print(f'reload tcrdist distance matrix for {len(tcrs)} clonotypes')
         D = np.loadtxt(input_distfile)
@@ -1457,7 +1466,8 @@ def make_tcrdist_kernel_pcs_file_from_clones_file(
 
     n_components = min( n_components_in, D.shape[0] )
 
-    print(f'running KernelPCA with {kernel} kernel distance matrix shape= {D.shape} D.max()= {D.max()} force_Dmax= {force_Dmax}')
+    print(f'running KernelPCA with {kernel} kernel distance matrix',
+          f'shape= {D.shape} D.max()= {D.max()} force_Dmax= {force_Dmax}')
 
     pca = KernelPCA(kernel='precomputed', n_components=n_components)
 
@@ -1468,7 +1478,8 @@ def make_tcrdist_kernel_pcs_file_from_clones_file(
     elif kernel == 'gaussian':
         gram = np.exp(-0.5 * (D/gaussian_kernel_sdev)**2 )
     else:
-        print('conga.preprocess.make_tcrdist_kernel_pcs_file_from_clones_file:: unrecognized kernel:', kernel)
+        print('conga.preprocess.make_tcrdist_kernel_pcs_file_from_clones_file:',
+              'unrecognized kernel:', kernel)
         sys.exit(1)
 
     xy = pca.fit_transform(gram)
@@ -1477,16 +1488,21 @@ def make_tcrdist_kernel_pcs_file_from_clones_file(
         for ii in range(n_components):
             print( 'eigenvalue: {:3d} {:.3f}'.format( ii, pca.lambdas_[ii]))
 
-    # this is the kpca_file that conga.preprocess.read_dataset is expecting:
-    #kpca_file = clones_file[:-4]+'_AB.dist_50_kpcs'
-    print( 'writing TCRdist kernel PCs to outfile:', outfile)
-    out = open(outfile,'w')
+    if return_pcs:
+        return xy ######################### NOTE EARLY RETURN
+    else:
 
-    for ii in range(D.shape[0]):
-        out.write('pc_comps: {} {}\n'\
-                  .format( ids[ii], ' '.join( '{:.6f}'.format(xy[ii,j]) for j in range(n_components) ) ) )
-    out.close()
-    return
+        # this is the kpca_file that conga.preprocess.read_dataset is expecting:
+        #kpca_file = clones_file[:-4]+'_AB.dist_50_kpcs'
+        print( 'writing TCRdist kernel PCs to outfile:', outfile)
+        out = open(outfile,'w')
+
+        for ii in range(D.shape[0]):
+            out.write('pc_comps: {} {}\n'\
+                      .format(ids[ii], ' '.join('{:.6f}'.format(xy[ii,j])
+                                                for j in range(n_components))))
+        out.close()
+        return
 
 
 def condense_clones_file_and_barcode_mapping_file_by_tcrdist(
