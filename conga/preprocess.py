@@ -864,7 +864,7 @@ def reduce_to_single_cell_per_clone(
 
 
 
-    if batch_keys:
+    if batch_keys is not None:
         for k in batch_keys:
             counts = np.array(clone_batch_counts[k])
             assert counts.shape == (num_clones, num_batch_key_choices[k])

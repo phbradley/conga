@@ -436,7 +436,8 @@ def make_logo_plots(
     # aim for 10in width
     dendro_width = 1.0
     single_batch_bar_width = 0.25
-    batch_bars_width = 0 if not make_batch_bars else single_batch_bar_width * len(batch_keys)
+    batch_bars_width = 0 if not make_batch_bars else \
+                       single_batch_bar_width * len(batch_keys)
     title_logo_width = 0.75
     rg_logo_width = 1.5
     score_logo_width = 0.0 if good_bicluster_tcr_scores is None else 0.5
@@ -1003,13 +1004,10 @@ def make_logo_plots(
                 num_batch_key_choices = counts.shape[0]
                 assert num_batch_key_choices >1 # we add a fake one in preprocess.py if necessary
                 fractions = counts.astype(float)/np.sum(counts)
-                if num_batch_key_choices <= 10:
-                    colors = plt.get_cmap('tab10').colors[:num_batch_key_choices]
-                elif num_batch_key_choices <= 20:
-                    colors = plt.get_cmap('tab20').colors[:num_batch_key_choices]
-                else:
-                    cmap = plt.get_cmap('tab20')
-                    colors = [cmap(0.99*x/(num_batch_key_choices-1)) for x in range(num_batch_key_choices)]
+                cmap = plt.get_cmap('tab10') if num_batch_key_choices<=10 else \
+                       plt.get_cmap('tab20')
+                colors = [cmap.colors[x%20]
+                          for x in range(num_batch_key_choices)]
                 plt.bar([0]*num_batch_key_choices, height=fractions, width=0.8,
                         bottom=np.cumsum(fractions)-fractions, color=colors, align='center')
                 # overall counts/fractions

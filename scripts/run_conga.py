@@ -397,7 +397,8 @@ if 'batch_keys' in adata.uns_keys():
     # sometimes if there's a single batch key the type changes from a list to
     # just the single string when we save h5ad and then reload
     batch_keys = adata.uns['batch_keys']
-    if batch_keys[0] not in adata.obsm_keys() and batch_keys in adata.obsm_keys():
+    if ( batch_keys[0] not in adata.obsm_keys() and
+         batch_keys in adata.obsm_keys()):
         print('update adata.uns["batch_keys"] from str to list')
         adata.uns['batch_keys'] = [adata.uns['batch_keys']]
 
@@ -655,7 +656,11 @@ if args.graph_vs_graph: ########################################################
 
 
         conga.plotting.make_logo_plots(
-            adata, nbrs_gex, nbrs_tcr, min_cluster_size, args.outfile_prefix+'_bicluster_logos.png',
+            adata,
+            nbrs_gex,
+            nbrs_tcr,
+            min_cluster_size,
+            args.outfile_prefix+'_bicluster_logos.png',
             good_bicluster_tcr_scores=good_bicluster_tcr_scores,
             make_gex_header = not args.skip_gex_header,
             make_gex_header_raw = not args.skip_gex_header_raw,
@@ -663,23 +668,33 @@ if args.graph_vs_graph: ########################################################
             include_alphadist_in_tcr_feature_logos=args.include_alphadist_in_tcr_feature_logos,
             rank_genes_uns_tag = rank_genes_uns_tag,
             show_pmhc_info_in_logos = args.show_pmhc_info_in_logos,
-            gex_header_tcr_score_names = gex_header_tcr_score_names )
+            gex_header_tcr_score_names = gex_header_tcr_score_names,
+        )
 
 batch_bias_results = None
 if args.find_batch_biases:
     pval_threshold = 0.05 # kind of arbitrary
     nbrhood_results, hotspot_results = conga.correlations.find_batch_biases(
-        adata, all_nbrs, pval_threshold=pval_threshold, exclude_batch_keys=args.exclude_batch_keys_for_biases)
+        adata,
+        all_nbrs,
+        pval_threshold=pval_threshold,
+        exclude_batch_keys=args.exclude_batch_keys_for_biases,
+    )
     if nbrhood_results.shape[0]:
         tsvfile = args.outfile_prefix+'_nbrhood_batch_biases.tsv'
         nbrhood_results.to_csv(tsvfile, sep='\t', index=False)
 
         nbrs_gex, nbrs_tcr = all_nbrs[ max(args.nbr_fracs) ]
 
-        #min_cluster_size = max( args.min_cluster_size, int( 0.5 + args.min_cluster_size_fraction * num_clones) )
         conga.plotting.make_batch_bias_plots(
-            adata, nbrhood_results, nbrs_gex, nbrs_tcr, args.min_cluster_size_for_batch_bias_logos,
-            pval_threshold, args.outfile_prefix)
+            adata,
+            nbrhood_results,
+            nbrs_gex,
+            nbrs_tcr,
+            args.min_cluster_size_for_batch_bias_logos,
+            pval_threshold,
+            args.outfile_prefix,
+        )
 
 
     if hotspot_results.shape[0]:
@@ -689,7 +704,7 @@ if args.find_batch_biases:
     batch_bias_results = (nbrhood_results, hotspot_results)
 
 
-if args.graph_vs_gex_features: #######################################################################################
+if args.graph_vs_gex_features: #################################################
     clusters_gex = np.array(adata.obs['clusters_gex'])
     clusters_tcr = np.array(adata.obs['clusters_tcr'])
 
