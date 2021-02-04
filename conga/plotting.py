@@ -70,7 +70,13 @@ def get_integers_color_dict( num_categories, cmap=plt.get_cmap('tab20') ):
         C[i] = cmap( float(i)/(num_categories-1))
     return C
 
-def add_categorical_legend( ax, categories, colors, legend_fontsize=None, ncol=None ):
+def add_categorical_legend(
+        ax,
+        categories,
+        colors,
+        legend_fontsize=None,
+        ncol=None
+):
     for idx, label in enumerate(categories):
         color = colors[idx]
         # use empty scatter to set labels
@@ -150,27 +156,104 @@ def make_rank_genes_logo_stack( ranks, upper_left, logo_width, max_logo_height,
     return cmds
 
 
-def make_single_rank_genes_logo( ranks, svgfile,
-                                 margin = 10,
-                                 logo_width = 300,
-                                 logo_max_height = 400,
-                                 top_pval_for_max_height = 1e-50,
-                                 min_pval_for_scaling = 1e-300,
-                                 num_genes_to_show = 10,
-                                 signcolors=False,
-                                 create_png = True,
-                                 create_html = False ):
+def make_single_rank_genes_logo(
+        ranks,
+        svgfile,
+        margin = 10,
+        logo_width = 300,
+        logo_max_height = 400,
+        top_pval_for_max_height = 1e-50,
+        min_pval_for_scaling = 1e-300,
+        num_genes_to_show = 10,
+        signcolors=False,
+        create_png = True,
+        create_html = False,
+):
     cmds = []
 
     upper_left=  [margin, margin]
-    cmds.extend( make_rank_genes_logo_stack( ranks, upper_left, logo_width, logo_max_height,
-                                             top_pval_for_max_height=top_pval_for_max_height,
-                                             min_pval_for_scaling=min_pval_for_scaling,
-                                             signcolors=signcolors,
-                                             num_genes_to_show=num_genes_to_show ) )
+    cmds.extend( make_rank_genes_logo_stack(
+        ranks, upper_left, logo_width, logo_max_height,
+        top_pval_for_max_height=top_pval_for_max_height,
+        min_pval_for_scaling=min_pval_for_scaling,
+        signcolors=signcolors,
+        num_genes_to_show=num_genes_to_show ) )
 
-    svg_basic.create_file( cmds, logo_width+2*margin, logo_max_height + 2*margin, svgfile,
-                           create_png=create_png, create_html=create_html, background_color='white' )
+    svg_basic.create_file(
+        cmds, logo_width+2*margin, logo_max_height + 2*margin, svgfile,
+        create_png=create_png, create_html=create_html,
+        background_color='white' )
+
+
+def _make_lit_matches_logo(
+        clone_indices,
+        lit_matches,
+        svgfile,
+        margin = 10,
+        logo_width = 300,
+        max_logo_height = 400,
+        create_png = True,
+        create_html = False,
+):
+    clone_indices = set(clone_indices)
+    mask = [x in clone_indices for x in lit_matches.clone_index]
+    if np.sum(mask)==0:
+        return False
+
+    lit_matches = lit_matches[mask]
+
+    matched_clone_indices = set()
+    match2clone_indices = {}
+    for l in lit_matches.itertuples():
+        mhc = 'XXX' if pd.isna(l.db_mhc) else l.db_mhc
+        epi = 'XXX' if pd.isna(l.db_epitope) else l.db_epitope
+        if ':' in mhc:
+            mhc = mhc[:mhc.index(':')]
+        mhc = mhc.replace('*','')
+        match = f'{mhc}-{epi[:3]}'
+        match2clone_indices.setdefault(match,set()).add(l.clone_index)
+        matched_clone_indices.add(l.clone_index)
+
+    x_mhc, x_epi = 0.1, 0.1 # penalty for missing either info
+    countslist = [
+        (len(y) - x_mhc*x.startswith('XXX') - x_epi*x.endswith('XXX'), x)
+        for x,y in match2clone_indices.items()
+    ]
+    countslist.sort(reverse=True)
+    print('_make_lit_matches_logo:', len(clone_indices), countslist)
+
+    matched_fraction = len(matched_clone_indices)/len(clone_indices)
+    total_height = max_logo_height * matched_fraction
+
+    cmds = []
+    y0 = margin + max_logo_height - total_height
+    count_sum = sum(x[0] for x in countslist)
+    for count, match in countslist:
+        height = total_height * count / count_sum
+        cmd = svg_basic.text_in_box(
+            [margin, y0], [margin+logo_width,y0+height], match,
+            color='black')
+        cmds.append(cmd)
+        y0+=height
+
+    # # for starters: just take the top one
+    # top_count, top_match = countslist[0]
+
+    # logo_height = max_logo_height * top_count / len(clone_indices)
+    # x0, y0, x1, y1 = (
+    #     margin, margin+max_logo_height-logo_height,
+    #     margin+logo_width, margin+max_logo_height
+    #     )
+
+    # cmd = svg_basic.text_in_box([x0,y0], [x1,y1], top_match, color='black')
+
+    svg_basic.create_file(
+        cmds, logo_width+2*margin, max_logo_height + 2*margin, svgfile,
+        create_png=create_png, create_html=create_html,
+        background_color='white')
+
+    return True
+
 
 def _parse_bicluster_rank_genes( adata, uns_tag = 'rank_genes_good_biclusters' ):
     ''' returns all_ranks dict mapping from cluspair to list [ (gene, l2r, pval), ... ]
@@ -232,9 +315,9 @@ def make_logo_plots(
         good_bicluster_tcr_scores=None,
         rank_genes_uns_tag = 'rank_genes_good_biclusters',
         include_alphadist_in_tcr_feature_logos=False,
-        max_expn_for_gene_logo = 2.5, # or max over the clps, whichever is larger
+        max_expn_for_gene_logo = 2.5, # or max over the clps, if larger
         show_pmhc_info_in_logos = False,
-        nocleanup = False, # dont delete temporary image files (useful for debugging)
+        nocleanup = False, # dont delete temporary image files (debugging)
         conga_scores = None,
         good_score_mask = None,
         make_batch_bars = None,
@@ -243,20 +326,22 @@ def make_logo_plots(
         draw_edges_between_conga_hits = True,
         add_conga_scores_colorbar = False,
         add_gex_logos_colorbar = False,
-        spacey = False, # add extra space to make everything harder to read
+        # add extra space to make everything harder to read
+        spacey = False,
 
-        ## controls for the gene expression thumbnails that come before the actual logos:
+        ## controls for the gene expression thumbnails that come before
+        ##  the actual logos:
         gex_header_genes=None,
         make_gex_header=True,
         make_gex_header_raw=True,
         make_gex_header_nbrZ=True,
-        gex_header_tcr_score_names = ['imhc', 'cdr3len', 'cd8', 'nndists_tcr'], # was alphadist
+        gex_header_tcr_score_names = ['imhc', 'cdr3len', 'cd8', 'nndists_tcr'],
         include_full_tcr_cluster_names_in_logo_lines=False,
+        lit_matches=None, # show an additional 'logo' with lit-matches
 
 ):
     ''' need:
     * gex/tcr clusters: (obsm)
-    * clones files for cluster-pairs with enough "good" clones
     * clone sizes (obs: clone_sizes)
     * tcrs (obs)
     * 2d projections: gex and tcr (obsm: X_gex_2d, X_tcr_2d)
@@ -264,7 +349,8 @@ def make_logo_plots(
     * X_igex (obsm: X_igex) and X_igex_genes (uns)
     * rank genes info for each cluster-pair
 
-    This code is a bit of a mess. OK, actually a huge mess. It started out simple but then when through
+    This code is a bit of a mess. OK, actually a huge mess.
+    It started out simple but then when through
     multiple versions and complications and variable renamings. Sorry!
 
     '''
@@ -283,14 +369,18 @@ def make_logo_plots(
     if clusters_gex is None:
         clusters_gex = np.array(adata.obs['clusters_gex'])
         if clusters_gex_names is None:
-            clusters_gex_names = adata.uns.get('clusters_gex_names', [str(x) for x in range(np.max(clusters_gex)+1)])
+            clusters_gex_names = adata.uns.get(
+                'clusters_gex_names',
+                [str(x) for x in range(np.max(clusters_gex)+1)])
     elif clusters_gex_names is None:
         clusters_gex_names = [str(x) for x in range(np.max(clusters_gex)+1)]
 
     if clusters_tcr is None:
         clusters_tcr = np.array(adata.obs['clusters_tcr'])
         if clusters_tcr_names is None:
-            clusters_tcr_names = adata.uns.get('clusters_tcr_names', [str(x) for x in range(np.max(clusters_tcr)+1)])
+            clusters_tcr_names = adata.uns.get(
+                'clusters_tcr_names',
+                [str(x) for x in range(np.max(clusters_tcr)+1)])
     elif clusters_tcr_names is None:
         clusters_tcr_names = [str(x) for x in range(np.max(clusters_tcr)+1)]
 
@@ -306,19 +396,33 @@ def make_logo_plots(
 
     if show_pmhc_info_in_logos:
         if 'X_pmhc' not in adata.obsm_keys():
-            print('ERROR: include_pmhc_info_in_dendrogram=True but no X_pmhc info in adata.obsm_keys()')
+            print('ERROR: include_pmhc_info_in_dendrogram=True but',
+                  'no X_pmhc info in adata.obsm_keys()')
             sys.exit()
         pmhc_var_names = adata.uns['pmhc_var_names']
         X_pmhc = adata.obsm['X_pmhc']
         assert X_pmhc.shape == ( adata.shape[0], len(pmhc_var_names))
 
     tcrs = preprocess.retrieve_tcrs_from_adata(adata)
-    ################################################################# no more unpacking below here...
+    ########################################## no more unpacking below here...
 
     num_clones = adata.shape[0]
     num_good_clones = np.sum(good_score_mask)
     assert X_igex.shape == (num_clones, len(X_igex_genes))
 
+    if lit_matches is not None:
+        if lit_matches.shape[0]==0:
+            lit_matches = None
+        else:
+            required_fields = 'clone_index db_mhc db_epitope'.split()
+            missing = False
+            for f in required_fields:
+                if f not in lit_matches.columns:
+                    print('make_logo_plots: lit_matches missing required field',
+                          f)
+                    missing = True
+            if missing:
+                lit_matches = None
 
     if logo_genes is None:
         logo_genes = default_logo_genes[organism]
@@ -328,18 +432,22 @@ def make_logo_plots(
     else:
         header2_genes = gex_header_genes[:]
     if gex_header_tcr_score_names:
-        header2_tcr_scores = tcr_scoring.make_tcr_score_table(adata, gex_header_tcr_score_names)
-        assert header2_tcr_scores.shape == ( adata.shape[0], len(gex_header_tcr_score_names))
+        header2_tcr_scores = tcr_scoring.make_tcr_score_table(
+            adata, gex_header_tcr_score_names)
+        assert header2_tcr_scores.shape == (adata.shape[0],
+                                            len(gex_header_tcr_score_names))
     else:
         header2_tcr_scores = None
 
     if 'clone_sizes' in header2_genes:
-        X_igex = np.hstack( [X_igex, np.log(np.array(clone_sizes)[:,np.newaxis]) ] )
+        X_igex = np.hstack(
+            [X_igex, np.log(np.array(clone_sizes)[:,np.newaxis])])
         X_igex_genes.append('clone_sizes')
         assert X_igex.shape == (num_clones, len(X_igex_genes))
     if 'nndists_gex' in header2_genes:
         if 'nndists_gex' in adata.obs_keys():
-            X_igex = np.hstack( [X_igex, np.array(adata.obs['nndists_gex'])[:,np.newaxis] ] )
+            X_igex = np.hstack(
+                [X_igex, np.array(adata.obs['nndists_gex'])[:,np.newaxis]])
             X_igex_genes.append('nndists_gex')
             assert X_igex.shape == (num_clones, len(X_igex_genes))
         else:
@@ -364,9 +472,10 @@ def make_logo_plots(
         nbrhood_mask[ nbrs_gex[ii] ] = True
         nbrhood_mask[ ii ] = True
         num = np.sum(nbrhood_mask)
-        gex_nbrhood_X_igex.append( np.sum( X_igex[nbrhood_mask,:], axis=0 )/num )
+        gex_nbrhood_X_igex.append(np.sum(X_igex[nbrhood_mask,:], axis=0)/num)
         if header2_tcr_scores is not None:
-            gex_nbrhood_tcr_scores.append( np.sum( header2_tcr_scores[nbrhood_mask,:], axis=0 )/num )
+            gex_nbrhood_tcr_scores.append(
+                np.sum(header2_tcr_scores[nbrhood_mask,:], axis=0)/num)
 
     gex_nbrhood_X_igex = np.array(gex_nbrhood_X_igex)
     assert gex_nbrhood_X_igex.shape == X_igex.shape
@@ -379,7 +488,10 @@ def make_logo_plots(
 
     ## read info on louvains and tcr
     ## node2cluspair only includes good nodes
-    node2cluspair = { i:(x,y) for i,(x,y,m) in enumerate(zip(clusters_gex, clusters_tcr, good_score_mask)) if m}
+    node2cluspair = {
+        i:(x,y) for i,(x,y,m) in enumerate(zip(clusters_gex,
+                                               clusters_tcr,
+                                               good_score_mask)) if m}
     num_clusters_gex = np.max(clusters_gex)+1
     num_clusters_tcr = np.max(clusters_tcr)+1
 
@@ -396,14 +508,16 @@ def make_logo_plots(
     all_dbl_nbrs = {}
     for ii in node2cluspair:
         gex_nbrs = frozenset( nbrs_gex[ii])
-        all_dbl_nbrs[ii] = [ x for x in nbrs_tcr[ii] if good_score_mask[x] and x in gex_nbrs ]
+        all_dbl_nbrs[ii] = [ x for x in nbrs_tcr[ii]
+                             if good_score_mask[x] and x in gex_nbrs ]
 
 
     ## parse the X_igex matrix
     all_scores = {} # map from clp to [ num_clusters_tcr, fracs, means]
 
 
-    logo_gene_indices = [ X_igex_genes.index(x) if x in X_igex_genes else None for x in logo_genes ]
+    logo_gene_indices = [X_igex_genes.index(x) if x in X_igex_genes else None
+                         for x in logo_genes]
 
     all_scores = {}
     for clp, nodes in cluspair2nodes.items():
@@ -441,6 +555,7 @@ def make_logo_plots(
     title_logo_width = 0.75
     rg_logo_width = 1.5
     score_logo_width = 0.0 if good_bicluster_tcr_scores is None else 0.5
+    lit_logo_width = 0.0 if lit_matches is None else 0.5
     tcr_logo_width = 8
     logo_height = 0.5
     frac_scale = 130
@@ -451,25 +566,40 @@ def make_logo_plots(
     yspacer_below_header = 0.15 if spacey else 0.0
     xspacer_within_header = 0.15 if spacey else 0.0
 
-    gex_logo_width = logo_height * ( gene_width / (math.sqrt(3)+1) ) if make_cluster_gex_logos else 0.0
+    gex_logo_width = logo_height * ( gene_width / (math.sqrt(3)+1) ) \
+                     if make_cluster_gex_logos else 0.0
 
-    fig_width = ( 2*margin + dendro_width + title_logo_width + batch_bars_width + rg_logo_width + tcr_logo_width +
-                  score_logo_width + gex_logo_width )
-    conga_scores_colorbar_width = 0.035*fig_width if add_conga_scores_colorbar else 0.0
-    header_height = (fig_width-conga_scores_colorbar_width-xspacer_within_header-2*margin)/6.
+    fig_width = (2*margin
+                 + dendro_width
+                 + title_logo_width
+                 + batch_bars_width
+                 + rg_logo_width
+                 + tcr_logo_width
+                 + score_logo_width
+                 + lit_logo_width
+                 + gex_logo_width)
+    conga_scores_colorbar_width = 0.035*fig_width if add_conga_scores_colorbar \
+                                  else 0.0
+    header_height = (fig_width
+                     - conga_scores_colorbar_width
+                     - xspacer_within_header
+                     - 2*margin)/6.
 
     num_header2_rows = int(make_gex_header_nbrZ)+int(make_gex_header_raw)
     gex_logo_key_width = 2 if make_cluster_gex_logos else 0 # in header2 cols
 
     if make_gex_header:
-        num_header2_tcr_score_cols = max(gex_logo_key_width,
-                                         (gex_logo_key_width+len(gex_header_tcr_score_names))//num_header2_rows)
-        gap_between_gex_and_tcr_panels = logo_height/10. if num_header2_tcr_score_cols else 0
+        num_header2_tcr_score_cols = max(
+            gex_logo_key_width,
+            (gex_logo_key_width+len(gex_header_tcr_score_names))//num_header2_rows)
+        gap_between_gex_and_tcr_panels = logo_height/10. \
+                                         if num_header2_tcr_score_cols else 0
         header2_height = (fig_width-2*margin-gap_between_gex_and_tcr_panels)/\
                          (len(header2_genes) + num_header2_tcr_score_cols)
 
     else:
         header2_height = 0.
+
     fig_height = ( top_margin + bottom_margin + header_height + num_header2_rows * header2_height +
                    yspacer_below_header + (len(clps)>0)*yspacer_above_logos + len(clps)*logo_height )
 
@@ -1073,8 +1203,6 @@ def make_logo_plots(
                 plt.text(0.5,-0.05, 'TCR{} logo'.format(ab), ha='center', va='top', transform=plt.gca().transAxes)
 
 
-
-
         # make the tcr_scores logo
         if good_bicluster_tcr_scores is not None:
             clp_rank_scores = good_bicluster_tcr_scores[clp]
@@ -1111,9 +1239,36 @@ def make_logo_plots(
                 plt.text(0.9, -0.05, 'TCRseq\nfeatures', ha='right', va='top', fontsize=8,
                          transform=plt.gca().transAxes)
 
+        if lit_matches is not None:
+            # maybe make a lit-matches logo for this cluster
+            left = (margin+dendro_width+title_logo_width+batch_bars_width
+                    +rg_logo_width+tcr_logo_width+score_logo_width)/fig_width
+            width = lit_logo_width/fig_width
+
+            plt.axes( [left,bottom,width,height] )
+            pngfile = '{}.tmp_{}_{}_lit.png'\
+                      .format(logo_pngfile, clp[0], clp[1])
+
+            success = _make_lit_matches_logo(
+                nodes, lit_matches, pngfile[:-3]+'svg',
+                logo_width=1900*lit_logo_width,
+                max_logo_height=2000*logo_height)
+
+            if success: # there were lit matches for this cluster
+                image = mpimg.imread(pngfile)
+                tmpfiles.append(pngfile)
+                plt.imshow(image, cmap='Greys_r')
+            plt.axis('off')
+            if last_row:
+                plt.text(0.5,-0.05, 'Lit.DB\nmatch', ha='center', va='top',
+                         transform=plt.gca().transAxes, fontsize=8)
+
+
 
         if make_cluster_gex_logos: # make the gex logo
-            left = (margin+dendro_width+title_logo_width+batch_bars_width+rg_logo_width+tcr_logo_width+score_logo_width)/fig_width
+            left = (margin+dendro_width+title_logo_width+batch_bars_width
+                    +rg_logo_width+tcr_logo_width+lit_logo_width
+                    +score_logo_width)/fig_width
             width = gex_logo_width/fig_width
 
             plt.axes( [left,bottom,width,height] )

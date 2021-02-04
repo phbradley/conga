@@ -50,6 +50,7 @@ parser.add_argument('--graph_vs_gex_features', action='store_true')
 parser.add_argument('--match_to_tcr_database', action='store_true', help='Find significant matches to paired tcrs in the database specified by --tcr_database_tsvfile (default is the dataset in conga/data/new_paired_tcr_db_for_matching_nr.tsv')
 parser.add_argument('--tcr_database_tsvfile', help='Must have columns va cdr3a vb cdr3b, minimally; with imgt-recognized allele names; default is conga/data/new_paired_tcr_db_for_matching_nr.tsv')
 parser.add_argument('--pvalue_threshold_for_db_matching', type=float, default=1.0)
+parser.add_argument('--dont_show_lit_matches_in_logos', action='store_true')
 parser.add_argument('--cluster_vs_cluster', action='store_true')
 parser.add_argument('--tcr_clumping', action='store_true')
 parser.add_argument('--intra_cluster_tcr_clumping', action='store_true')
@@ -524,11 +525,12 @@ if args.verbose_nbrs:
             np.savetxt(outfile, nbrs, fmt='%d')
             print('wrote nbrs to file:', outfile)
 
+match_results = None
 if args.match_to_tcr_database:
     if args.tcr_database_tsvfile or adata.uns['organism'] == 'human':
         # we only have a built-in database for human alpha-beta tcrs right now
 
-        results = conga.tcr_clumping.match_adata_tcrs_to_db_tcrs(
+        match_results = conga.tcr_clumping.match_adata_tcrs_to_db_tcrs(
             adata,
             args.tcr_database_tsvfile,
             args.outfile_prefix,
@@ -536,13 +538,15 @@ if args.match_to_tcr_database:
             adjusted_pvalue_threshold= args.pvalue_threshold_for_db_matching
         )
 
-        if results.shape[0]:
+        if match_results.shape[0]:
             outfile = args.outfile_prefix+'db_matches.tsv'
-            results.to_csv(outfile, sep='\t', index=False)
-            print('wrote', results.shape[0], 'matches to', outfile)
+            match_results.to_csv(outfile, sep='\t', index=False)
+            print('wrote', match_results.shape[0], 'matches to', outfile)
         else:
             print('match_to_tcr_database: no matches below ADJUSTED',
                   'pval threshold of', args.pvalue_threshold_for_db_matching)
+            match_results = None
+
 
 if args.tcr_clumping:
     num_random_samples = args.num_random_samples_for_tcr_clumping
@@ -573,6 +577,9 @@ if args.tcr_clumping:
 
         nbrs_gex, nbrs_tcr = all_nbrs[ max(args.nbr_fracs) ]
 
+        lit_matches = None if args.dont_show_lit_matches_in_logos else \
+                      match_results
+
         conga.plotting.make_tcr_clumping_plots(
             adata,
             results,
@@ -581,6 +588,7 @@ if args.tcr_clumping:
             args.min_cluster_size_for_tcr_clumping_logos,
             pvalue_threshold,
             args.outfile_prefix,
+            lit_matches=lit_matches,
             )
 
     num_clones = adata.shape[0]
@@ -654,6 +662,11 @@ if args.graph_vs_graph: ########################################################
         else:
             gex_header_tcr_score_names = args.gex_header_tcr_score_names
 
+        # we could get fancier here and see if any of the clusters
+        # actually have any lit matches, to avoid taking up an extra
+        # empy column in the output...
+        lit_matches = None if args.dont_show_lit_matches_in_logos else \
+                      match_results
 
         conga.plotting.make_logo_plots(
             adata,
@@ -669,6 +682,7 @@ if args.graph_vs_graph: ########################################################
             rank_genes_uns_tag = rank_genes_uns_tag,
             show_pmhc_info_in_logos = args.show_pmhc_info_in_logos,
             gex_header_tcr_score_names = gex_header_tcr_score_names,
+            lit_matches=lit_matches,
         )
 
 batch_bias_results = None
