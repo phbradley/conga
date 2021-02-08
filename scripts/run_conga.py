@@ -558,7 +558,7 @@ if args.tcr_clumping:
 
     results = conga.tcr_clumping.assess_tcr_clumping(
         adata,
-        args.outfile_prefix,
+        tmpfile_prefix=args.outfile_prefix,
         radii=radii,
         num_random_samples=num_random_samples,
         pvalue_threshold = pvalue_threshold,

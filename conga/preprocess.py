@@ -955,9 +955,7 @@ def filter_cells_by_ribo_norm(adata):
     return adata
 
 
-def setup_tcr_groups( adata ):
-    tcrs = retrieve_tcrs_from_adata(adata, include_subject_id_if_present=True)
-
+def setup_tcr_groups_for_tcrs( tcrs ):
     atcrs = sorted( set( x[0] for x in tcrs ) )
     btcrs = sorted( set( x[1] for x in tcrs ) )
 
@@ -969,6 +967,9 @@ def setup_tcr_groups( adata ):
 
     return agroups, bgroups
 
+def setup_tcr_groups( adata ):
+    return setup_tcr_groups_for_tcrs(
+        retrieve_tcrs_from_adata(adata, include_subject_id_if_present=True))
 
 def _calc_nndists( D, nbrs ):
     batch_size, num_nbrs = nbrs.shape
