@@ -99,6 +99,10 @@ pip install fastcluster # optional
 
 (And consider also adding `conda install -c conda-forge notebook` for Jupyter notebook stuff.)
 
+(If you do not have the command line tool `convert` from Imagemagick, or Inkscape, installed, you
+could also add `conda install -c conda-forge imagemagick`. See the section below on SVG to PNG
+conversion for more details.)
+
 Preliminary results suggest that, at least with default clustering parameters, the older `louvain`
 clustering algorithm seems to give slightly 'better' results than the newer `leiden` algorithm,
 ie finds a few more GEX/TCR associations, probably because there seem to be fewer, larger clusters.
@@ -223,6 +227,9 @@ ImageMagick `convert` (on Linux, MacOS, and Windows) and Inkscape (on mac).
 
 On Mac, we recommend installing ImageMagick using Homebrew with:
 `brew install imagemagick`
+
+or via conda:
+`conda install -c conda-forge imagemagick`
 
 On Windows, we recommend the self-installing executable available from ImageMagick:
 (https://imagemagick.org/script/download.php)
