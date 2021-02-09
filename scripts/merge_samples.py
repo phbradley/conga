@@ -76,8 +76,10 @@ new_bcmap_df = pd.concat([x[1] for x in all_data])
 if len(all_data)==1:
     new_adata = all_data[0][2] # no batch obs key or batch suffix!
 else:
+    for x in all_data:
+        x[2].var_names_make_unique()
     new_adata = all_data[0][2].concatenate(*[x[2] for x in all_data[1:]])
-
+    
 # this all assumes that when scanpy concatenates it adds '-N' to the Nth datasets barcodes
 if args.condense_clonotypes_by_tcrdist:
     tmpfile = args.output_clones_file+'.uncondensed.tsv'
