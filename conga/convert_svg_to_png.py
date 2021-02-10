@@ -117,6 +117,19 @@ def convert_svg_to_png(
         else:
             print(f'conga.convert_svg_to_png: 3rd try failed, command="{cmd}"')
 
+    if which('cairosvg') is not None:
+        ## another possibility
+        cmd = f'cairosvg -f png -o {pngfile} {svgfile}'
+        if verbose:
+            print(cmd)
+        system(cmd)
+
+        if isfile( pngfile ):
+            ## success
+            return
+        else:
+            print(f'conga.convert_svg_to_png: 3rd try failed, command="{cmd}"')
+
     if which('magick') is not None:
         ## another possibility
         cmd = 'magick convert {} {}'.format( svgfile, pngfile )
