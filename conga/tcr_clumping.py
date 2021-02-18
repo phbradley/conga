@@ -647,3 +647,70 @@ def match_adata_tcrs_to_db_tcrs(
 
     return results
 
+def strict_single_chain_match_adata_tcrs_to_db_tcrs(
+        adata,
+        db_tcrs_tsvfile=None,
+):
+    ''' Find CDR3a and CDR3b matches between adata tcrs and tcrs in db_tcrs_tsvfile
+    based on strictly matching amino acid sequences only
+
+    returns a list containing two DataFrames; 0 is alpha chain hits, 1 is beta chain hits.
+    DataFrames contain a columns with the UMI barcodes, GEX clusters, and TCR clusters of matching clonotypes 
+
+    db_tcrs_tsvfile has at a minimum the columns: cdr3a and cdr3b
+
+    '''
+
+    if db_tcrs_tsvfile is None:
+        if adata.uns['organism'] != 'human':
+            print('ERROR: match_adata_tcrs_to_db_tcrs db_tcrs_tsvfile is None')
+            print('but we only have built-in database for organism=human')
+            return pd.DataFrame() ##### NOTE EARLY RETURN HERE ################
+
+        print('tcr_clumping.match_adata_tcrs_to_db_tcrs: Matching to default literature TCR database; for more info see conga/data/new_paired_tcr_db_for_matching_nr_README.txt')
+        db_tcrs_tsvfile = Path.joinpath(
+            util.path_to_data, 'new_paired_tcr_db_for_matching_nr.tsv')
+
+    print('Matching to CDR3a and CDR3b sequences in', db_tcrs_tsvfile)
+
+    query_tcrs_df = adata.obs['va ja cdr3a vb jb cdr3b'.split()].copy()
+    db_tcrs_df = pd.read_csv(db_tcrs_tsvfile, sep='\t')
+
+    # possibly swap legacy column names.
+    if 'va' not in db_tcrs_df.columns and 'va_gene' in db_tcrs_df.columns:
+        db_tcrs_df['va'] = db_tcrs_df['va_gene']
+    if 'vb' not in db_tcrs_df.columns and 'vb_gene' in db_tcrs_df.columns:
+        db_tcrs_df['vb'] = db_tcrs_df['vb_gene']
+
+    # generate a list of df with database CDR3a or CDR3b matching to adata.obs
+    matched_dfs = []
+    matched_dfs.append( db_tcrs_df[ db_tcrs_df['cdr3a'].isin(query_tcrs_df['cdr3a']) ].copy() )
+    matched_dfs.append( db_tcrs_df[ db_tcrs_df['cdr3b'].isin(query_tcrs_df['cdr3b']) ].copy() )
+
+    for i in range(len(matched_dfs)):
+
+        if i == 0: 
+            chain = 'cdr3a'
+        else: 
+            chain = 'cdr3b'
+
+        clones = []
+        gex_clusters = []
+        tcr_clusters = []
+
+        for (idx, row) in matched_dfs[i].iterrows():
+            
+            clone_bc = adata.obs.index[adata.obs[chain] == row.loc[chain] ].to_list()
+            clone_gex = adata.obs.louvain_gex[adata.obs[chain] == row.loc[chain] ].to_list()
+            clone_tcr = adata.obs.louvain_tcr[adata.obs[chain] == row.loc[chain] ].to_list()
+
+            clones.append( ",".join(clone_bc) ) 
+            gex_clusters.append( ",".join(clone_gex) ) 
+            tcr_clusters.append( ",".join(clone_tcr) ) 
+
+        matched_dfs[i][f'{chain}_match_UMI'] = clones
+        matched_dfs[i][f'{chain}_match_gex_clusters'] = gex_clusters
+        matched_dfs[i][f'{chain}_match_tcr_clusters'] = tcr_clusters
+
+    return matched_dfs
+
