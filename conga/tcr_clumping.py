@@ -662,15 +662,12 @@ def strict_single_chain_match_adata_tcrs_to_db_tcrs(
     '''
 
     if db_tcrs_tsvfile is None:
-        if adata.uns['organism'] != 'human':
-            print('ERROR: match_adata_tcrs_to_db_tcrs db_tcrs_tsvfile is None')
-            print('but we only have built-in database for organism=human')
-            return pd.DataFrame() ##### NOTE EARLY RETURN HERE ################
-
-        print('tcr_clumping.match_adata_tcrs_to_db_tcrs: Matching to default literature TCR database; for more info see conga/data/new_paired_tcr_db_for_matching_nr_README.txt')
-        db_tcrs_tsvfile = Path.joinpath(
-            util.path_to_data, 'new_paired_tcr_db_for_matching_nr.tsv')
-
+        if adata.uns['organism'] == 'human':
+            db_tcrs_tsvfile = Path.joinpath(util.path_to_data, 'human_tcr_db_for_matching.tsv')
+        elif adata.uns['organism'] == 'mouse':
+            db_tcrs_tsvfile = Path.joinpath(util.path_to_data, 'mouse_tcr_db_for_matching.tsv')
+        print('tcr_clumping.strict_single_chain_match_adata_tcrs_to_db_tcrs: Matching to default literature TCR database; for more info see conga/data/new_paired_tcr_db_for_matching_nr_README.txt')
+        
     print('Matching to CDR3a and CDR3b sequences in', db_tcrs_tsvfile)
 
     query_tcrs_df = adata.obs['va ja cdr3a vb jb cdr3b'.split()].copy()
@@ -694,6 +691,8 @@ def strict_single_chain_match_adata_tcrs_to_db_tcrs(
         else: 
             chain = 'cdr3b'
 
+        matched_dfs[i] = matched_dfs[i].rename(columns = {'Unnamed: 0': 'db_index'})
+
         clones = []
         gex_clusters = []
         tcr_clusters = []
@@ -713,4 +712,3 @@ def strict_single_chain_match_adata_tcrs_to_db_tcrs(
         matched_dfs[i][f'{chain}_match_tcr_clusters'] = tcr_clusters
 
     return matched_dfs
-
