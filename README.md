@@ -31,6 +31,11 @@ Python scripts are provided in the `scripts/` directory but analysis steps can a
 in jupyter notebooks (for example, [a simple pipeline](simple_conga_pipeline.ipynb) and
 [Seurat to conga](Seurat_to_Conga.ipynb) in the top directory of this repo)
 or in your own python scripts through the interface in the `conga` python package.
+There's also a [google colab notebook](colab_conga_pipeline.ipynb) which you can
+[![open in colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/phbradley/conga/blob/master/colab_conga_pipeline.ipynb) and run. If you want to
+experiment before installing CoNGA locally you can save a copy of that notebook
+to your google drive, edit and run the pipeline, either on the provided examples or on
+data that you upload to the colab instance.
 The examples in the `examples/` folder described below and in the jupyter notebooks feature publicly available data from 10x Genomics,
 which can be downloaded in a single
 [zip file](https://www.dropbox.com/s/r7rpsftbtxl89y5/conga_example_datasets_v1.zip?dl=0) or at the
