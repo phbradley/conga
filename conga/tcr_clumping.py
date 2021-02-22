@@ -681,34 +681,34 @@ def strict_single_chain_match_adata_tcrs_to_db_tcrs(
 
     # generate a list of df with database CDR3a or CDR3b matching to adata.obs
     matched_dfs = []
-    matched_dfs.append( db_tcrs_df[ db_tcrs_df['cdr3a'].isin(query_tcrs_df['cdr3a']) ].copy() )
-    matched_dfs.append( db_tcrs_df[ db_tcrs_df['cdr3b'].isin(query_tcrs_df['cdr3b']) ].copy() )
+    chains = ('cdr3a', 'cdr3b')
+    for i in range(len(chains)):
 
-    for i in range(len(matched_dfs)):
+        chain = chains[i]
 
-        if i == 0: 
-            chain = 'cdr3a'
-        else: 
-            chain = 'cdr3b'
+        matched_dfs.append( db_tcrs_df[ db_tcrs_df[chain].isin(query_tcrs_df[chain]) ].copy() )
 
         matched_dfs[i] = matched_dfs[i].rename(columns = {'Unnamed: 0': 'db_index'})
+        
+        if matched_dfs[i].empty:
+            print(f'No {chain} matches detected')
+        else:
+            clones = []
+            gex_clusters = []
+            tcr_clusters = []
 
-        clones = []
-        gex_clusters = []
-        tcr_clusters = []
+            for (idx, row) in matched_dfs[i].iterrows():
 
-        for (idx, row) in matched_dfs[i].iterrows():
-            
-            clone_bc = adata.obs.index[adata.obs[chain] == row.loc[chain] ].to_list()
-            clone_gex = adata.obs.louvain_gex[adata.obs[chain] == row.loc[chain] ].to_list()
-            clone_tcr = adata.obs.louvain_tcr[adata.obs[chain] == row.loc[chain] ].to_list()
+                clone_bc = adata.obs.index[adata.obs[chain] == row.loc[chain] ].to_list()
+                clone_gex = adata.obs.clusters_gex[adata.obs[chain] == row.loc[chain] ].astype(str).unique().tolist()
+                clone_tcr = adata.obs.clusters_tcr[adata.obs[chain] == row.loc[chain] ].astype(str).unique().tolist()
 
-            clones.append( ",".join(clone_bc) ) 
-            gex_clusters.append( ",".join(clone_gex) ) 
-            tcr_clusters.append( ",".join(clone_tcr) ) 
+                clones.append( ",".join(clone_bc) ) 
+                gex_clusters.append( ",".join(clone_gex) ) 
+                tcr_clusters.append( ",".join(clone_tcr) ) 
 
-        matched_dfs[i][f'{chain}_match_UMI'] = clones
-        matched_dfs[i][f'{chain}_match_gex_clusters'] = gex_clusters
-        matched_dfs[i][f'{chain}_match_tcr_clusters'] = tcr_clusters
+            matched_dfs[i][f'{chain}_match_UMI'] = clones
+            matched_dfs[i][f'{chain}_match_gex_clusters'] = gex_clusters
+            matched_dfs[i][f'{chain}_match_tcr_clusters'] = tcr_clusters
 
     return matched_dfs
