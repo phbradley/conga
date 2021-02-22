@@ -220,7 +220,7 @@ def _make_lit_matches_logo(
         for x,y in match2clone_indices.items()
     ]
     countslist.sort(reverse=True)
-    print('_make_lit_matches_logo:', len(clone_indices), countslist)
+    #print('_make_lit_matches_logo:', len(clone_indices), countslist)
 
     matched_fraction = len(matched_clone_indices)/len(clone_indices)
     total_height = max_logo_height * matched_fraction
@@ -1059,7 +1059,7 @@ def make_logo_plots(
     for irow, iclp in enumerate(leaves):
         first_row = ( irow == 0)
         last_row = ( irow == len(leaves)-1 )
-        print('clp:',irow,len(leaves),logo_pngfile)
+        print('making cluster logos:',irow,len(leaves),logo_pngfile)
         clp = clps[iclp]
         bottom = (fig_height-top_margin-header_height-num_header2_rows*header2_height
                   -yspacer_below_header-yspacer_above_logos - (irow+1)*logo_height)/fig_height
@@ -1325,7 +1325,7 @@ def make_n_pseudopoints( n, xy, radius_in_sdevs=0.25 ):
     center = np.mean(xy, axis=0)
     sdev = np.sqrt( np.sum( np.square(xy-center[np.newaxis,:]))/xy.shape[0])
     radius = radius_in_sdevs * sdev
-    print('make_n_pseudopoints:', n, sdev, radius, center)
+    #print('make_n_pseudopoints:', n, sdev, radius, center)
     rots = np.linspace(1, 1+2*np.pi, n+1)[:-1] # stagger things a bit
     vecs = np.vstack( [ radius*np.cos(rots), radius*np.sin(rots) ] ).transpose()
     # vecs = np.zeros((1,2)) # at center
@@ -1876,7 +1876,6 @@ def make_feature_panel_plots(
     var_names = list(adata.raw.var_names)
     features = set(df['feature'])
     for f in features:
-        print(f)
         if f in var_names:
             feature_to_raw_values[f] = adata.raw.X[:, var_names.index(f)].toarray()[:,0]
         elif f in adata.obs:
@@ -2125,12 +2124,10 @@ def plot_interesting_features_vs_clustermap(
             for jj in range(ii-1):
                 if feature_types is None or feature_types[ii] == feature_types[jj]:
                     if C[ii,jj] > redundancy_threshold and feature_mask[jj]:
-                        print('close:', C[ii,jj], f1, features[jj])
                         feature_nbr_counts[jj] += 1
                         if feature_nbr_counts[jj] > max_redundant_features:
                             feature_mask[ii] = False
                             feature_nbrs.setdefault(features[jj],[]).append(f1)
-                            print('too many close:', feature_nbr_counts[jj], features[jj])
                             break
         if np.sum(feature_mask)<len(features): # have to exclude some
             # write out the feature neighbors for inspection
@@ -2416,7 +2413,8 @@ def make_cluster_logo_plots_figure(
     if num_good_biclusters:
         # calc tcr sequence features of good cluster pairs
         good_bicluster_tcr_scores = correlations.calc_good_cluster_tcr_features(
-            adata, good_mask, clusters_gex, clusters_tcr, cluster_tcr_score_names, min_count=min_cluster_size)
+            adata, good_mask, clusters_gex, clusters_tcr,
+            cluster_tcr_score_names, min_count=min_cluster_size)
 
         # run rank_genes on most common bics
         if 'rank_genes_uns_tag' in kwargs:
@@ -2426,7 +2424,8 @@ def make_cluster_logo_plots_figure(
             rank_genes_uns_tag = f'rg_{num_good_biclusters}_{np.sum(good_mask)}_biclusters'
 
         correlations.run_rank_genes_on_good_biclusters(
-            adata, good_mask, clusters_gex, clusters_tcr, min_count=min_cluster_size, key_added= rank_genes_uns_tag)
+            adata, good_mask, clusters_gex, clusters_tcr,
+            min_count=min_cluster_size, key_added= rank_genes_uns_tag)
 
         make_logo_plots(
             adata, nbrs_gex, nbrs_tcr, min_cluster_size, pngfile,

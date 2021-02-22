@@ -279,7 +279,9 @@ def run_rank_genes_on_good_biclusters(
 ):
     num_clones = adata.shape[0]
 
-    clp_counts = Counter( (x,y) for x,y,z in zip( clusters_gex, clusters_tcr, good_mask ) if z )
+    clp_counts = Counter(
+        (x,y) for x,y,z in zip(clusters_gex, clusters_tcr, good_mask) if z)
+
     print( clp_counts.most_common())
 
     vals = [ neg_tag ]*num_clones
@@ -288,7 +290,9 @@ def run_rank_genes_on_good_biclusters(
         if count< min_count:
             break
         tag = 'clp_{}_{}'.format(clp[0], clp[1])
-        inds = np.nonzero( [ x==clp[0] and y==clp[1] and z for x,y,z in zip(clusters_gex, clusters_tcr, good_mask)])[0]
+        inds = np.nonzero(
+            [x==clp[0] and y==clp[1] and z
+             for x,y,z in zip(clusters_gex, clusters_tcr, good_mask)])[0]
         for ii in inds:
             vals[ii] = tag
 
@@ -304,8 +308,9 @@ def run_rank_genes_on_good_biclusters(
 
     print('run rank_genes_groups', Counter(vals).most_common() )
 
-    sc.tl.rank_genes_groups( adata, groupby=rg_tag, method=rank_method, groups=pos_tags, reference='rest',
-                             key_added = key_added )
+    sc.tl.rank_genes_groups(
+        adata, groupby=rg_tag, method=rank_method, groups=pos_tags,
+        reference='rest', key_added = key_added)
 
 
 def calc_good_cluster_tcr_features(
@@ -341,8 +346,9 @@ def calc_good_cluster_tcr_features(
             fake_nbrs_gex.append([])
 
     pval_threshold = 1.
-    results_df = gex_nbrhood_rank_tcr_scores( adata, fake_nbrs_gex, tcr_score_names, pval_threshold,
-                                              verbose=verbose, prefix_tag = 'good_clp' )
+    results_df = gex_nbrhood_rank_tcr_scores(
+        adata, fake_nbrs_gex, tcr_score_names, pval_threshold,
+        verbose=verbose, prefix_tag = 'good_clp')
 
 
     all_tcr_features = {}
@@ -393,7 +399,7 @@ def gex_nbrhood_rank_tcr_scores(
         pval_threshold,
         prefix_tag='nbr',
         min_num_fg=3,
-        verbose=True,
+        verbose=False,
         ttest_pval_threshold_for_mwu_calc=None
 ):
     ''' pvalues are bonferroni corrected (actually just multiplied by numtests)
@@ -504,7 +510,7 @@ def tcr_nbrhood_rank_genes_fast(
         nbrs_tcr,
         pval_threshold,
         top_n=50,
-        verbose=True,
+        verbose=False,
         prefix_tag='nbr',
         min_num_fg=3,
         clone_display_names=None,

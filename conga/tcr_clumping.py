@@ -265,7 +265,7 @@ def find_tcr_clumping(
                     jb   =tcrs[ii][1][1],
                     cdr3b=tcrs[ii][1][2],
                 ))
-            if clusters_gex:
+            if clusters_gex is not None:
                 # look for clumping within the GEX cluster containing ii
                 ii_nbrs = all_nbrs[ii]
                 ii_cluster = clusters_gex[ii]

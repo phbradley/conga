@@ -28,7 +28,7 @@ def get_translation( seq, frame='+1' ): ## STUPID-- frame is 1/2/3 with a +/- in
     if frame[0] == '-': seq = logo_tools.reverse_complement( seq )
     offset = abs( int( frame ))-1
     assert offset in range(3)
-    seq = seq[offset:].lower()
+    seq = seq[offset:].lower() # note we take lowercase for compat w/code
     naa = len(seq)//3
     protseq = ''
     for i in range(naa):
