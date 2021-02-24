@@ -11,6 +11,7 @@ parser.add_argument('--organism', choices=['mouse', 'human', 'mouse_gd', 'human_
 #parser.add_argument('--n_components', type=int, default=50)
 parser.add_argument('--filtered_contig_annotations_csvfile', help='Required unless --input_clones_file is present')
 parser.add_argument('--consensus_annotations_csvfile', help='Not needed')
+parser.add_argument('--no_tcrdists', action='store_true')
 parser.add_argument('--save_tcrdist_matrices', action='store_true')
 parser.add_argument('--kpca_kernel')
 parser.add_argument('--kpca_gaussian_kernel_sdev', default=100.0, type=float,
@@ -76,21 +77,27 @@ else:
 assert exists(output_clones_file)
 
 #### Now compute the kernel PCs #############################################################3
-if args.save_tcrdist_matrices:
-    output_distfile = output_clones_file[:-4]+'_AB.dist'
+
+if args.no_tcrdists:
+    print(f'Skipping TCRdist calculations')
+    print(f'If this all worked you should be able to pass {output_clones_file} as the --clones_file argument to run_conga.py')
+    print('DONE')
 else:
-    output_distfile = None
+    if args.save_tcrdist_matrices:
+        output_distfile = output_clones_file[:-4]+'_AB.dist'
+    else:
+        output_distfile = None
 
-make_tcrdist_kernel_pcs_file_from_clones_file(
-    output_clones_file,
-    args.organism,
-    kernel=args.kpca_kernel,
-    outfile=args.kpca_outfile,
-    gaussian_kernel_sdev=args.kpca_gaussian_kernel_sdev,
-    input_distfile=input_distfile,
-    output_distfile=output_distfile,
-)
+    make_tcrdist_kernel_pcs_file_from_clones_file(
+        output_clones_file,
+        args.organism,
+        kernel=args.kpca_kernel,
+        outfile=args.kpca_outfile,
+        gaussian_kernel_sdev=args.kpca_gaussian_kernel_sdev,
+        input_distfile=input_distfile,
+        output_distfile=output_distfile,
+    )
 
-print(f'If this all worked you should be able to pass {output_clones_file} as the --clones_file argument to run_conga.py')
-print('DONE')
+    print(f'If this all worked you should be able to pass {output_clones_file} as the --clones_file argument to run_conga.py')
+    print('DONE')
 
