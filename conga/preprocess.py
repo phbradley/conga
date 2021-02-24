@@ -204,7 +204,7 @@ def setup_X_igex( adata ):
     normalize_and_log_the_raw_matrix(adata) # just in case
     var_names = list( adata.raw.var_names )
     good_genes = [ x for x in all_genes if x in var_names ]
-    print('found {} of {} good_genes in var_names  organism={}'.format(len(good_genes), len(all_genes), organism))
+    print('found {} of {} good_genes in adata.raw.var_names  organism={}'.format(len(good_genes), len(all_genes), organism))
     assert good_genes
     indices = [ var_names.index(x) for x in good_genes ]
     X_igex = adata.raw[:,indices].X.toarray()
