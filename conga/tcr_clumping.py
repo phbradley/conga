@@ -666,7 +666,7 @@ def strict_single_chain_match_adata_tcrs_to_db_tcrs(
             db_tcrs_tsvfile = Path.joinpath(util.path_to_data, 'human_tcr_db_for_matching.tsv')
         elif adata.uns['organism'] == 'mouse':
             db_tcrs_tsvfile = Path.joinpath(util.path_to_data, 'mouse_tcr_db_for_matching.tsv')
-        print('tcr_clumping.strict_single_chain_match_adata_tcrs_to_db_tcrs: Matching to default literature TCR database; for more info see conga/data/new_paired_tcr_db_for_matching_nr_README.txt')
+        print('tcr_clumping.strict_single_chain_match_adata_tcrs_to_db_tcrs: Matching to default literature TCR database; for more info see conga/data/human_and_mouse_tcr_db_for_matching_README.txt')
         
     print('Matching to CDR3a and CDR3b sequences in', db_tcrs_tsvfile)
 
