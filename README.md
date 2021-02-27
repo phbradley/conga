@@ -21,6 +21,9 @@ Paul G. Thomas, and Philip Bradley, accessible on the bioRxiv server
 * [Migrating Seurat data to CoNGA](https://github.com/phbradley/conga#migrating-seurat-data-to-conga)
 * [Updates](https://github.com/phbradley/conga#updates)
 * [SVG to PNG](https://github.com/phbradley/conga#svg-to-png)
+* [Testing CoNGA without going through the pain of installing it](https://github.com/phbradley/conga#testing-conga-without-going-through-the-pain-of-installing-it)
+    - [Docker](https://github.com/phbradley/conga#docker)
+    - [Google colab](https://github.com/phbradley/conga#google-colab)
 * [Examples](https://github.com/phbradley/conga#examples)
 * [The CoNGA data model: where stuff is stored](https://github.com/phbradley/conga#conga-data-model-where-stuff-is-stored)
 
@@ -124,7 +127,7 @@ Next, clone the `conga` repository (type this command wherever you want the `con
 git clone https://github.com/phbradley/conga.git
 ```
 If you don't have `git` installed you could go click on the big green `Code`
-button on the (CoNGA github page)[https://github.com/phbradley/conga] and
+button on the [CoNGA github page](https://github.com/phbradley/conga) and
 download and unpack the software that way.
 
 *NEW* We recently added a C++ implementation of TCRdist to speed neighbor calculations on
