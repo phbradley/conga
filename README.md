@@ -75,8 +75,9 @@ See the examples section below for more details.
 We *highly* recommend installing CoNGA in a virtual environment, for example using the
 `anaconda` package manager. Linux folks can check out the
 [Dockerfile](Dockerfile) for a minimal set of installation commands. At the
-top of the [google colab jupyter notebook](colab_conga_pipeline.ipynb) are the
-necessary installation commands from within a notebook environment.
+top of the [google colab jupyter notebook](colab_conga_pipeline.ipynb)
+([link to the notebook on colab](https://colab.research.google.com/github/phbradley/conga/blob/master/colab_conga_pipeline.ipynb))
+are the necessary installation commands from within a notebook environment.
 
 ## Overview
 
