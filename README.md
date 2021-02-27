@@ -287,7 +287,11 @@ docker run -v /path/to/datasets:/datasets -it pbradley/congatest1 /bin/bash
 and then within the new docker shell
 ```
 root@d0fa5d83e40d:/# python3 gitrepos/conga/scripts/setup_10x_for_conga.py --filtered_contig_annotations_csvfile datasets/filtered_contig_annotations.csv --organism human
+
+root@d0fa5d83e40d:/# python3 gitrepos/conga/scripts/run_conga.py --all --organism human --clones_file datasets/filtered_contig_annotations_tcrdist_clones.tsv --gex_data datasets/filtered_gene_bc_matrices_h5.h5 --gex_data_type 10x_h5 --outfile_prefix conga_test1
+
 ```
+(changing the filenames and `--outfile_prefix` as needed).
 
 ## Google colab
 Another quick-start option is to use the free computing environment available
