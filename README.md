@@ -279,27 +279,31 @@ There is a [Dockerfile](Dockerfile) and also a preliminary CoNGA
 Erick Matsen has a nice [mini intro to docker](http://erick.matsen.org/2018/04/19/docker.html)
 that describes, among other things, how to run an image and make folders visible
 inside the image (so you can run the conga scripts on your data). For example,
-if you have your data in the folder `/path/to/datasets/`
+if you have your data in the folder `/path/to/datasets/` you could type these
+commands at the command prompt (aka terminal window on mac)
 ```
 docker pull pbradley/congatest1
 docker run -v /path/to/datasets:/datasets -it pbradley/congatest1 /bin/bash
 ```
-and then within the new docker shell
+and then within the new docker shell that opens:
 ```
 root@d0fa5d83e40d:/# python3 gitrepos/conga/scripts/setup_10x_for_conga.py --filtered_contig_annotations_csvfile datasets/filtered_contig_annotations.csv --organism human
-
-root@d0fa5d83e40d:/# python3 gitrepos/conga/scripts/run_conga.py --all --organism human --clones_file datasets/filtered_contig_annotations_tcrdist_clones.tsv --gex_data datasets/filtered_gene_bc_matrices_h5.h5 --gex_data_type 10x_h5 --outfile_prefix conga_test1
-
+root@d0fa5d83e40d:/# mkdir datasets/output/
+root@d0fa5d83e40d:/# python3 gitrepos/conga/scripts/run_conga.py --all --organism human --clones_file datasets/filtered_contig_annotations_tcrdist_clones.tsv --gex_data datasets/filtered_gene_bc_matrices_h5.h5 --gex_data_type 10x_h5 --outfile_prefix datasets/output/conga_test1
+root@d0fa5d83e40d:/# exit
 ```
-(changing the filenames and `--outfile_prefix` as needed).
+(changing the filenames and `--outfile_prefix` as needed). This would put the output
+into a folder `output` in the `/path/to/datasets/` folder (so you can see it
+outside the docker image),
 
 ## Google colab
 Another quick-start option is to use the free computing environment available
 through google colab.
 [This link](https://colab.research.google.com/github/phbradley/conga/blob/master/colab_conga_pipeline.ipynb)
-will open an example notebook. If you click on connect it will connect to a
+will open an example notebook. If you click on `Connect` near the top right
+it will connect to a
 cloud-hosted machine somewhere and you will be able to run the commands in the
-notebook (the code may start out hidden but you can click on the cells to
+notebook (the code in some cells may start out hidden but you can click on the cells to
 make it visible). You can even upload your own datasets with the file explorer
 button on the left-hand side. If you want to modify the document save a copy
 with the `Copy to drive` button.
