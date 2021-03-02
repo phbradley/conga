@@ -233,7 +233,8 @@ def read_adata(
         adata = sc.read_loom( gex_data )
 
     else:
-        print('unrecognized gex_data_type:', gex_data_type, "should be one of ['h5ad', '10x_mtx', '10x_h5', 'loom']")
+        print('unrecognized gex_data_type:', gex_data_type,
+              "should be one of ['h5ad', '10x_mtx', '10x_h5', 'loom']")
         exit()
 
     if adata.isview: # this is so weird
@@ -760,6 +761,7 @@ def reduce_to_single_cell_per_clone(
     #
     # get the interesting genes matrix before we subset
     # this will normalize and log the raw array if not done!!
+    #normalize_and_log_the_raw_matrix(adata) # just in case
     X_igex, good_genes = setup_X_igex(adata)
 
 
@@ -836,9 +838,10 @@ def reduce_to_single_cell_per_clone(
             if clone_size == 1:
                 new_X_rows.append(old_raw_X[clone_cells[0],:])
             else:
-                new_X_rows.append(csr_matrix(old_raw_X[clone_cells,:].sum(axis=0)/clone_size))
+                new_X_rows.append(
+                    csr_matrix(old_raw_X[clone_cells,:].sum(axis=0)/clone_size))
                 adata.X[rep_cell_index,:] = adata.X[clone_cells,:].sum(axis=0)/clone_size
-        new_X_igex.append( np.sum( X_igex[clone_cells,:], axis=0 ) / clone_size )
+        new_X_igex.append(np.sum(X_igex[clone_cells,:], axis=0) / clone_size)
         if pmhc_var_names:
             new_X_pmhc.append( np.sum( X_pmhc[clone_cells,:], axis=0 ) / clone_size )
 
@@ -1066,15 +1069,13 @@ def calc_nbrs_batched(
                 full_nbrs = all_nbrs[nbr_frac][itag]
                 full_nbrs[b_start:b_stop,:] = np.argpartition(
                     D, num_neighbors-1 )[:,:num_neighbors]
-                print(f'full_nbrs_id {nbr_frac} {id(full_nbrs)}')
+                #print(f'full_nbrs_id {nbr_frac} {id(full_nbrs)}')
                 #assert nbrs.shape == (D.shape[0], num_neighbors)
                 #all_nbrs[nbr_frac][itag].append(nbrs)
 
                 if also_calc_nndists and nbr_frac == nbr_frac_for_nndists:
-                    print('calculate nndists:', tag, nbr_frac)
                     nndists[itag].append(
                         _calc_nndists(D, full_nbrs[b_start:b_stop,:]))
-                    print('DONE calculating nndists:', nbr_frac)
 
 
     # for nbr_frac in nbr_fracs:
