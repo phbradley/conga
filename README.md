@@ -21,6 +21,9 @@ Paul G. Thomas, and Philip Bradley, accessible on the bioRxiv server
 * [Migrating Seurat data to CoNGA](https://github.com/phbradley/conga#migrating-seurat-data-to-conga)
 * [Updates](https://github.com/phbradley/conga#updates)
 * [SVG to PNG](https://github.com/phbradley/conga#svg-to-png)
+* [Testing CoNGA without going through the pain of installing it](https://github.com/phbradley/conga#testing-conga-without-going-through-the-pain-of-installing-it)
+    - [Docker](https://github.com/phbradley/conga#docker)
+    - [Google colab](https://github.com/phbradley/conga#google-colab)
 * [Examples](https://github.com/phbradley/conga#examples)
 * [The CoNGA data model: where stuff is stored](https://github.com/phbradley/conga#conga-data-model-where-stuff-is-stored)
 
@@ -69,54 +72,64 @@ python conga/scripts/run_conga.py --restart tmp_hs_pbmc3_final.h5ad --all --outf
 See the examples section below for more details.
 
 # Installation
+We *highly* recommend installing CoNGA in a virtual environment, for example using the
+`anaconda` package manager. Linux folks can check out the
+[Dockerfile](Dockerfile) for a minimal set of installation commands. At the
+top of the [google colab jupyter notebook](colab_conga_pipeline.ipynb)
+([link to the notebook on colab](https://colab.research.google.com/github/phbradley/conga/blob/master/colab_conga_pipeline.ipynb))
+are the necessary installation commands from within a notebook environment.
 
-`conga` relies heavily on the wonderful `scanpy` python package for single-cell analysis. See the `scanpy`
-instructions for installation: <https://scanpy.readthedocs.io/en/stable/installation.html>.
-We highly recommend using anaconda/miniconda for managing python environments. The calculations in the
-`conga` manuscript were conducted with the following package versions:
+## Overview
 
+1. Install the wonderful `scanpy` python package for single-cell analysis
+([docs](https://scanpy.readthedocs.io/en/stable/installation.html)). For
+example, with `pip`:
 ```
-scanpy==1.4.3 anndata==0.6.18 umap-learn==0.3.9 numpy==1.16.2 scipy==1.2.1 pandas==0.24.1 scikit-learn==0.20.2 statsmodels==0.9.0 python-igraph==0.7.1 louvain==0.6.1
-```
-
-which might possibly be installed with the following `conda` command:
-```
-conda create -n conga_classic_env ipython python=3.6 scanpy=1.4.3 umap-learn=0.3.9 louvain=0.6.1
-```
-
-
-We've also been able to re-run everything, albeit with some numerical changes, with a current (2020-05-25) scanpy
-installation and these package versions:
-```
-scanpy==1.5.1 anndata==0.7.3 umap-learn==0.4.3 numpy==1.17.5 scipy==1.4.1 pandas==1.0.3 scikit-learn==0.23.1 statsmodels==0.11.1 python-igraph==0.8.2 louvain==0.6.1 leidenalg==0.8.0
+pip3 install scanpy[leiden]
 ```
 
-Which was installed with the following `conda` commands (following the `scanpy` docs):
+2. Download the CoNGA github repository and (optional but recommended) compile the
+C++ TCRdist implementation; for example with `git` and `make`:
+```
+git clone https://github.com/phbradley/conga.git && cd conga/tcrdist_cpp && make
+```
+
+3. Make sure you have a tool that can convert `.svg` files to `.png` files, like
+inkscape, imagemagick convert, rsvg-convert, cairosvg (see below for details if
+you don't already have one).
+
+**NOTE** we recognize that this is really lame, but right now you can't do
+`import conga` within a python script or notebook without first adding the install
+location to your python path (e.g., `sys.path.append('/path/to/github-repos/conga/')`.
+Running the scripts in the `conga/scripts/` folder from the command line does not
+require this. We hope to smooth this out in the near future.
+
+## Details
+
+Here are some commands that would create an `anaconda` python environment for
+running CoNGA:
+
 ```
 conda create -n conga_new_env ipython python=3.6
 conda activate conga_new_env   # or: "source activate conga_new_env" depending on your conda setup
 conda install seaborn scikit-learn statsmodels numba pytables
-conda install -c conda-forge python-igraph leidenalg louvain
+conda install -c conda-forge python-igraph leidenalg louvain notebook
 conda install -c intel tbb # optional
 pip install scanpy
 pip install fastcluster # optional
 ```
 
-(And consider also adding `conda install -c conda-forge notebook` for Jupyter notebook stuff.)
-
-(If you do not have the command line tool `convert` from Imagemagick, or Inkscape, installed, you
+If you do not have the command line tool `convert` from Imagemagick, or Inkscape, installed, you
 could also add `conda install -c conda-forge imagemagick`. See the section below on SVG to PNG
-conversion for more details.)
-
-Preliminary results suggest that, at least with default clustering parameters, the older `louvain`
-clustering algorithm seems to give slightly 'better' results than the newer `leiden` algorithm,
-ie finds a few more GEX/TCR associations, probably because there seem to be fewer, larger clusters.
-If the `louvain` package is installed `conga` will use that.
+conversion for more details.
 
 Next, clone the `conga` repository (type this command wherever you want the `conga/` directory to appear):
 ```
 git clone https://github.com/phbradley/conga.git
 ```
+If you don't have `git` installed you could go click on the big green `Code`
+button on the [CoNGA github page](https://github.com/phbradley/conga) and
+download and unpack the software that way.
 
 *NEW* We recently added a C++ implementation of TCRdist to speed neighbor calculations on
 large datasets and to compute the background TCRdist distributions for the new
@@ -139,6 +152,20 @@ cd conga/tcrdist_cpp
 g++ -O3 -std=c++11 -Wall -I ./include/ -o ./bin/find_neighbors ./src/find_neighbors.cc
 g++ -O3 -std=c++11 -Wall -I ./include/ -o ./bin/calc_distributions ./src/calc_distributions.cc
 g++ -O3 -std=c++11 -Wall -I ./include/ -o ./bin/find_paired_matches ./src/find_paired_matches.cc
+```
+
+## Even more details
+
+The calculations in the
+`conga` manuscript were conducted with the following package versions:
+
+```
+scanpy==1.4.3 anndata==0.6.18 umap-learn==0.3.9 numpy==1.16.2 scipy==1.2.1 pandas==0.24.1 scikit-learn==0.20.2 statsmodels==0.9.0 python-igraph==0.7.1 louvain==0.6.1
+```
+
+which might possibly be installed with the following `conda` command:
+```
+conda create -n conga_classic_env ipython python=3.6 scanpy=1.4.3 umap-learn=0.3.9 louvain=0.6.1
 ```
 
 # Migrating Seurat data to CoNGA
@@ -243,6 +270,43 @@ The conversion is handled in the file `conga/convert_svg_to_png.py`, so you can 
 not working and you have a tool installed; `conga` may not be looking in the right place. Also if the fonts
 in the TCR/BCR logos look bad you could try switching the MONOSPACE_FONT_FAMILY
 variable in that python file (see comments at the top of the file).
+
+# Testing CoNGA without going through the pain of installing it
+If you want to test CoNGA without taking the time to install it, here are some options.
+## Docker
+There is a [Dockerfile](Dockerfile) and also a preliminary CoNGA
+[Docker image](https://hub.docker.com/repository/docker/pbradley/congatest1).
+Erick Matsen has a nice [mini intro to docker](http://erick.matsen.org/2018/04/19/docker.html)
+that describes, among other things, how to run an image and make folders visible
+inside the image (so you can run the conga scripts on your data). For example,
+if you have your data in the folder `/path/to/datasets/` you could type these
+commands at the command prompt (aka terminal window on mac)
+```
+docker pull pbradley/congatest1
+docker run -v /path/to/datasets:/datasets -it pbradley/congatest1 /bin/bash
+```
+and then within the new docker shell that opens:
+```
+root@d0fa5d83e40d:/# python3 gitrepos/conga/scripts/setup_10x_for_conga.py --filtered_contig_annotations_csvfile datasets/filtered_contig_annotations.csv --organism human
+root@d0fa5d83e40d:/# mkdir datasets/output/
+root@d0fa5d83e40d:/# python3 gitrepos/conga/scripts/run_conga.py --all --organism human --clones_file datasets/filtered_contig_annotations_tcrdist_clones.tsv --gex_data datasets/filtered_gene_bc_matrices_h5.h5 --gex_data_type 10x_h5 --outfile_prefix datasets/output/conga_test1
+root@d0fa5d83e40d:/# exit
+```
+(changing the filenames and `--outfile_prefix` as needed). This would put the output
+into a folder `output` in the `/path/to/datasets/` folder (so you can see it
+outside the docker image),
+
+## Google colab
+Another quick-start option is to use the free computing environment available
+through google colab.
+[This link](https://colab.research.google.com/github/phbradley/conga/blob/master/colab_conga_pipeline.ipynb)
+will open an example notebook. If you click on `Connect` near the top right
+it will connect to a
+cloud-hosted machine somewhere and you will be able to run the commands in the
+notebook (the code in some cells may start out hidden but you can click on the cells to
+make it visible). You can even upload your own datasets with the file explorer
+button on the left-hand side. If you want to modify the document save a copy
+with the `Copy to drive` button.
 
 # Examples
 Shell scripts for running `conga` on three publicly available 10X
