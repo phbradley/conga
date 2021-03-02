@@ -346,7 +346,6 @@ def make_logo_plots(
     * tcrs (obs)
     * 2d projections: gex and tcr (obsm: X_gex_2d, X_tcr_2d)
     * conga scores (obs: conga_scores) UNLESS passed in
-    * X_igex (obsm: X_igex) and X_igex_genes (uns)
     * rank genes info for each cluster-pair
 
     This code is a bit of a mess. OK, actually a huge mess.
@@ -390,8 +389,6 @@ def make_logo_plots(
     X_tcr_2d = adata.obsm['X_tcr_2d']
     if conga_scores is None:
         conga_scores = np.array(adata.obs['conga_scores'])
-    X_igex = adata.obsm['X_igex']
-    X_igex_genes = list(adata.uns['X_igex_genes']) #for .index
     organism = adata.uns['organism']
 
     if show_pmhc_info_in_logos:
@@ -405,10 +402,10 @@ def make_logo_plots(
 
     tcrs = preprocess.retrieve_tcrs_from_adata(adata)
     ########################################## no more unpacking below here...
+    #(actually we also unpack the logo/header genes GEX from adata.raw below)
 
     num_clones = adata.shape[0]
     num_good_clones = np.sum(good_score_mask)
-    assert X_igex.shape == (num_clones, len(X_igex_genes))
 
     if lit_matches is not None:
         if lit_matches.shape[0]==0:
@@ -438,6 +435,13 @@ def make_logo_plots(
                                             len(gex_header_tcr_score_names))
     else:
         header2_tcr_scores = None
+
+    # extract GEX info for the logo and header genes from the raw array
+    raw_var_names = list(adata.raw.var_names)
+    X_igex_genes = sorted(set(x for x in logo_genes+header2_genes
+                              if x in raw_var_names))
+    X_igex_indices = [raw_var_names.index(x) for x in X_igex_genes]
+    X_igex = adata.raw[:,X_igex_indices].X.toarray()
 
     if 'clone_sizes' in header2_genes:
         X_igex = np.hstack(
