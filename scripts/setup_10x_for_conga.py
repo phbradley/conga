@@ -80,8 +80,6 @@ assert exists(output_clones_file)
 
 if args.no_tcrdists:
     print(f'Skipping TCRdist calculations')
-    print(f'If this all worked you should be able to pass {output_clones_file} as the --clones_file argument to run_conga.py')
-    print('DONE')
 else:
     if args.save_tcrdist_matrices:
         output_distfile = output_clones_file[:-4]+'_AB.dist'
@@ -98,6 +96,6 @@ else:
         output_distfile=output_distfile,
     )
 
-    print(f'If this all worked you should be able to pass {output_clones_file} as the --clones_file argument to run_conga.py')
-    print('DONE')
+print(f'If this all worked you should be able to pass {output_clones_file} as the --clones_file argument to run_conga.py')
+print('DONE')
 

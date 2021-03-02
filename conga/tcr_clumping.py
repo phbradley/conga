@@ -655,7 +655,7 @@ def strict_single_chain_match_adata_tcrs_to_db_tcrs(
     based on strictly matching amino acid sequences only
 
     returns a list containing two DataFrames; 0 is alpha chain hits, 1 is beta chain hits.
-    DataFrames contain a columns with the UMI barcodes, GEX clusters, and TCR clusters of matching clonotypes 
+    DataFrames contain a columns with the UMI barcodes, GEX clusters, and TCR clusters of matching clonotypes
 
     db_tcrs_tsvfile has at a minimum the columns: cdr3a and cdr3b
 
@@ -667,7 +667,7 @@ def strict_single_chain_match_adata_tcrs_to_db_tcrs(
         elif adata.uns['organism'] == 'mouse':
             db_tcrs_tsvfile = Path.joinpath(util.path_to_data, 'mouse_tcr_db_for_matching.tsv')
         print('tcr_clumping.strict_single_chain_match_adata_tcrs_to_db_tcrs: Matching to default literature TCR database; for more info see conga/data/human_and_mouse_tcr_db_for_matching_README.txt')
-        
+
     print('Matching to CDR3a and CDR3b sequences in', db_tcrs_tsvfile)
 
     query_tcrs_df = adata.obs['va ja cdr3a vb jb cdr3b'.split()].copy()
@@ -689,7 +689,7 @@ def strict_single_chain_match_adata_tcrs_to_db_tcrs(
         matched_dfs.append( db_tcrs_df[ db_tcrs_df[chain].isin(query_tcrs_df[chain]) ].copy() )
 
         matched_dfs[i] = matched_dfs[i].rename(columns = {'Unnamed: 0': 'db_index'})
-        
+
         if matched_dfs[i].empty:
             print(f'No {chain} matches detected')
         else:
@@ -703,9 +703,9 @@ def strict_single_chain_match_adata_tcrs_to_db_tcrs(
                 clone_gex = adata.obs.clusters_gex[adata.obs[chain] == row.loc[chain] ].astype(str).unique().tolist()
                 clone_tcr = adata.obs.clusters_tcr[adata.obs[chain] == row.loc[chain] ].astype(str).unique().tolist()
 
-                clones.append( ",".join(clone_bc) ) 
-                gex_clusters.append( ",".join(clone_gex) ) 
-                tcr_clusters.append( ",".join(clone_tcr) ) 
+                clones.append( ",".join(clone_bc) )
+                gex_clusters.append( ",".join(clone_gex) )
+                tcr_clusters.append( ",".join(clone_tcr) )
 
             matched_dfs[i][f'{chain}_match_UMI'] = clones
             matched_dfs[i][f'{chain}_match_gex_clusters'] = gex_clusters
