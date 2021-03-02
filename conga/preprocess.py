@@ -175,41 +175,6 @@ def retrieve_tcrs_from_adata(adata, include_subject_id_if_present=False):
 
     return tcrs
 
-def setup_X_igex( adata ):
-    ''' Side effect: will log1p-and-normalize the raw matrix if that's not already done
-    '''
-    # tmp hacking
-    all_genes_file = Path.joinpath( Path( util.path_to_data ) , 'igenes_all_v1.txt')
-    kir_genes = 'KIR2DL1 KIR2DL3 KIR2DL4 KIR3DL1 KIR3DL2 KIR3DL3 KIR3DX1'.split()
-    extra_genes = [ 'CD4','CD8A','CD8B','CCR7', 'SELL','CCL5','KLRF1','KLRG1','IKZF2','PDCD1','GNG4','MME',
-                    'ZNF683','KLRD1','NCR3','KIR3DL1','NCAM1','ITGAM','KLRC2','KLRC3', #'MME',
-                    'GNLY','IFNG', 'GZMH','GZMA','CCR6', 'TRAV1-2','KLRB1','ZBTB16', 'GATA3',
-                    'TRBC1','EPHB6','SLC4A10','DAD1','ITGB1', 'KLRC1','CD45RA_TotalSeqC','CD45RO_TotalSeqC',
-                    'ZNF683','KLRD1','NCR3','KIR3DL1','NCAM1','ITGAM','KLRC2','KLRC3','GNLY',
-                    'CCR7_TotalSeqC','CD3_TotalSeqC','IgG1_TotalSeqC','PD-1_TotalSeqC','CD5' ]
-
-    all_genes = sorted( set( [x[:-1] for x in open(all_genes_file,'r')] + extra_genes + kir_genes ) )
-
-    organism = 'human'
-    if 'organism' in adata.uns_keys():
-        organism = adata.uns['organism']
-
-    if 'mouse' in organism: # this is a temporary hack -- could actually load a mapping between mouse and human genes
-        all_genes = [x.capitalize() for x in all_genes]
-
-    for g in plotting.default_logo_genes[organism] + plotting.default_gex_header_genes[organism]:
-        if g not in all_genes:
-            all_genes.append(g)
-
-    normalize_and_log_the_raw_matrix(adata) # just in case
-    var_names = list( adata.raw.var_names )
-    good_genes = [ x for x in all_genes if x in var_names ]
-    print('found {} of {} good_genes in adata.raw.var_names  organism={}'.format(len(good_genes), len(all_genes), organism))
-    assert good_genes
-    indices = [ var_names.index(x) for x in good_genes ]
-    X_igex = adata.raw[:,indices].X.toarray()
-    return X_igex, good_genes
-
 
 def read_adata(
         gex_data, # filename
@@ -733,8 +698,6 @@ def reduce_to_single_cell_per_clone(
 
     stashes info in adata:
     obs: clone_sizes
-    obsm: X_igex
-    uns: X_igex_genes
     '''
 
     # compute pcs
@@ -759,10 +722,7 @@ def reduce_to_single_cell_per_clone(
     tcr2clone_id = { y:x for x,y in enumerate(tcrs) }
 
     #
-    # get the interesting genes matrix before we subset
-    # this will normalize and log the raw array if not done!!
-    #normalize_and_log_the_raw_matrix(adata) # just in case
-    X_igex, good_genes = setup_X_igex(adata)
+    adata = normalize_and_log_the_raw_matrix(adata) # just in case
 
 
     if 'pmhc_var_names' in adata.uns_keys():
@@ -796,7 +756,6 @@ def reduce_to_single_cell_per_clone(
     gex_var = []
     batch_counts = []
     rep_cell_indices = [] # parallel
-    new_X_igex = []
 
     ## only used if average_clone_gex is True
     old_raw_X = adata.raw.X
@@ -841,20 +800,15 @@ def reduce_to_single_cell_per_clone(
                 new_X_rows.append(
                     csr_matrix(old_raw_X[clone_cells,:].sum(axis=0)/clone_size))
                 adata.X[rep_cell_index,:] = adata.X[clone_cells,:].sum(axis=0)/clone_size
-        new_X_igex.append(np.sum(X_igex[clone_cells,:], axis=0) / clone_size)
         if pmhc_var_names:
             new_X_pmhc.append( np.sum( X_pmhc[clone_cells,:], axis=0 ) / clone_size )
 
     rep_cell_indices = np.array(rep_cell_indices)
-    new_X_igex = np.array(new_X_igex)
-    assert new_X_igex.shape == ( num_clones, len(good_genes))
 
     print(f'reduce from {adata.shape[0]} cells to {len(rep_cell_indices)} cells (one per clonotype)')
     adata = adata[ rep_cell_indices, : ].copy() ## seems like we need to copy here, something to do with adata 'views'
     adata.obs['clone_sizes'] = np.array( clone_sizes )
     adata.obs['gex_variation'] = np.sqrt(np.array( gex_var ))
-    adata.obsm['X_igex'] = new_X_igex
-    adata.uns['X_igex_genes'] = good_genes
 
     if average_clone_gex:
         print('vstacking new_X_rows...'); sys.stdout.flush()
@@ -881,8 +835,6 @@ def reduce_to_single_cell_per_clone(
 
     tcrs_redo = retrieve_tcrs_from_adata(adata, include_subject_id_if_present=True)
     assert tcrs_redo == tcrs # sanity check
-
-    adata = normalize_and_log_the_raw_matrix( adata ) # prob not necessary; already done for X_igex ?
 
     if use_existing_pca_obsm_tag is None:
         # delete the temporary pcs we computed just to pick rep cells
@@ -2176,4 +2128,39 @@ def retrieve_nbr_info_from_adata(
         assert all_nbrs[nbr_frac][1] is not None
 
     return all_nbrs
+
+# def setup_X_igex( adata ):
+#     ''' Side effect: will log1p-and-normalize the raw matrix if that's not already done
+#     '''
+#     # tmp hacking
+#     all_genes_file = Path.joinpath( Path( util.path_to_data ) , 'igenes_all_v1.txt')
+#     kir_genes = 'KIR2DL1 KIR2DL3 KIR2DL4 KIR3DL1 KIR3DL2 KIR3DL3 KIR3DX1'.split()
+#     extra_genes = [ 'CD4','CD8A','CD8B','CCR7', 'SELL','CCL5','KLRF1','KLRG1','IKZF2','PDCD1','GNG4','MME',
+#                     'ZNF683','KLRD1','NCR3','KIR3DL1','NCAM1','ITGAM','KLRC2','KLRC3', #'MME',
+#                     'GNLY','IFNG', 'GZMH','GZMA','CCR6', 'TRAV1-2','KLRB1','ZBTB16', 'GATA3',
+#                     'TRBC1','EPHB6','SLC4A10','DAD1','ITGB1', 'KLRC1','CD45RA_TotalSeqC','CD45RO_TotalSeqC',
+#                     'ZNF683','KLRD1','NCR3','KIR3DL1','NCAM1','ITGAM','KLRC2','KLRC3','GNLY',
+#                     'CCR7_TotalSeqC','CD3_TotalSeqC','IgG1_TotalSeqC','PD-1_TotalSeqC','CD5' ]
+
+#     all_genes = sorted( set( [x[:-1] for x in open(all_genes_file,'r')] + extra_genes + kir_genes ) )
+
+#     organism = 'human'
+#     if 'organism' in adata.uns_keys():
+#         organism = adata.uns['organism']
+
+#     if 'mouse' in organism: # this is a temporary hack -- could actually load a mapping between mouse and human genes
+#         all_genes = [x.capitalize() for x in all_genes]
+
+#     for g in plotting.default_logo_genes[organism] + plotting.default_gex_header_genes[organism]:
+#         if g not in all_genes:
+#             all_genes.append(g)
+
+#     normalize_and_log_the_raw_matrix(adata) # just in case
+#     var_names = list( adata.raw.var_names )
+#     good_genes = [ x for x in all_genes if x in var_names ]
+#     print('found {} of {} good_genes in adata.raw.var_names  organism={}'.format(len(good_genes), len(all_genes), organism))
+#     assert good_genes
+#     indices = [ var_names.index(x) for x in good_genes ]
+#     X_igex = adata.raw[:,indices].X.toarray()
+#     return X_igex, good_genes
 

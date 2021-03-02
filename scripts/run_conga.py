@@ -1,4 +1,4 @@
-######################## MAX LINE LENGTH OF ABOUT 120 ##################################################################
+## 80 chars ####################################################################
 import argparse
 
 parser = argparse.ArgumentParser(description="Run the CoNGA clonotype neighbor-graph analysis pipeline")
@@ -317,8 +317,8 @@ if args.restart is None:
 
 
     print('run reduce_to_single_cell_per_clone'); sys.stdout.flush()
-    adata = conga.preprocess.reduce_to_single_cell_per_clone( adata, average_clone_gex=args.average_clone_gex )
-    assert 'X_igex' in adata.obsm_keys()
+    adata = conga.preprocess.reduce_to_single_cell_per_clone(
+        adata, average_clone_gex=args.average_clone_gex )
 
     if args.include_protein_features:
         # this fills X_pca_gex_only, X_pca_gex (combo), X_pca_prot
