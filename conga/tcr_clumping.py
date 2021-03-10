@@ -13,6 +13,7 @@ import numpy as np
 # from scipy.spatial.distance import squareform, cdist
 # from scipy.sparse import issparse#, csr_matrix
 from scipy.stats import poisson
+from statsmodels.stats.multitest import multipletests
 # from anndata import AnnData
 import sys
 import os
@@ -228,17 +229,21 @@ def find_tcr_clumping(
 
     n_bg_pairs = num_random_samples * num_random_samples
 
+    all_raw_pvalues = np.full((num_clones, len(radii)), 1.0)
+
     for ii in range(num_clones):
         ii_freqs = bg_freqs[ii]
         ii_dists = all_distances[ii]
-        for radius in radii:
+        for irad, radius in enumerate(radii):
             num_nbrs = np.sum(x<=radius for x in ii_dists)
             if num_nbrs<1:
                 continue # NOTE: OK since wont have intra-cluster nbrs either
             max_nbrs = np.sum((agroups!=agroups[ii]) & (bgroups!=bgroups[ii]))
             # adjust for number of tests
             mu = max_nbrs * ii_freqs[radius]
-            pval = len(radii) * num_clones * poisson.sf( num_nbrs-1, mu )
+            pval = poisson.sf(num_nbrs-1, mu)
+            all_raw_pvalues[ii, irad] = pval
+            pval *= len(radii) * num_clones # simple multiple test correction
             if pval <= pvalue_threshold:
                 is_clumped[ii] = True
                 # count might just be pseudocount
@@ -306,9 +311,19 @@ def find_tcr_clumping(
                         jb   =tcrs[ii][1][1],
                         cdr3b=tcrs[ii][1][2],
                     ))
+
     results_df = pd.DataFrame(dfl)
     if results_df.shape[0] == 0:
         return results_df
+
+    # compute FDR values in addition to the simple adjusted pvalues
+    _, fdr_values, _, _ = multipletests(
+        all_raw_pvalues.reshape(-1), alpha=0.05, method='fdr_bh')
+    fdr_values = fdr_values.reshape((num_clones, len(radii))).min(axis=1)
+    # right now we don't assign fdr values for intra-gex cluster clumping
+    fdr_column = [fdr_values[x.clone_index] if x.clump_type=='global'
+                  else np.nan for x in results_df.itertuples()]
+    results_df['clonotype_fdr_value'] = fdr_column
 
     # identify groups of related hits?
     all_clumped_nbrs = {}
@@ -481,8 +496,8 @@ def find_significant_tcrdist_matches(
     db_tcrs = tcrs_from_dataframe_helper(db_tcrs_df)
     background_tcrs = tcrs_from_dataframe_helper(background_tcrs_df, add_j_and_nucseq=True)
 
-    pvalue_adjustment = len(query_tcrs) * len(db_tcrs) # multiply by this to account for multiple tests
-    print('pvalue_adjustment:', pvalue_adjustment, len(query_tcrs), len(db_tcrs))
+    num_comparisons = len(query_tcrs) * len(db_tcrs)
+    print('num_comparisons:', num_comparisons, len(query_tcrs), len(db_tcrs))
 
     if fixup_allele_assignments_in_background_tcrs_df:
         background_tcrs = tcr_sampler.find_alternate_alleles_for_tcrs(
@@ -497,7 +512,7 @@ def find_significant_tcrdist_matches(
         tcrs_for_background_generation= background_tcrs)
     assert bg_freqs.shape == (len(query_tcrs), max_dist+1)
 
-    adjusted_bg_freqs = pvalue_adjustment * bg_freqs
+    adjusted_bg_freqs = num_comparisons * bg_freqs
 
     could_match = np.any( adjusted_bg_freqs<= adjusted_pvalue_threshold, axis=0)
     assert could_match.shape == (max_dist+1,)
@@ -506,13 +521,16 @@ def find_significant_tcrdist_matches(
     while could_match[max_dist_for_matching] and max_dist_for_matching<max_dist:
         max_dist_for_matching += 1
 
-    print(f'find_significant_tcrdist_matches:: max_dist: {max_dist} max_dist_for_matching: {max_dist_for_matching}')
+    print(f'find_significant_tcrdist_matches:: max_dist: {max_dist}',
+          f'max_dist_for_matching: {max_dist_for_matching}')
 
     # now run C++ matching code
     query_tcrs_file = tmpfile_prefix+'temp_query_tcrs.tsv'
     db_tcrs_file = tmpfile_prefix+'temp_db_tcrs.tsv'
-    query_tcrs_df['va cdr3a vb cdr3b'.split()].to_csv(query_tcrs_file, sep='\t', index=False)
-    db_tcrs_df['va cdr3a vb cdr3b'.split()].to_csv(db_tcrs_file, sep='\t', index=False)
+    query_tcrs_df['va cdr3a vb cdr3b'.split()].to_csv(query_tcrs_file, sep='\t',
+                                                      index=False)
+    db_tcrs_df['va cdr3a vb cdr3b'.split()].to_csv(db_tcrs_file, sep='\t',
+                                                   index=False)
 
     if os.name == 'posix':
         exe = Path.joinpath( Path(util.path_to_tcrdist_cpp_bin) , 'find_paired_matches')
@@ -535,11 +553,22 @@ def find_significant_tcrdist_matches(
 
     df = pd.read_csv(outfilename, sep='\t')
 
+    num_matches = df.shape[0]
+    raw_pvalues = [bg_freqs[x.index1][x.tcrdist] for x in df.itertuples()]
+    raw_pvalues_argsort = np.argsort(raw_pvalues)
+    raw_pvalues_sorted = np.concatenate(
+        [np.sort(raw_pvalues), np.full((num_comparisons - num_matches,), 1.0)])
+    assert raw_pvalues_sorted.shape[0] == num_comparisons #BIG
+    # the alpha setting here does not matter for method='fdr_bh'
+    _, fdr_values_sorted, _, _ = multipletests(
+        raw_pvalues_sorted, alpha=0.05, is_sorted=True, method='fdr_bh')
+    fdr_values = fdr_values_sorted[np.argsort(raw_pvalues_argsort)]
+
     dfl = []
-    for l in df.itertuples():
+    for l, fdr_value in zip(df.itertuples(), fdr_values):
         i = l.index1
         j = l.index2
-        pvalue_adj = pvalue_adjustment * bg_freqs[i][l.tcrdist]
+        pvalue_adj = num_comparisons * bg_freqs[i][l.tcrdist]
         if pvalue_adj > adjusted_pvalue_threshold:
             continue
         query_row = query_tcrs_df.iloc[i]
@@ -548,6 +577,7 @@ def find_significant_tcrdist_matches(
         assert db_row.cdr3b == l.cdr3b2 # ditto
         D = OrderedDict(tcrdist= l.tcrdist,
                         pvalue_adj=pvalue_adj,
+                        fdr_value=fdr_value, # Benjamini-Hochberg
                         query_index= i,
                         db_index= j,
                         va= query_row.va,

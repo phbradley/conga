@@ -469,15 +469,10 @@ def filter_normalize_and_hvg(
         print('num antibody features:', np.sum(mask))
         if np.sum(mask):
             assert not antibody # sanity check
-            oldshape = adata.shape
-            oldrawshape = adata.raw.shape
             adata = adata[:,~mask].copy()
-            newshape = adata.shape
-            newrawshape = adata.raw.shape
-            removed_at_end = ( np.sum( mask[:newshape[1]] )==0 )
+            removed_at_end = (np.sum(mask[:adata.shape[1]])==0)
             print('Removed {} antibody features from adata, using colname {}'\
-                  .format( np.sum(mask), feature_types_colname ), oldshape, oldrawshape, newshape, newrawshape,
-                  removed_at_end )
+                  .format(np.sum(mask), feature_types_colname ))
             assert removed_at_end # want to make this assumption somewhere else
 
     #normalize and log data
@@ -504,12 +499,10 @@ def filter_normalize_and_hvg(
         hvg_mask[is_sexlinked] = False
 
     print('total of', np.sum(hvg_mask), 'variable genes', adata.shape)
-    oldshape = adata.shape
-    oldrawshape = adata.raw.shape
     adata = adata[:, hvg_mask].copy()
-    newshape = adata.shape
-    newrawshape = adata.raw.shape
-    #print('after slice:', len(adata.var_names), oldshape, oldrawshape, newshape, newrawshape )
+
+    # new: normalize the raw matrix here; used to do this later
+    adata = normalize_and_log_the_raw_matrix(adata)
 
     return adata
 
@@ -670,7 +663,8 @@ def filter_and_scale(
     ## now process as before
     adata = filter_normalize_and_hvg(
         adata, min_genes=min_genes, n_genes=n_genes, percent_mito=percent_mito,
-        exclude_TR_genes= True, exclude_sexlinked=True, outfile_prefix_for_qc_plots=outfile_prefix_for_qc_plots)
+        exclude_TR_genes= True, exclude_sexlinked=True,
+        outfile_prefix_for_qc_plots=outfile_prefix_for_qc_plots)
 
     ## should consider adding cell cycle here:
     sc.pp.regress_out(adata, ['n_counts','percent_mito'])

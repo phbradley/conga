@@ -4,6 +4,7 @@ from sklearn.metrics import pairwise_distances
 from scipy.stats import hypergeom, mannwhitneyu, linregress, norm
 #from scipy.sparse import issparse, csr_matrix
 import scipy.sparse as sps
+from statsmodels.stats.multitest import multipletests
 from collections import Counter, OrderedDict
 import scanpy as sc
 from . import preprocess as pp
@@ -79,12 +80,15 @@ def find_neighbor_neighbor_interactions(
 
         overlap_corrected = overlap
         if correct_overlaps_for_groups:
-            overlap_corrected = min( len(set(agroups[double_nbrs])), len(set(bgroups[double_nbrs])) )
+            # this is heuristic
+            overlap_corrected = min(len(set(agroups[double_nbrs])),
+                                    len(set(bgroups[double_nbrs])) )
 
             if overlap_corrected < overlap:
                 delta = overlap-overlap_corrected
-                nbr_pval = pval_rescale * hypergeom.sf( overlap_corrected-1, actual_num_clones, num_neighbors_gex-delta,
-                                                        num_neighbors_tcr-delta)
+                nbr_pval = pval_rescale * hypergeom.sf(
+                    overlap_corrected-1, actual_num_clones,
+                    num_neighbors_gex-delta, num_neighbors_tcr-delta)
                 adjusted_pvalues[ii] = nbr_pval # update
                 if nbr_pval > pval_threshold:
                     continue ## NOTE
@@ -217,21 +221,25 @@ def run_graph_vs_graph(
     agroups, bgroups = pp.setup_tcr_groups(adata)
     clusters_gex = np.array(adata.obs['clusters_gex'])
     clusters_tcr = np.array(adata.obs['clusters_tcr'])
+    nbr_fracs = sorted(all_nbrs.keys())
 
-    bad_conga_score = num_clones # since conga_score= raw_pval*num_clones, max is num_clones if raw_pval=1
+    # since conga_score= raw_pval*num_clones, max is num_clones if raw_pval=1
+    bad_conga_score = num_clones
 
-    conga_scores = np.full( (num_clones,), bad_conga_score, dtype=float)
+    conga_scores = np.full((num_clones,), bad_conga_score, dtype=float)
 
     all_results = []
+    all_raw_pvalues = np.full((num_clones, 3*len(nbr_fracs)), 1.0) # for FDR
 
-    for nbr_frac in all_nbrs:
+    for inbr_frac, nbr_frac in enumerate(nbr_fracs):
         nbrs_gex, nbrs_tcr = all_nbrs[nbr_frac]
-
 
         print('find_neighbor_neighbor_interactions:')
         results_df, adjusted_pvalues = find_neighbor_neighbor_interactions(
-            adata, nbrs_gex, nbrs_tcr, agroups, bgroups, pval_threshold, verbose=verbose)
+            adata, nbrs_gex, nbrs_tcr, agroups, bgroups, pval_threshold,
+            verbose=verbose)
         conga_scores = np.minimum(conga_scores, adjusted_pvalues)
+        all_raw_pvalues[:, 3*inbr_frac] = adjusted_pvalues/num_clones
 
         if not results_df.empty:
             results_df['nbr_frac'] = nbr_frac
@@ -242,6 +250,7 @@ def run_graph_vs_graph(
         results_df, adjusted_pvalues = find_neighbor_cluster_interactions(
             adata, nbrs_tcr, clusters_gex, agroups, bgroups, pval_threshold)
         conga_scores = np.minimum(conga_scores, adjusted_pvalues)
+        all_raw_pvalues[:, 3*inbr_frac+1] = adjusted_pvalues/num_clones
         if results_df.shape[0]:
             results_df['nbr_frac'] = nbr_frac
             results_df['overlap_type'] = 'cluster_nbr'
@@ -251,10 +260,19 @@ def run_graph_vs_graph(
         results_df, adjusted_pvalues = find_neighbor_cluster_interactions(
             adata, nbrs_gex, clusters_tcr, agroups, bgroups, pval_threshold)
         conga_scores = np.minimum(conga_scores, adjusted_pvalues)
+        all_raw_pvalues[:, 3*inbr_frac+2] = adjusted_pvalues/num_clones
         if results_df.shape[0]:
             results_df['nbr_frac'] = nbr_frac
             results_df['overlap_type'] = 'nbr_cluster'
             all_results.append(results_df)
+
+    # fdr calculation
+    _, fdr_values, _, _ = multipletests(
+        all_raw_pvalues.reshape((num_clones*3*len(nbr_fracs),)),
+        alpha=0.05, method='fdr_bh')
+
+    fdr_values = fdr_values.reshape((num_clones, 3*len(nbr_fracs)))
+    fdr_values = fdr_values.min(axis=1)
 
     if all_results:
         results_df = pd.concat(all_results, ignore_index=True)
@@ -262,6 +280,7 @@ def run_graph_vs_graph(
         results_df = pd.DataFrame([])
 
     adata.obs['conga_scores'] = conga_scores
+    adata.obs['conga_fdr_values'] = fdr_values
 
     return results_df
 

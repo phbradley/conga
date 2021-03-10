@@ -50,6 +50,7 @@ parser.add_argument('--graph_vs_gex_features', action='store_true')
 parser.add_argument('--match_to_tcr_database', action='store_true', help='Find significant matches to paired tcrs in the database specified by --tcr_database_tsvfile (default is the dataset in conga/data/new_paired_tcr_db_for_matching_nr.tsv')
 parser.add_argument('--tcr_database_tsvfile', help='Must have columns va cdr3a vb cdr3b, minimally; with imgt-recognized allele names; default is conga/data/new_paired_tcr_db_for_matching_nr.tsv')
 parser.add_argument('--pvalue_threshold_for_db_matching', type=float, default=1.0)
+parser.add_argument('--pvalue_threshold_for_tcr_clumping', type=float, default=1.0)
 parser.add_argument('--dont_show_lit_matches_in_logos', action='store_true')
 parser.add_argument('--cluster_vs_cluster', action='store_true')
 parser.add_argument('--tcr_clumping', action='store_true')
@@ -287,19 +288,23 @@ if args.restart is None:
 
 
     assert not adata.isview
-    assert allow_missing_kpca_file or 'X_pca_tcr' in adata.obsm_keys() # tcr-dist kPCA info
+    # is the tcr-dist kPCA info present?
+    assert allow_missing_kpca_file or 'X_pca_tcr' in adata.obsm_keys()
     assert 'cdr3a' in adata.obs # tcr sequence (VDJ) info (plus other obs keys)
 
     print(adata)
 
-    outfile_prefix_for_qc_plots = None if args.qc_plots is None else args.outfile_prefix
-    adata = conga.preprocess.filter_and_scale( adata, n_genes = args.max_genes_per_cell,
-                                               outfile_prefix_for_qc_plots = outfile_prefix_for_qc_plots )
+    outfile_prefix_for_qc_plots = None if args.qc_plots is None else \
+                                  args.outfile_prefix
+    adata = conga.preprocess.filter_and_scale(
+        adata, n_genes = args.max_genes_per_cell,
+        outfile_prefix_for_qc_plots = outfile_prefix_for_qc_plots )
 
     if args.filter_ribo_norm_low_cells:
         adata = conga.preprocess.filter_cells_by_ribo_norm( adata )
 
-    if args.calc_clone_pmhc_pvals: # do this before condensing to a single clone per cell
+    if args.calc_clone_pmhc_pvals:
+        # do this before condensing to a single clone per cell
         # note that we are doing this after filtering out the ribo-low cells
         results_df = conga.pmhc_scoring.calc_clone_pmhc_pvals(adata)
         tsvfile = args.outfile_prefix+'_clone_pvals.tsv'
@@ -554,15 +559,13 @@ if args.tcr_clumping:
     radii = [24, 48, 72, 96] if args.radii_for_tcr_clumping is None else \
             args.radii_for_tcr_clumping
 
-    pvalue_threshold = 0.05 # could use 1.0 maybe?
-
     results = conga.tcr_clumping.assess_tcr_clumping(
         adata,
-        tmpfile_prefix=args.outfile_prefix,
-        radii=radii,
-        num_random_samples=num_random_samples,
-        pvalue_threshold = pvalue_threshold,
-        also_find_clumps_within_gex_clusters=args.intra_cluster_tcr_clumping,
+        tmpfile_prefix= args.outfile_prefix,
+        radii= radii,
+        num_random_samples= num_random_samples,
+        pvalue_threshold= args.pvalue_threshold_for_tcr_clumping,
+        also_find_clumps_within_gex_clusters= args.intra_cluster_tcr_clumping,
     )
 
     if results.shape[0]:
@@ -586,7 +589,7 @@ if args.tcr_clumping:
             nbrs_gex,
             nbrs_tcr,
             args.min_cluster_size_for_tcr_clumping_logos,
-            pvalue_threshold,
+            args.pvalue_threshold_for_tcr_clumping,
             args.outfile_prefix,
             lit_matches=lit_matches,
             )
@@ -1346,10 +1349,13 @@ if args.find_hotspot_features:
 
         if args.make_hotspot_nbrhood_logos:
             nbrs_gex, nbrs_tcr = all_nbrs[ max(args.nbr_fracs) ]
-            min_cluster_size = max( args.min_cluster_size, int( 0.5 + args.min_cluster_size_fraction * num_clones) )
-            conga.plotting.make_hotspot_nbrhood_logo_figures(adata, nbrs_gex, nbrs_tcr, nbrhood_results,
-                                                             min_cluster_size, args.outfile_prefix,
-                                                             pvalue_threshold=1.0)
+            min_cluster_size = max(
+                args.min_cluster_size,
+                int(0.5 + args.min_cluster_size_fraction * num_clones))
+            conga.plotting.make_hotspot_nbrhood_logo_figures(
+                adata, nbrs_gex, nbrs_tcr, nbrhood_results,
+                min_cluster_size, args.outfile_prefix,
+                pvalue_threshold=1.0)
 
 if args.analyze_CD4_CD8:
     min_nbrs = 10
