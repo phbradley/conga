@@ -1908,9 +1908,11 @@ def make_feature_panel_plots(
 
         scores = feature_to_raw_values[feature]
 
-        row_nbr_frac = use_nbr_frac if use_nbr_frac is not None else nbr_frac_for_cluster_results if row.nbr_frac==0.0 \
-                       else row.nbr_frac
-        nbrs = all_nbrs[row_nbr_frac][0] if xy_tag=='gex' else all_nbrs[row_nbr_frac][1]
+        row_nbr_frac = use_nbr_frac if use_nbr_frac is not None else \
+                       nbr_frac_for_cluster_results if row.nbr_frac==0.0 else \
+                       row.nbr_frac
+        nbrs = all_nbrs[row_nbr_frac][0] if xy_tag=='gex' else \
+               all_nbrs[row_nbr_frac][1]
         assert nbrs.shape[0] == adata.shape[0]
         num_neighbors = nbrs.shape[1] # this will not work for ragged nbr arrays (but we could change it to work)
 
@@ -1921,6 +1923,9 @@ def make_feature_panel_plots(
                                                  row.mwu_pvalue_adj))
         plt.xticks([],[])
         plt.yticks([],[])
+        plt.text(1.0, 0.0, f'{row_nbr_frac} {xy_tag.upper()} nbr-avged',
+                 va='bottom', ha='right', fontsize=9,
+                 transform=plt.gca().transAxes)
         if (plotno-1)//ncols == nrows-1:
             plt.xlabel('{} UMAP1'.format(xy_tag.upper()))
         if plotno%ncols == 1:
@@ -2006,6 +2011,10 @@ def plot_hotspot_umap(
         plt.title('{} {:.1e}'.format(row.feature, row.pvalue_adj))
         plt.xticks([],[])
         plt.yticks([],[])
+        if compute_nbr_averages:
+            plt.text(1.0, 0.0, f'{xy_tag.upper()} nbr-avged',
+                     va='bottom', ha='right', fontsize=9,
+                     transform=plt.gca().transAxes)
         if (plotno-1)//ncols == nrows-1:
             plt.xlabel('{} UMAP1'.format(xy_tag.upper()))
         if plotno%ncols == 1:
@@ -2348,7 +2357,7 @@ def plot_cluster_gene_compositions(
     #ncols = 1+num_clusters_gex
     #nrows = 5 # tcr cluster, va, ja, vb, jb
 
-    plt.figure(figsize=(10,4))
+    plt.figure(figsize=(10,6))
 
     for col in range(5):
         plt.subplot(1,5,col+1)
@@ -2391,6 +2400,22 @@ def plot_cluster_gene_compositions(
 
         plt.bar(centers, height=heights, width=0.8, bottom=bottoms, color=colors)
         plt.title(feature_name)
+        if col:
+            plt.yticks([],[])
+        plt.xticks(range(-1, num_clusters_gex),
+                   ['A']+[str(x) for x in range(num_clusters_gex)])
+        plt.xlabel('GEX cluster (or _All)', fontsize=6, labelpad=0)
+
+        # make a legend
+        MAX_TO_SHOW = 25
+        for feature in feature_order[:MAX_TO_SHOW]:
+            plt.scatter([], [], c=[color_dict[feature]], label=feature)
+
+        plt.legend(loc = 'upper center', bbox_to_anchor=(0.5, -0.1),
+                   fontsize=6, ncol=2)
+
+    plt.subplots_adjust(bottom=0.35, right=0.96, left= 0.05, wspace=0.15)
+
     plt.savefig(pngfile)
 
 

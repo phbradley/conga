@@ -551,7 +551,8 @@ def tcr_nbrhood_rank_genes_fast(
     ## done unpacking ###############################
 
     if clone_display_names is None:
-        clone_display_names = [ '{} {}'.format(' '.join(x[0][:3]), ' '.join(x[1][:3])) for x in tcrs ]
+        clone_display_names = [
+            '{} {}'.format(' '.join(x[0][:3]),' '.join(x[1][:3])) for x in tcrs]
 
     if ttest_pval_threshold_for_mwu_calc is None:
         ttest_pval_threshold_for_mwu_calc = pval_threshold * 10

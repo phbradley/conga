@@ -1713,6 +1713,12 @@ def calc_tcrdist_nbrs_umap_clusters_cpp(
     del adata.obsm['X_pca'] # delete the fake pcas
     del adata.obsm['X_umap'] # delete the extra umap copy
 
+    # cleanup the tmpfiles
+    for filename in [knn_indices_filename,
+                     knn_distances_filename,
+                     tcrs_filename]:
+        os.remove(filename)
+
 def calc_tcrdist_matrix_cpp(
         tcrs,
         organism,

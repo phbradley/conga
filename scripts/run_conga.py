@@ -793,6 +793,7 @@ if args.graph_vs_gex_features: #################################################
     ## now make another fake nbr graph defined by TCR gene segment usage
     tcrs = conga.preprocess.retrieve_tcrs_from_adata(adata)
 
+    combo_results = []
     for iab,ab in enumerate('AB'):
         for iseg,seg in enumerate('VJ'):
             genes = [ x[iab][iseg] for x in tcrs ]
@@ -815,20 +816,30 @@ if args.graph_vs_gex_features: #################################################
             pval_threshold = 1.
 
             results_df = conga.correlations.tcr_nbrhood_rank_genes_fast(
-                adata, fake_nbrs_tcr, pval_threshold, prefix_tag=seg+ab, clone_display_names=clone_display_names )
+                adata, fake_nbrs_tcr, pval_threshold, prefix_tag=seg+ab,
+                clone_display_names=clone_display_names)
 
             if results_df.shape[0]:
+                inds = np.array(results_df['clone_index'])
+                results_df['gene_segment'] = genes[inds]
                 results_df['clone_index'] = -1
-                tsvfile = args.outfile_prefix+'_tcr_gene_segments_vs_gex_features.tsv'
-                print('making:', tsvfile)
-                results_df.to_csv(tsvfile, index=False, sep='\t')
+                combo_results.append(results_df)
 
-                results_df['nbr_frac'] = 0.0
-                pngfile = args.outfile_prefix+'_tcr_gene_segments_vs_gex_features_panels.png'
-                print('making:', pngfile)
-                use_nbr_frac = max(args.nbr_fracs)
-                conga.plotting.make_feature_panel_plots(adata, 'tcr', all_nbrs, results_df, pngfile,
-                                                        use_nbr_frac=use_nbr_frac)
+    if combo_results:
+        results_df = pd.concat(combo_results, ignore_index=True)
+        tsvfile = (args.outfile_prefix+
+                   '_tcr_gene_segments_vs_gex_features.tsv')
+        print('making:', tsvfile)
+        results_df.to_csv(tsvfile, index=False, sep='\t')
+
+        results_df['nbr_frac'] = 0.0
+        pngfile = (args.outfile_prefix+
+                   '_tcr_gene_segments_vs_gex_features_panels.png')
+        print('making:', pngfile)
+        use_nbr_frac = max(args.nbr_fracs)
+        conga.plotting.make_feature_panel_plots(
+            adata, 'tcr', all_nbrs, results_df, pngfile,
+            use_nbr_frac=use_nbr_frac)
 
 
 if args.graph_vs_tcr_features: #######################################################################################
@@ -1259,8 +1270,9 @@ if args.find_hotspot_features:
                 pngfile = '{}_hotspot_{}_features_{:.3f}_nbrs_{}_umap.png'\
                           .format(args.outfile_prefix, tag, nbr_frac, plot_tag)
                 print('making:', pngfile)
-                conga.plotting.plot_hotspot_umap(adata, plot_tag, results, pngfile, nbrs=plot_nbrs,
-                                                  compute_nbr_averages=True)
+                conga.plotting.plot_hotspot_umap(
+                    adata, plot_tag, results, pngfile, nbrs=plot_nbrs,
+                    compute_nbr_averages=True)
 
                 if results.shape[0]<2:
                     continue # clustermap not interesting...
@@ -1281,7 +1293,9 @@ if args.find_hotspot_features:
                 feature_labels = ['{:9.1e} {} {}'.format(x,y,z)
                                   for x,y,z in zip(results.pvalue_adj, results.feature_type, results.feature)]
                 min_pval = 1e-299 # dont want log10 of 0.0
-                feature_scores = [np.sqrt(-1*np.log10(max(min_pval, x.pvalue_adj))) for x in results.itertuples()]
+                feature_scores = [
+                    np.sqrt(-1*np.log10(max(min_pval, x.pvalue_adj)))
+                    for x in results.itertuples()]
 
                 # now a more compact version where we filter out redundant features
                 pngfile = '{}_{:.3f}_nbrs_{}_hotspot_features_vs_{}_clustermap_lessredundant.png'\
