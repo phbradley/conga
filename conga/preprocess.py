@@ -64,9 +64,17 @@ def add_mait_info_to_adata_obs( adata, key_added = 'is_invariant' ):
 
 def normalize_and_log_the_raw_matrix(
         adata,
-        normalize_antibody_features_CLR=True, # centered log normalize (this is NEW!!!! was just log1p'ing before)
-        counts_per_cell_after = 1e4 ):
+        normalize_antibody_features_CLR=True, # centered log normalize
+        counts_per_cell_after = 1e4,
+):
     '''
+    The GEX features are normalized to sum to `counts_per_cell_after` then
+    log1p'ed
+
+    If present, antibody aka protein/citeseq/dextramer features will log1p'ed
+    and CLR log normalized (if `normalize_antibody_features_CLR` is True) or
+    just log1p'ed
+
     '''
     if check_if_raw_matrix_is_logged( adata ):
         print('normalize_and_log_the_raw_matrix:: matrix is already logged')
@@ -390,6 +398,7 @@ def filter_normalize_and_hvg(
         also_exclude_TR_constant_region_genes = True, ## this is NEW and not the default for the old TCR analysis!!!!
         exclude_sexlinked = False,
         outfile_prefix_for_qc_plots = None,
+        normalize_antibody_features_CLR=True, # centered log normalize
 ):
     '''Filters cells and genes to find highly variable genes'''
 
@@ -502,7 +511,10 @@ def filter_normalize_and_hvg(
     adata = adata[:, hvg_mask].copy()
 
     # new: normalize the raw matrix here; used to do this later
-    adata = normalize_and_log_the_raw_matrix(adata)
+    adata = normalize_and_log_the_raw_matrix(
+        adata,
+        normalize_antibody_features_CLR=normalize_antibody_features_CLR
+    )
 
     return adata
 
@@ -659,12 +671,16 @@ def filter_and_scale(
         n_genes= None,
         percent_mito= None,
         outfile_prefix_for_qc_plots = None,
+        normalize_antibody_features_CLR=True, # centered log normalize
 ):
     ## now process as before
     adata = filter_normalize_and_hvg(
         adata, min_genes=min_genes, n_genes=n_genes, percent_mito=percent_mito,
         exclude_TR_genes= True, exclude_sexlinked=True,
-        outfile_prefix_for_qc_plots=outfile_prefix_for_qc_plots)
+        outfile_prefix_for_qc_plots=outfile_prefix_for_qc_plots,
+        normalize_antibody_features_CLR=normalize_antibody_features_CLR,
+    )
+
 
     ## should consider adding cell cycle here:
     sc.pp.regress_out(adata, ['n_counts','percent_mito'])
@@ -715,7 +731,8 @@ def reduce_to_single_cell_per_clone(
 
     tcr2clone_id = { y:x for x,y in enumerate(tcrs) }
 
-    #
+    # this is not probably not necessary, e.g. if we already called
+    # filter_normalize_and_hvg
     adata = normalize_and_log_the_raw_matrix(adata) # just in case
 
 
@@ -953,6 +970,7 @@ def calc_nbrs_batched(
         nbr_frac_for_nndists = None,
         target_N_for_batching = 8192,
         use_exact_tcrdist_nbrs = False,
+        tmpfile_prefix = None, # only used if use_exact_tcrdist_nbrs and CPP
 ):
     ''' returns dict mapping from nbr_frac to [nbrs_gex, nbrs_tcr]
 
@@ -1029,7 +1047,9 @@ def calc_nbrs_batched(
     #     all_nbrs[nbr_frac] = [ np.vstack(nbrslist_gex), None if obsm_tag_tcr is None else np.vstack(nbrslist_tcr) ]
 
     if use_exact_tcrdist_nbrs:
-        tcr_nbrs, tcr_nndists = calculate_tcrdist_nbrs(adata, nbr_fracs, nbr_frac_for_nndists)
+        tcr_nbrs, tcr_nndists = calculate_tcrdist_nbrs(
+            adata, nbr_fracs, nbr_frac_for_nndists,
+            tmpfile_prefix=tmpfile_prefix)
         for nbr_frac in nbr_fracs:
             nbrs_gex,_ = all_nbrs[nbr_frac]
             all_nbrs[nbr_frac] = [nbrs_gex, tcr_nbrs[nbr_frac]]
@@ -1037,7 +1057,9 @@ def calc_nbrs_batched(
 
     if also_calc_nndists:
         nndists_gex = np.hstack(nndists[0])
-        nndists_tcr = nndists[1] if use_exact_tcrdist_nbrs else None if obsm_tag_tcr is None else np.hstack(nndists[1])
+        nndists_tcr = nndists[1] if use_exact_tcrdist_nbrs else \
+                      None if obsm_tag_tcr is None else \
+                      np.hstack(nndists[1])
 
         return all_nbrs, nndists_gex, nndists_tcr
     else:
@@ -1053,6 +1075,7 @@ def calc_nbrs(
         nbr_frac_for_nndists = None,
         target_N_for_batching = 8192,
         use_exact_tcrdist_nbrs = False,
+        tmpfile_prefix = None, # only used if use_exact_tcrdist_nbrs and CPP
 ):
     ''' returns dict mapping from nbr_frac to [nbrs_gex, nbrs_tcr]
 
@@ -1062,7 +1085,8 @@ def calc_nbrs(
         return calc_nbrs_batched(
             adata, nbr_fracs, obsm_tag_gex, obsm_tag_tcr, also_calc_nndists,
             nbr_frac_for_nndists, target_N_for_batching,
-            use_exact_tcrdist_nbrs=use_exact_tcrdist_nbrs)
+            use_exact_tcrdist_nbrs=use_exact_tcrdist_nbrs,
+            tmpfile_prefix=tmpfile_prefix)
 
     if also_calc_nndists:
         assert nbr_frac_for_nndists in nbr_fracs
@@ -1101,7 +1125,9 @@ def calc_nbrs(
 
 
     if use_exact_tcrdist_nbrs:
-        tcr_nbrs, tcr_nndists = calculate_tcrdist_nbrs(adata, nbr_fracs, nbr_frac_for_nndists)
+        tcr_nbrs, tcr_nndists = calculate_tcrdist_nbrs(
+            adata, nbr_fracs, nbr_frac_for_nndists,
+            tmpfile_prefix=tmpfile_prefix)
         for nbr_frac in nbr_fracs:
             nbrs_gex,_ = all_nbrs[nbr_frac]
             all_nbrs[nbr_frac] = [nbrs_gex, tcr_nbrs[nbr_frac]]
@@ -1117,6 +1143,7 @@ def calculate_tcrdist_nbrs(
         adata,
         nbr_fracs,
         nbr_frac_for_nndists = None, # if not None, calculate nndists at this nbr fraction
+        tmpfile_prefix = None,
 ):
     ''' returns all_nbrs, nndists
 
@@ -1129,7 +1156,9 @@ def calculate_tcrdist_nbrs(
     nbrs exclude self and any clones in same atcr group or btcr group
     '''
     if util.tcrdist_cpp_available():
-        return calculate_tcrdist_nbrs_cpp(adata, nbr_fracs, nbr_frac_for_nndists)
+        return calculate_tcrdist_nbrs_cpp(
+            adata, nbr_fracs, nbr_frac_for_nndists,
+            tmpfile_prefix=tmpfile_prefix)
     else:
         return calculate_tcrdist_nbrs_python(adata, nbr_fracs, nbr_frac_for_nndists)
 
@@ -1196,7 +1225,7 @@ def calculate_tcrdist_nbrs_cpp(
         adata,
         nbr_fracs,
         nbr_frac_for_nndists = None,
-        tmpfile_prefix = None
+        tmpfile_prefix = None,
 ):
     ''' returns all_nbrs, nndists
 

@@ -64,6 +64,8 @@ parser.add_argument('--find_hotspot_features', action='store_true')
 parser.add_argument('--plot_cluster_gene_compositions', action='store_true')
 parser.add_argument('--make_tcrdist_trees', action='store_true')
 parser.add_argument('--make_hotspot_nbrhood_logos', action='store_true')
+parser.add_argument('--make_hotspot_raw_feature_plots', action='store_true',
+                    help='The default is just to plot the nbrhood-averaged values')
 parser.add_argument('--analyze_CD4_CD8', action='store_true')
 parser.add_argument('--analyze_proteins', action='store_true')
 parser.add_argument('--analyze_special_genes', action='store_true')
@@ -80,6 +82,8 @@ parser.add_argument('--tenx_agbt', action='store_true')
 parser.add_argument('--include_alphadist_in_tcr_feature_logos', action='store_true')
 parser.add_argument('--show_pmhc_info_in_logos', action='store_true')
 parser.add_argument('--gex_header_tcr_score_names', type=str, nargs='*')
+parser.add_argument('--gex_logo_genes', type=str, nargs='*')
+parser.add_argument('--gex_header_genes', type=str, nargs='*')
 parser.add_argument('--batch_keys', type=str, nargs='*')
 parser.add_argument('--exclude_batch_keys_for_biases', type=str, nargs='*')
 parser.add_argument('--radii_for_tcr_clumping', type=int, nargs='*')
@@ -455,13 +459,22 @@ if args.subset_to_CD4 or args.subset_to_CD8:
         clustering_resolution=args.clustering_resolution,
         skip_tcr=(args.use_tcrdist_umap and args.use_tcrdist_clusters))
 
+need_to_compute_tcrdist_umap = (
+    args.use_tcrdist_umap and
+    (args.restart is None or 'X_tcr_2d' not in adata.obsm_keys()))
+need_to_compute_tcrdist_clusters = (
+    args.use_tcrdist_clusters and
+    (args.restart is None or 'clusters_tcr' not in adata.obs_keys()))
 
-if args.use_tcrdist_umap or args.use_tcrdist_clusters:
-    umap_key_added = 'X_tcr_2d' if args.use_tcrdist_umap else 'X_tcrdist_2d'
-    cluster_key_added = 'clusters_tcr' if args.use_tcrdist_clusters else 'clusters_tcrdist'
+if need_to_compute_tcrdist_umap or need_to_compute_tcrdist_clusters:
+    umap_key_added = 'X_tcr_2d' if need_to_compute_tcrdist_umap else \
+                     'X_tcrdist_2d'
+    cluster_key_added = 'clusters_tcr' if need_to_compute_tcrdist_clusters else\
+                        'clusters_tcrdist'
     num_nbrs = 10
     conga.preprocess.calc_tcrdist_nbrs_umap_clusters_cpp(
-        adata, num_nbrs, args.outfile_prefix, umap_key_added=umap_key_added, cluster_key_added=cluster_key_added)
+        adata, num_nbrs, args.outfile_prefix, umap_key_added=umap_key_added,
+        cluster_key_added=cluster_key_added)
 
 ################################################ DONE WITH INITIAL SETUP #########################################
 
@@ -686,6 +699,8 @@ if args.graph_vs_graph: ########################################################
             show_pmhc_info_in_logos = args.show_pmhc_info_in_logos,
             gex_header_tcr_score_names = gex_header_tcr_score_names,
             lit_matches=lit_matches,
+            logo_genes=args.gex_logo_genes,
+            gex_header_genes=args.gex_header_genes,
         )
 
 batch_bias_results = None
@@ -1186,75 +1201,21 @@ if args.find_hotspot_features:
         if nbrhood_results.shape[0]: #make some simple plots
             nbrhood_results['nbr_frac'] = nbr_frac
             all_hotspot_nbrhood_results.append( nbrhood_results )
-            # nrows, ncols = 4, 6
-            # plt.figure(figsize=(ncols*4, nrows*4))
-            # for ii,(xy_tag, feature_nbr_tag, graph_tag) in enumerate([(x,y,z) for x in ['gex','tcr']
-            #                                                           for y in ['gex','tcr','combo','max']
-            #                                                           for z in ['graph','clust','combo']]):
-            #     mask = np.full((nbrhood_results.shape[0],), False)
-            #     for ftag in ['gex','tcr'] if feature_nbr_tag in ['combo','max'] else [feature_nbr_tag]:
-            #         for gtag in ['graph','clust'] if graph_tag=='combo' else [graph_tag]:
-            #             feature_type = '{}_nbrs_vs_{}'.format(ftag, gtag)
-            #             mask |= nbrhood_results.feature_type==feature_type
-            #     df = nbrhood_results[mask]
-            #     if df.shape[0]==0:
-            #         print('no hits:', feature_nbr_tag, graph_tag)
-            #         continue
-            #     if feature_nbr_tag == 'max':
-            #         all_pvals = {}
-            #         for tag in ['gex','tcr']:
-            #             pvals = np.full((adata.shape[0],),1000.0)
-            #             for l in df.itertuples():
-            #                 if l.feature_type.startswith(tag):
-            #                     pvals[l.clone_index] = min(l.pvalue_adj, pvals[l.clone_index])
-            #             all_pvals[tag] = pvals
-            #         pvals = np.maximum(all_pvals['gex'], all_pvals['tcr'])
-            #     else:
-            #         pvals = np.full((adata.shape[0],),1000.0)
-            #         for l in df.itertuples():
-            #             pvals[l.clone_index] = min(l.pvalue_adj, pvals[l.clone_index])
-            #     colors = np.sqrt( np.maximum(0.0, -1*np.log10(pvals)))
-            #     plt.subplot(nrows, ncols, ii+1)
-            #     reorder = np.argsort(colors)
-            #     xy = adata.obsm['X_{}_2d'.format(xy_tag)] # same umap as feature nbr-type
-            #     vmax = np.sqrt(-1*np.log10(1e-5))
-            #     plt.scatter( xy[reorder,0], xy[reorder,1], c=colors[reorder], vmin=0, vmax=vmax)
-            #     plt.xticks([],[])
-            #     plt.yticks([],[])
-            #     plt.xlabel('{} UMAP1'.format(xy_tag))
-            #     plt.title('{}_nbrs_vs_{} nbrfrac= {:.3f}'.format(feature_nbr_tag, graph_tag, nbr_frac))
-
-            #     if feature_nbr_tag == 'max' and graph_tag == 'graph' and xy_tag=='gex':
-            #         all_bicluster_pvals[nbr_frac] = pvals
-
-
-            # pngfile = '{}_hotspot_nbrhoods_{:.3f}_nbrs.png'.format(args.outfile_prefix, nbr_frac)
-            # print('making:', pngfile)
-            # plt.tight_layout()
-            # plt.savefig(pngfile)
-
-
-        # try making some logo plots. Here we are just using the graph-graph hotspot pvals, max'ed per clone over gex/tcr
-        # min_cluster_size = max( args.min_cluster_size, int(np.round(args.min_cluster_size_fraction * num_clones)))
-        # min_pvals = np.array([num_clones]*num_clones)
-        # for nbr_frac, pvals in all_bicluster_pvals.items():
-        #     min_pvals = np.minimum(min_pvals, pvals)
-
-        # pngfile = '{}_hotspot_nbrhood_biclusters.png'.format(args.outfile_prefix)
-        # conga.plotting.make_cluster_logo_plots_figure(adata, min_pvals, 1.0, nbrs_gex, nbrs_tcr,
-        #                                               min_cluster_size, pngfile)
 
         print('find_hotspot_genes for nbr_frac', nbr_frac)
-        gex_results = conga.correlations.find_hotspot_genes(adata, nbrs_tcr, pval_threshold=0.05)
+        gex_results = conga.correlations.find_hotspot_genes(
+            adata, nbrs_tcr, pval_threshold=0.05)
         #gex_results['feature_type'] = 'gex'
 
         print('find_hotspot_tcr_features for nbr_frac', nbr_frac)
-        tcr_results = conga.correlations.find_hotspot_tcr_features(adata, nbrs_gex, pval_threshold=0.05)
+        tcr_results = conga.correlations.find_hotspot_tcr_features(
+            adata, nbrs_gex, pval_threshold=0.05)
         #tcr_results['feature_type'] = 'tcr'
 
         combo_results = pd.concat([gex_results, tcr_results])
         if combo_results.shape[0]:
-            tsvfile = '{}_hotspot_features_{:.3f}_nbrs.tsv'.format(args.outfile_prefix, nbr_frac)
+            tsvfile = '{}_hotspot_features_{:.3f}_nbrs.tsv'.format(
+                args.outfile_prefix, nbr_frac)
             combo_results.to_csv(tsvfile, sep='\t', index=False)
 
         for tag, results in [ ['gex', gex_results],
@@ -1266,13 +1227,22 @@ if args.find_hotspot_features:
             for plot_tag, plot_nbrs in [['gex',nbrs_gex], ['tcr',nbrs_tcr]]:
                 if tag == plot_tag:
                     continue
+                pngfile_prefix = '{}_hotspot_{}_features_{:.3f}_nbrs_{}_plot'\
+                                 .format(args.outfile_prefix, tag, nbr_frac,
+                                         plot_tag)
                 # 2D UMAPs colored by nbr-averaged feature values
-                pngfile = '{}_hotspot_{}_features_{:.3f}_nbrs_{}_umap.png'\
-                          .format(args.outfile_prefix, tag, nbr_frac, plot_tag)
+                pngfile = f'{pngfile_prefix}_umap_nbr_avg.png'
                 print('making:', pngfile)
                 conga.plotting.plot_hotspot_umap(
                     adata, plot_tag, results, pngfile, nbrs=plot_nbrs,
                     compute_nbr_averages=True)
+
+                if args.make_hotspot_raw_feature_plots:
+                    pngfile = f'{pngfile_prefix}_umap_raw.png'
+                    print('making:', pngfile)
+                    conga.plotting.plot_hotspot_umap(
+                        adata, plot_tag, results, pngfile, nbrs=plot_nbrs,
+                        compute_nbr_averages=False)
 
                 if results.shape[0]<2:
                     continue # clustermap not interesting...
@@ -1291,15 +1261,16 @@ if args.find_hotspot_features:
                 ## clustermap of features versus cells
                 features = list(results.feature)
                 feature_labels = ['{:9.1e} {} {}'.format(x,y,z)
-                                  for x,y,z in zip(results.pvalue_adj, results.feature_type, results.feature)]
+                                  for x,y,z in zip(results.pvalue_adj,
+                                                   results.feature_type,
+                                                   results.feature)]
                 min_pval = 1e-299 # dont want log10 of 0.0
                 feature_scores = [
                     np.sqrt(-1*np.log10(max(min_pval, x.pvalue_adj)))
                     for x in results.itertuples()]
 
-                # now a more compact version where we filter out redundant features
-                pngfile = '{}_{:.3f}_nbrs_{}_hotspot_features_vs_{}_clustermap_lessredundant.png'\
-                          .format(args.outfile_prefix, nbr_frac, tag, plot_tag)
+                # nbr-averaged version
+                pngfile = f'{pngfile_prefix}_clustermap_nbr_avg.png'
                 # duplicates if linear correlation > 0.9
                 redundancy_threshold = 0.9
                 if len(features)>60:
@@ -1319,6 +1290,19 @@ if args.find_hotspot_features:
                     max_redundant_features=max_redundant_features,
                     redundancy_threshold=redundancy_threshold,
                     feature_scores=feature_scores)
+
+                if args.make_hotspot_raw_feature_plots:
+                    # RAW scores (non-nbr-averaged) version
+                    pngfile = f'{pngfile_prefix}_clustermap_raw.png'
+                    conga.plotting.plot_interesting_features_vs_clustermap(
+                        adata, features, pngfile, plot_tag, nbrs=plot_nbrs,
+                        compute_nbr_averages=False,
+                        feature_labels=feature_labels,
+                        feature_types = list(results.feature_type),
+                        max_redundant_features=max_redundant_features,
+                        redundancy_threshold=redundancy_threshold,
+                        feature_scores=feature_scores)
+
 
     # make a plot summarizing the hotspot nbrhood pvals and also save them to a file
     if all_hotspot_nbrhood_results:
@@ -1389,7 +1373,11 @@ if args.analyze_special_genes:
     conga.plotting.analyze_special_genes(adata, args.outfile_prefix)
 
 ## make summary plots of top clones and their batch distributions
+## also make umaps colored by batch assignment of rep cell
 if 'batch_keys' in adata.uns_keys():
+    conga.plotting.make_batch_colored_umaps(
+        adata, args.outfile_prefix+'_batch_umaps.png')
+
     conga_scores, tcr_clumping_pvalues = None, None
     if args.graph_vs_graph:
         conga_scores = adata.obs['conga_scores']

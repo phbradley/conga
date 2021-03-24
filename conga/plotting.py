@@ -3076,3 +3076,43 @@ def make_tcrdist_trees( adata, output_prefix, group_by = None):
     svgfile = f'{output_prefix}_{tag}_cluster_tcrdist_trees.svg'
     print('making:', svgfile[:-3]+'png')
     svg_basic.create_file(all_cmds, x_offset-xpad, height, svgfile, create_png= True )
+
+
+def make_batch_colored_umaps(
+        adata,
+        pngfile
+):
+    ''' Note that this just plots the batch assignment of the center
+    (representative) clone for each clonotype.
+    '''
+    batch_keys = adata.uns['batch_keys']
+
+    nrows, ncols, plotno = 2, len(batch_keys), 0
+    plt.figure(figsize=(ncols*4, nrows*4))
+    for xy_tag in ['gex','tcr']:
+        xy = adata.obsm[f'X_{xy_tag}_2d']
+        for batch_key in batch_keys:
+            batches = adata.obs[batch_key]
+            num_batch_vals = np.max(batches)+1
+            if num_batch_vals <= 10:
+                cmap_colors = plt.get_cmap('tab10').colors
+            else:
+                cmap_colors = plt.get_cmap('tab20').colors
+
+            # plot clonotypes in random order
+            reorder = np.random.permutation(adata.shape[0])
+
+            plotno += 1
+            plt.subplot(nrows, ncols, plotno)
+            colors = np.array([cmap_colors[x%len(cmap_colors)]
+                               for x in batches])
+            plt.scatter(xy[reorder,0], xy[reorder,1], c=colors[reorder],
+                        s=5)
+            plt.title(f'{batch_key}')
+            plt.xlabel(f'{xy_tag.upper()} UMAP1')
+            plt.ylabel(f'{xy_tag.upper()} UMAP2')
+            plt.xticks([],[])
+            plt.yticks([],[])
+    plt.tight_layout()
+    plt.savefig(pngfile)
+    print('made:', pngfile)
