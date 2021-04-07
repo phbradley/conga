@@ -1,4 +1,4 @@
-from . import preprocess as pp
+from . import preprocess
 from . import util
 import numpy as np
 from scipy.stats import hypergeom
@@ -318,7 +318,7 @@ def calc_clone_pmhc_pvals(adata, min_log1p_delta=2.0, min_actual_delta=3 ):
     '''
     pmhc_var_names = adata.uns['pmhc_var_names']
 
-    pp.normalize_and_log_the_raw_matrix(adata) # just in case
+    preprocess.normalize_and_log_the_raw_matrix(adata) # just in case
 
     X_pmhc = get_X_pmhc( adata, pmhc_var_names )
 
@@ -334,7 +334,8 @@ def calc_clone_pmhc_pvals(adata, min_log1p_delta=2.0, min_actual_delta=3 ):
                             for ii,m in enumerate(is_pmhc_pos) ] )
     all_pmhc_counts = Counter( top_pmhcs )
 
-    tcrs = pp.retrieve_tcrs_from_adata(adata, include_subject_id_if_present=True) # may contain duplicates
+    tcrs = preprocess.retrieve_tcrs_from_adata(
+        adata, include_subject_id_if_present=True) # may contain duplicates
     unique_tcrs = sorted(set(tcrs))
     num_clones = len(unique_tcrs)
     tcr2clone_id = { y:x for x,y in enumerate(unique_tcrs)}

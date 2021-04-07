@@ -3,3 +3,4 @@ find_paired_matches
 calc_distributions
 count_matches_paired
 count_matches_single_chain
+compute_single_chain_distance_matrix

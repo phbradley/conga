@@ -1,0 +1,41 @@
+# graph_vs_graph_stats
+
+Here we are assessing overall graph-vs-graph correlation by looking at
+the shared edges between TCR and GEX neighbor graphs and comparing
+that observed number to the number we would expect if the graphs were
+completely uncorrelated. Our null model for uncorrelated graphs is to
+take the vertices of one graph and randomly renumber them (permute their
+labels). We compare the observed overlap to that expected under this null
+model by computing a Z-score, either by permuting one of the graph's
+vertices many times to get a mean and standard deviation of the overlap
+distribution, or, for large graphs where this is time consuming,
+by using a regression model for the
+standard deviation. The different rows of this table correspond to the
+different graph-graph comparisons that we make in the conga graph-vs-graph
+analysis: we compare K-nearest-neighbor graphs for GEX and TCR at different
+K values ("nbr_frac" aka neighbor-fraction, which reports K as a fraction
+of the total number of clonotypes) to each other and to GEX and TCR "cluster"
+graphs in which each clonotype is connected to all the other clonotypes with
+the same (GEX or TCR) cluster assignment. For two K values (the default),
+this gives 2*3=6 comparisons: GEX KNN graph vs TCR KNN graph, GEX cluster
+graph vs TCR KNN graph, and GEX KNN graph vs TCR cluster graph, for each of the
+two K values (aka nbr_fracs).
+
+The column to look at is *overlap_zscore*. Higher values indicate more
+significant GEX/TCR covariation, with "interesting" levels starting around
+zscores of 3-5.
+
+Columns in more detail:
+
+graph_overlap_type: KNN ("nbr") or cluster versus KNN ("nbr") or cluster
+
+nbr_frac: the K value for the KNN graph, as a fraction of total clonotypes
+
+overlap: the observed overlap (number of shared edges) between GEX and TCR
+graphs
+
+expected_overlap: the expected overlap under a shuffled null model.
+
+overlap_zscore: a Z-score for the observed overlap computed by subtracting
+the expected overlap and dividing by the standard deviation estimaged from
+shuffling.

@@ -224,6 +224,7 @@ def read_dataset(
         allow_missing_kpca_file = False, # only relevant if clones_file!=None
         gex_only=True, #only applies to 10x-formatted data
         suffix_for_non_gene_features=None, #None or a string
+        save_stats=None,
 ):
     ''' returns adata
 
@@ -239,14 +240,21 @@ def read_dataset(
 
     adata = read_adata(gex_data, gex_data_type, gex_only=gex_only)
 
+    if save_stats is not None:
+        save_stats['num_cells_w_gex'] = adata.shape[0]
+        save_stats['num_features_start'] = adata.shape[1]
 
     if suffix_for_non_gene_features is not None:
         feature_types_colname = util.get_feature_types_varname( adata )
-        assert feature_types_colname, 'cant identify non-gene features, no feature_types data column'
+        assert feature_types_colname, \
+            'cant identify non-gene features, no feature_types data column'
 
-        ab_mask = np.array(adata.var[feature_types_colname] != util.GENE_EXPRESSION_FEATURE_TYPE)
-        print(f'adding {suffix_for_non_gene_features} to {np.sum(ab_mask)} non-GEX features: {adata.var_names[ab_mask]}')
-        newnames = [ x+suffix_for_non_gene_features if y else x for x,y in zip(adata.var_names, ab_mask)]
+        ab_mask = np.array(adata.var[feature_types_colname] !=
+                           util.GENE_EXPRESSION_FEATURE_TYPE)
+        print(f'adding {suffix_for_non_gene_features} to {np.sum(ab_mask)}'
+              f' non-GEX features: {adata.var_names[ab_mask]}')
+        newnames = [ x+suffix_for_non_gene_features if y else x
+                     for x,y in zip(adata.var_names, ab_mask)]
         adata.var.index = newnames
 
 
@@ -369,7 +377,8 @@ def read_dataset(
     #adata = adata[mask,:]
     adata = adata[mask,:].copy()
     assert not adata.isview
-
+    if save_stats is not None:
+        save_stats['num_cells_w_tcr'] = adata.shape[0]
 
     if not missing_kpca_file: # stash the kPCA info in adata.obsm
         X_kpca = np.array( [ barcode2kpcs[x] for x in adata.obs.index ] )

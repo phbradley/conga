@@ -1,3 +1,4 @@
+################################################################################
 import numpy as np
 from scipy import stats
 from sklearn.metrics import pairwise_distances
@@ -7,7 +8,7 @@ import scipy.sparse as sps
 from statsmodels.stats.multitest import multipletests
 from collections import Counter, OrderedDict
 import scanpy as sc
-from . import preprocess as pp
+from . import preprocess
 from . import tcr_scoring
 from . import util
 from .tcrdist.all_genes import all_genes
@@ -34,7 +35,7 @@ def find_neighbor_neighbor_interactions(
     AND a numpy array of the adjusted_pvals
 
     '''
-    pp.add_mait_info_to_adata_obs(adata) # for annotation of overlaps
+    preprocess.add_mait_info_to_adata_obs(adata) # for annotation of overlaps
     is_mait = adata.obs['is_invariant']
 
     num_clones = len(nbrs_gex)
@@ -121,7 +122,7 @@ def find_neighbor_cluster_interactions(
     AND a numpy array of the adjusted_pvals
 
     '''
-    pp.add_mait_info_to_adata_obs(adata) # for annotation of overlaps
+    preprocess.add_mait_info_to_adata_obs(adata) # for annotation of overlaps
     is_mait = adata.obs['is_invariant']
 
     num_clones = len(nbrs)
@@ -134,17 +135,20 @@ def find_neighbor_cluster_interactions(
     for ii in range(num_clones):
         is_ii_group = (agroups==agroups[ii]) | (bgroups==bgroups[ii])
         assert is_ii_group[ii]
-        actual_num_clones = num_clones - np.sum( is_ii_group ) - counts_correction
+        actual_num_clones = num_clones - np.sum(is_ii_group) - counts_correction
 
         ii_nbrs = nbrs[ii]
         ii_cluster = clusters[ii]
-        ii_cluster_clustersize = np.sum(clusters==ii_cluster) - np.sum( (clusters==ii_cluster)&(is_ii_group) )
+        ii_cluster_clustersize = (np.sum(clusters==ii_cluster) -
+                                  np.sum((clusters==ii_cluster)&(is_ii_group)))
 
         num_neighbors = ii_nbrs.shape[0]
         overlap = np.sum( clusters[ii_nbrs] == ii_cluster )
         expected = float(ii_cluster_clustersize*num_neighbors)/actual_num_clones
         if overlap and overlap>expected:
-            nbr_pval = pval_rescale * hypergeom.sf( overlap-1, actual_num_clones, num_neighbors, ii_cluster_clustersize )
+            nbr_pval = pval_rescale * hypergeom.sf(
+                overlap-1, actual_num_clones, num_neighbors,
+                ii_cluster_clustersize )
         else:
             nbr_pval = pval_rescale
 
@@ -157,22 +161,25 @@ def find_neighbor_cluster_interactions(
 
         overlap_corrected = overlap
         if correct_overlaps_for_groups:
-            overlap_corrected = min( len(set(agroups[same_cluster_nbrs])), len(set(bgroups[same_cluster_nbrs])) )
+            overlap_corrected = min(len(set(agroups[same_cluster_nbrs])),
+                                    len(set(bgroups[same_cluster_nbrs])))
             if overlap_corrected < overlap:
                 delta = overlap-overlap_corrected
-                nbr_pval = pval_rescale * hypergeom.sf(overlap_corrected-1, actual_num_clones, num_neighbors-delta,
-                                                       ii_cluster_clustersize-delta )
+                nbr_pval = pval_rescale * hypergeom.sf(
+                    overlap_corrected-1, actual_num_clones, num_neighbors-delta,
+                    ii_cluster_clustersize-delta )
                 adjusted_pvalues[ii] = nbr_pval
                 if nbr_pval > pval_threshold:
                     continue
 
-        results.append( dict( conga_score=nbr_pval,
-                              num_neighbors=num_neighbors,
-                              cluster_size=ii_cluster_clustersize,
-                              overlap=overlap,
-                              overlap_corrected=overlap_corrected,
-                              mait_fraction=np.sum(is_mait[same_cluster_nbrs])/overlap,
-                              clone_index=ii ))#double_nbrs ] )
+        mait_fraction=np.sum(is_mait[same_cluster_nbrs])/overlap
+        results.append(dict(conga_score=nbr_pval,
+                            num_neighbors=num_neighbors,
+                            cluster_size=ii_cluster_clustersize,
+                            overlap=overlap,
+                            overlap_corrected=overlap_corrected,
+                            mait_fraction=mait_fraction,
+                            clone_index=ii ))#double_nbrs ] )
 
     return pd.DataFrame(results), np.array(adjusted_pvalues)
 
@@ -188,23 +195,254 @@ def check_nbr_graphs_indegree_bias(all_nbrs):
         # look at the in-degree distribution
         expected_indegree = nbrs_gex.shape[1]
         gex_counts = Counter(nbrs_gex.flatten())
-        gex_indegree_bias = np.array( [ gex_counts[x]/expected_indegree for x in range(num_clones) ] )
-        print(f'gex_indegree_bias: nbr_frac= {nbr_frac:.4f}', stats.describe(gex_indegree_bias))
+        gex_indegree_bias = np.array( [ gex_counts[x]/expected_indegree
+                                        for x in range(num_clones) ] )
+        print(f'gex_indegree_bias: nbr_frac= {nbr_frac:.4f}',
+              stats.describe(gex_indegree_bias))
 
         tcr_counts = Counter(nbrs_tcr.flatten())
-        tcr_indegree_bias = np.array( [ tcr_counts[x]/expected_indegree for x in range(num_clones) ] )
-        print(f'tcr_indegree_bias: nbr_frac= {nbr_frac:.4f}', stats.describe(tcr_indegree_bias))
+        tcr_indegree_bias = np.array( [ tcr_counts[x]/expected_indegree
+                                        for x in range(num_clones) ] )
+        print(f'tcr_indegree_bias: nbr_frac= {nbr_frac:.4f}',
+              stats.describe(tcr_indegree_bias))
 
         # any correlation?
-        # if there is strong correlation, this could skew the graph-vs-graph analysis
+        # if there is strong correlation, this could skew the
+        #  graph-vs-graph analysis
         print(f'indegree_bias_correlation: nbr_frac= {nbr_frac:.4f}',
               stats.linregress(gex_indegree_bias, tcr_indegree_bias))
+
+
+
+def _make_csr_nbrs(nbrs):
+    row = []
+    for i, inbrs in enumerate(nbrs):
+        row.extend([i]*len(inbrs))
+    col = np.hstack(nbrs)
+    assert len(row) == len(col)
+    data = np.full((len(col),), 1)
+    return sps.csr_matrix((data, (row, col)), shape=(len(nbrs), len(nbrs)))
+
+def _compute_nbr_overlap_slow(gex_nbrs, tcr_nbrs):
+    overlap = 0
+    for g_nbrs, t_nbrs in zip(gex_nbrs, tcr_nbrs):
+        g_nbrs_set = frozenset(g_nbrs)
+        overlap += sum(x in g_nbrs_set for x in t_nbrs)
+    return overlap
+
+def _compute_graph_overlap_stats(
+        gex_nbrs,
+        tcr_nbrs,
+        num_random_repeats,
+        verbose=False,
+        swaptags=False,
+        max_calculation_time=2000,# in seconds
+):
+    starttime = time.time()
+    gtag,ttag = 'gex','tcr'
+    if swaptags:
+        gtag, ttag = ttag, gtag
+    N = len(gex_nbrs)
+    assert N == len(tcr_nbrs)
+
+    ## if this will take too long, we may just estimate things
+    gex_edges = sum(len(x) for x in gex_nbrs)
+    tcr_edges = sum(len(x) for x in tcr_nbrs)
+    expected_overlap = (sum(len(x)*len(y) for x,y in zip(gex_nbrs, tcr_nbrs))/
+                        (N-1))
+
+    # compute the bias in the number of incoming edges in the gex graph
+    expected_indegree = gex_edges/N
+    gex_counts = Counter()
+    for nbrs in gex_nbrs:
+        gex_counts.update(nbrs)
+    gex_indegree_bias = np.array([gex_counts[x]/expected_indegree
+                                  for x in range(N)])
+    gex_indegree_bias_stats = stats.describe(gex_indegree_bias)
+    if verbose:
+        print('gex_indegree_bias:', gex_indegree_bias_stats)
+
+    # compute the bias in the number of incoming edges in the tcr graph
+    expected_indegree = tcr_edges/N
+    tcr_counts = Counter()
+    for nbrs in tcr_nbrs:
+        tcr_counts.update(nbrs)
+    tcr_indegree_bias = np.array([tcr_counts[x]/expected_indegree
+                                  for x in range(N)])
+    tcr_indegree_bias_stats = stats.describe(tcr_indegree_bias)
+    if verbose:
+        print('tcr_indegree_bias:', tcr_indegree_bias_stats)
+    indegree_correlation = linregress(gex_indegree_bias, tcr_indegree_bias)
+
+    # this is a little silly: it's basically C*gex_edges * tcr_edges/nodes**2
+    # from smf.ols(f'log10_calculation_time ~ log10_nodes + log10_gex_edges + log10_tcr_edges'
+    # Intercept         -4.453273
+    # log10_nodes       -1.914652
+    # log10_gex_edges    0.958948
+    # log10_tcr_edges    1.044386
+    # this was fitted with num_random_repeats = 100
+    estimated_log10_calculation_time = (-1.9147 * np.log10(N)
+                                        +0.9589 * np.log10(gex_edges)
+                                        +1.0444 * np.log10(tcr_edges)
+                                        -4.4533)
+    estimated_calculation_time = (10**estimated_log10_calculation_time*
+                                  num_random_repeats/100.)
+    if estimated_calculation_time <= max_calculation_time:
+        M0 = _make_csr_nbrs(gex_nbrs)
+        M1 = _make_csr_nbrs(tcr_nbrs).tocoo()
+        M2 = M1.copy()
+        overlaps = []
+        for r in range(num_random_repeats+1):
+            if r:
+                p = np.random.permutation(N)
+            else:
+                p = np.arange(N)
+            M1.row = p[M2.row]
+            M1.col = p[M2.col]
+            overlap = M0.multiply(M1.tocsr()).sum()
+            if verbose and r%10==0:
+                print(f'{r:2d} {overlap:6d}')
+            overlaps.append(overlap)
+        o0 = overlaps[0]
+        m,s = np.mean(overlaps[1:]), np.std(overlaps[1:])
+        zscore_source = 'shuffling'
+    else:
+        zscore_source = 'fitting'
+        o0 = _compute_nbr_overlap_slow(gex_nbrs, tcr_nbrs)
+
+    ## params for log10_s determined with
+    ## statsmodels.formula.api.ols(f'log10_overlap_sdev ~
+    ##     log10_expected_overlap + total_log10_indegree_variance,...)
+    # Intercept                       -0.340085
+    # log10_expected_overlap           0.691433
+    # total_log10_indegree_variance    0.253497
+    total_log10_indegree_variance = (
+        np.log10(gex_indegree_bias_stats.variance)+
+        np.log10(tcr_indegree_bias_stats.variance))
+    log10_s_fitted = (0.691433 * np.log10(expected_overlap)
+                      +0.253497 * total_log10_indegree_variance
+                      -0.340085)
+    s_fitted = 10**log10_s_fitted
+
+    if zscore_source=='fitting':
+        s = s_fitted
+        m = expected_overlap
+        z_fitted = (o0-m)/s
+        z = z_fitted
+    else:
+        z = (o0-m)/s
+        z_fitted = (o0-expected_overlap)/s_fitted
+
+    total_seconds = time.time() - starttime
+
+    return {
+        'overlap':o0,
+        'expected_overlap':expected_overlap,
+        'overlap_mean':m,
+        'overlap_sdev':s,
+        'overlap_zscore':z,
+        'overlap_zscore_fitted':z_fitted,
+        'overlap_zscore_source':zscore_source,
+        'nodes':N,
+        'calculation_time':total_seconds,
+        'calculation_time_fitted':10**estimated_log10_calculation_time,
+        f'{gtag}_edges':gex_edges,
+        f'{ttag}_edges':tcr_edges,
+        f'{gtag}_indegree_variance':gex_indegree_bias_stats.variance,
+        f'{gtag}_indegree_skewness':gex_indegree_bias_stats.skewness,
+        f'{gtag}_indegree_kurtosis':gex_indegree_bias_stats.kurtosis,
+        f'{ttag}_indegree_variance':tcr_indegree_bias_stats.variance,
+        f'{ttag}_indegree_skewness':tcr_indegree_bias_stats.skewness,
+        f'{ttag}_indegree_kurtosis':tcr_indegree_bias_stats.kurtosis,
+        'indegree_correlation_R':indegree_correlation.rvalue,
+        'indegree_correlation_P':indegree_correlation.pvalue,
+    }
+
+# def _compute_graph_overlap_stats_old(
+#         gex_nbrs_array,
+#         tcr_nbrs,
+#         num_random_repeats,
+#         verbose = True
+# ):
+#     '''
+#     I'm not sure about memory/compute efficiency here, for big datasets
+#     '''
+#     N = len(gex_nbrs_array)
+#     gex_nbrs = [frozenset(x) for x in gex_nbrs_array]
+#     overlaps = []
+#     for r in range(num_random_repeats+1):
+#         if r:
+#             tcr_shuffle = np.random.permutation(N)
+#         else:
+#             tcr_shuffle = np.arange(N)
+#         overlap = _compute_graph_overlap(gex_nbrs, tcr_nbrs, tcr_shuffle)
+#         if verbose and r%10==0:
+#             print(f'compute_graph_overlap_stats: rep {r:2d} {overlap:6d}')
+#         overlaps.append(overlap)
+#     o0 = overlaps[0]
+#     m,s = np.mean(overlaps[1:]), np.std(overlaps[1:])
+#     z = (o0-m)/s
+#     gex_edges = sum(len(x) for x in gex_nbrs)
+#     tcr_edges = sum(len(x) for x in tcr_nbrs)
+#     return {
+#         'overlap':o0,
+#         'mean':m,
+#         'sdev':s,
+#         'zscore':z,
+#         'nodes':N,
+#         'gex_edges':gex_edges,
+#         'tcr_edges':tcr_edges,
+#     }
+
+def compute_graph_vs_graph_stats(
+        adata,
+        all_nbrs,
+        num_random_repeats = 100
+):
+    num_clones = adata.shape[0]
+    agroups, bgroups = preprocess.setup_tcr_groups(adata)
+    clusters_gex = np.array(adata.obs['clusters_gex'])
+    clusters_tcr = np.array(adata.obs['clusters_tcr'])
+
+    gex_cluster_nbrs = []
+    tcr_cluster_nbrs = []
+
+    for i in range(num_clones):
+        ag, bg = agroups[i], bgroups[i]
+        gc, tc = clusters_gex[i], clusters_tcr[i]
+        gex_cluster_nbrs.append(
+            np.nonzero((clusters_gex==gc)&(agroups!=ag)&(bgroups!=bg))[0])
+        tcr_cluster_nbrs.append(
+            np.nonzero((clusters_tcr==tc)&(agroups!=ag)&(bgroups!=bg))[0])
+
+
+    dfl = []
+    for nbr_frac in all_nbrs:
+        gex_nbrs, tcr_nbrs = all_nbrs[nbr_frac]
+        stats = _compute_graph_overlap_stats(
+            gex_nbrs, tcr_nbrs, num_random_repeats)
+        stats['nbr_frac'] = nbr_frac
+        stats['graph_overlap_type'] = 'gex_nbr_vs_tcr_nbr'
+        dfl.append(stats)
+
+        stats = _compute_graph_overlap_stats(
+            gex_nbrs, tcr_cluster_nbrs, num_random_repeats)
+        stats['nbr_frac'] = nbr_frac
+        stats['graph_overlap_type'] = 'gex_nbr_vs_tcr_cluster'
+        dfl.append(stats)
+
+        stats = _compute_graph_overlap_stats(
+            tcr_nbrs, gex_cluster_nbrs, num_random_repeats, swaptags=True)
+        stats['nbr_frac'] = nbr_frac
+        stats['graph_overlap_type'] = 'gex_cluster_vs_tcr_nbr'
+        dfl.append(stats)
+    return pd.DataFrame(dfl)
 
 
 def run_graph_vs_graph(
         adata,
         all_nbrs,
-        pval_threshold=1.0, #pvals are crude bonferroni corrected by multiplying by num_clones, ie they can be >> 1
+        pval_threshold=1.0, #pvals are multiplied by num_clones, so can be >> 1
         verbose=False
 ):
     ''' Runs graph-vs-graph analysis for each nbr_frac in the all_nbrs dictionary
@@ -213,12 +451,16 @@ def run_graph_vs_graph(
 
     Also sets up the
 
-    'conga_scores'  array in adata.obs
+    'conga_scores'  and 'conga_fdr_values' arrays in adata.obs
+
+    Note that the "pvalues" aka conga_scores have been crudely Bonferroni
+    corrected by multiplying by the number of clones. That's why the
+    default pval_threshold of 1.0 makes any kind of sense.
 
     '''
 
     num_clones = adata.shape[0]
-    agroups, bgroups = pp.setup_tcr_groups(adata)
+    agroups, bgroups = preprocess.setup_tcr_groups(adata)
     clusters_gex = np.array(adata.obs['clusters_gex'])
     clusters_tcr = np.array(adata.obs['clusters_tcr'])
     nbr_fracs = sorted(all_nbrs.keys())
@@ -243,7 +485,7 @@ def run_graph_vs_graph(
 
         if not results_df.empty:
             results_df['nbr_frac'] = nbr_frac
-            results_df['overlap_type'] = 'nbr_nbr'
+            results_df['graph_overlap_type'] = 'gex_nbr_vs_tcr_nbr'
             all_results.append(results_df)
 
         print('find_neighbor_cluster_interactions:')
@@ -253,7 +495,7 @@ def run_graph_vs_graph(
         all_raw_pvalues[:, 3*inbr_frac+1] = adjusted_pvalues/num_clones
         if results_df.shape[0]:
             results_df['nbr_frac'] = nbr_frac
-            results_df['overlap_type'] = 'cluster_nbr'
+            results_df['graph_overlap_type'] = 'gex_cluster_vs_tcr_nbr'
             all_results.append(results_df)
 
         print('find_neighbor_cluster_interactions:')
@@ -263,7 +505,7 @@ def run_graph_vs_graph(
         all_raw_pvalues[:, 3*inbr_frac+2] = adjusted_pvalues/num_clones
         if results_df.shape[0]:
             results_df['nbr_frac'] = nbr_frac
-            results_df['overlap_type'] = 'nbr_cluster'
+            results_df['graph_overlap_type'] = 'gex_nbr_vs_tcr_cluster'
             all_results.append(results_df)
 
     # fdr calculation
@@ -425,8 +667,8 @@ def gex_nbrhood_rank_tcr_scores(
     '''
     num_clones = adata.shape[0]
 
-    tcrs = pp.retrieve_tcrs_from_adata(adata)
-    pp.add_mait_info_to_adata_obs(adata)
+    tcrs = preprocess.retrieve_tcrs_from_adata(adata)
+    preprocess.add_mait_info_to_adata_obs(adata)
     is_mait = adata.obs['is_invariant']
     clusters_gex = np.array(adata.obs['clusters_gex'])
     clusters_tcr = np.array(adata.obs['clusters_tcr'])
@@ -544,8 +786,8 @@ def tcr_nbrhood_rank_genes_fast(
     ## unpack from adata
     clusters_gex = np.array(adata.obs['clusters_gex'])
     clusters_tcr = np.array(adata.obs['clusters_tcr'])
-    tcrs = pp.retrieve_tcrs_from_adata(adata)
-    pp.add_mait_info_to_adata_obs(adata)
+    tcrs = preprocess.retrieve_tcrs_from_adata(adata)
+    preprocess.add_mait_info_to_adata_obs(adata)
     is_mait = adata.obs['is_invariant']
     organism = adata.uns['organism']
     ## done unpacking ###############################
@@ -557,7 +799,7 @@ def tcr_nbrhood_rank_genes_fast(
     if ttest_pval_threshold_for_mwu_calc is None:
         ttest_pval_threshold_for_mwu_calc = pval_threshold * 10
 
-    assert pp.check_if_raw_matrix_is_logged(adata)
+    assert preprocess.check_if_raw_matrix_is_logged(adata)
 
     rankby_abs = False # following scanpy: this means that we only look at enriched/upregulated/higher score values
 
@@ -725,7 +967,7 @@ def compute_distance_correlations( adata, verbose=False ):
     clusters_gex = np.array(adata.obs['clusters_gex'])
     clusters_tcr = np.array(adata.obs['clusters_tcr'])
 
-    agroups, bgroups = pp.setup_tcr_groups(adata)
+    agroups, bgroups = preprocess.setup_tcr_groups(adata)
 
     print('compute D_gex', adata.shape[0])
     D_gex = pairwise_distances( adata.obsm['X_pca_gex'], metric='euclidean' )
@@ -853,7 +1095,7 @@ def compute_cluster_interactions( aclusters_in, bclusters_in, barcodes_in, barco
 
 
 
-def setup_fake_nbrs_from_clusters_for_graph_vs_features_analysis( clusters ):
+def setup_fake_nbrs_from_clusters( clusters ):
     ''' Make a fake nbr graph in which one clone in each cluster has a set of nbrs to the other
     cluster members. Everybody else has empty nbr lists. For graph-vs-feature correlation analyses.
     '''
@@ -1050,7 +1292,7 @@ def find_hotspot_tcr_features(
     """
 
     organism = adata.uns['organism']
-    tcrs = pp.retrieve_tcrs_from_adata(adata)
+    tcrs = preprocess.retrieve_tcrs_from_adata(adata)
     num_clusters = np.max(adata.obs['clusters_tcr'])+1
 
     organism_genes = all_genes[organism]
@@ -1091,11 +1333,11 @@ def find_hotspot_nbrhoods(
     """
 
     organism = adata.uns['organism']
-    tcrs = pp.retrieve_tcrs_from_adata(adata)
+    tcrs = preprocess.retrieve_tcrs_from_adata(adata)
     clusters_gex = np.array(adata.obs['clusters_gex'])
     clusters_tcr = np.array(adata.obs['clusters_tcr'])
-    nbrs_gex_clusters = setup_fake_nbrs_from_clusters_for_graph_vs_features_analysis( clusters_gex )
-    nbrs_tcr_clusters = setup_fake_nbrs_from_clusters_for_graph_vs_features_analysis( clusters_tcr )
+    nbrs_gex_clusters = setup_fake_nbrs_from_clusters( clusters_gex )
+    nbrs_tcr_clusters = setup_fake_nbrs_from_clusters( clusters_tcr )
     # create csr_matrix
     # >>> row = np.array([0, 0, 1, 2, 2, 2])
     # >>> col = np.array([0, 2, 2, 0, 1, 2])
@@ -1201,7 +1443,7 @@ def find_batch_biases(
         print('find_batch_biases:: no batch_keys in adata.uns!!!')
         return
 
-    tcrs = pp.retrieve_tcrs_from_adata(adata)
+    tcrs = preprocess.retrieve_tcrs_from_adata(adata)
 
     # for grouping the hit clones
     clusters_gex = np.array(adata.obs['clusters_gex'])

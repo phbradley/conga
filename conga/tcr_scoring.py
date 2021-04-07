@@ -6,7 +6,7 @@ from pathlib import Path
 import pandas as pd
 import numpy as np
 from . import util
-from . import preprocess as pp
+from . import preprocess
 from . import imhc_scoring
 from . import cd8_scoring
 from .tcrdist.all_genes import all_genes
@@ -269,7 +269,7 @@ def make_tcr_score_table(adata, scorenames):
     global aa_props_df
     organism = adata.uns['organism']
 
-    tcrs = pp.retrieve_tcrs_from_adata(adata)
+    tcrs = preprocess.retrieve_tcrs_from_adata(adata)
     clusters_tcr = np.array(adata.obs['clusters_tcr'])
 
     organism_genes = all_genes[organism]

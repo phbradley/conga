@@ -1,4 +1,4 @@
-########################################################################################################################
+################################################################################
 import matplotlib
 #matplotlib.use('Agg')
 import matplotlib.pyplot as plt
@@ -15,6 +15,7 @@ from . import preprocess
 from . import pmhc_scoring
 from . import correlations
 from . import tcr_scoring
+from . import help
 from .tcrdist.make_tcr_logo import make_tcr_logo_for_tcrs
 from .tcrdist.tcr_distances import TcrDistCalculator
 from .tcrdist.util import assign_colors_to_conga_tcrs
@@ -2003,7 +2004,9 @@ def plot_hotspot_umap(
         #     scores = tcr_scoring.make_tcr_score_table(adata,[row.feature])[:,0]
         if compute_nbr_averages:
             assert nbrs.shape[0] == adata.shape[0]
-            num_neighbors = nbrs.shape[1] # this will not work for ragged nbr arrays (but we could change it to work)
+            # this will not work for ragged nbr arrays
+            #  (but we could change it to work)
+            num_neighbors = nbrs.shape[1]
             scores = ( scores + scores[ nbrs ].sum(axis=1) )/(num_neighbors+1)
 
         reorder = np.argsort(scores)
@@ -2012,7 +2015,7 @@ def plot_hotspot_umap(
         plt.xticks([],[])
         plt.yticks([],[])
         if compute_nbr_averages:
-            plt.text(1.0, 0.0, f'{xy_tag.upper()} nbr-avged',
+            plt.text(1.0, 0.0, f'K={num_neighbors} {xy_tag.upper()} nbr-avged',
                      va='bottom', ha='right', fontsize=9,
                      transform=plt.gca().transAxes)
         if (plotno-1)//ncols == nrows-1:
@@ -3116,3 +3119,167 @@ def make_batch_colored_umaps(
     plt.tight_layout()
     plt.savefig(pngfile)
     print('made:', pngfile)
+
+
+
+def _add_html_newlines(msg):
+    if msg is None:
+        return msg
+    else:
+        return msg.replace('\n\n','\n<br><br>\n')
+
+
+default_content_order = """
+table  graph_vs_graph_stats
+table  graph_vs_graph
+figure graph_vs_graph_logos
+table  tcr_clumping
+figure tcr_clumping_logos
+table  tcr_db_match
+table  tcr_graph_vs_gex_features
+figure tcr_graph_vs_gex_features
+figure tcr_graph_vs_gex_features_panels
+table  tcr_genes_vs_gex_features
+figure tcr_genes_vs_gex_features
+figure tcr_genes_vs_gex_features_panels
+table  gex_graph_vs_tcr_features
+figure gex_graph_vs_tcr_features
+figure gex_graph_vs_tcr_features_panels
+figure conga_summary
+figure gex_cluster_tcrdist_trees
+figure conga_score_lt_10_tcrdist_tree
+figure hotspot_gex_umap
+figure hotspot_gex_clustermap
+figure hotspot_tcr_umap
+figure hotspot_tcr_clustermap
+"""
+
+def make_html_summary(
+        adata,
+        html_filename,
+        all_tables = {},
+        all_figures = {},
+        all_stats = OrderedDict(),
+        command_string = None,
+        title = None,
+        content_order = default_content_order,
+        max_dataframe_lines = 20,
+        show_table_indices = False,
+):
+    '''
+    all_tables is a dictionary with the following keys (all optional)
+    * tcr_db_match
+    * tcr_clumping
+    * graph_vs_graph_stats
+    * graph_vs_graph
+    * tcr_graph_vs_gex_features
+    * tcr_genes_vs_gex_features
+    * gex_graph_vs_tcr_features
+    the values in the dictionary are pandas.DataFrame's
+
+    all_figures is a dictionary with the following keys (all optional)
+    * tcr_clumping_logos
+    * graph_vs_graph_logos
+    * tcr_graph_vs_gex_features
+    * tcr_graph_vs_gex_features_panels
+    * tcr_genes_vs_gex_features_panels
+    * gex_graph_vs_tcr_features
+    * gex_graph_vs_tcr_features_panels
+    the values in the dictionary are pngfiles (or other html-viewable formats)
+
+    The default content order can be seen by typing
+    print(conga.plotting.default_content_order)
+
+    '''
+
+
+    if command_string is None:
+        command_section = ''
+    else:
+        command_section = f"""
+<h1>Command:</h1>
+{command_string}
+<br>
+"""
+    if title is None:
+        title = 'CoNGA results'
+
+    table_style = '' # configure later
+
+    print('making:', html_filename)
+    out = open(html_filename, 'w')
+    out.write(f"""<!doctype html>
+    <html>
+    <head>
+    <title>{title}</title>
+    {table_style}
+    </head>
+    <body>
+
+    <h1>Overview:</h1>
+
+    This page contains the results of CoNGA analyses.
+    Results in tables may have been filtered to reduce redundancy,
+    focus on the most important columns, and
+    limit length; full tables should exist as OUTFILE_PREFIX*.tsv files.
+    <br>
+    <br>
+
+    {command_section}
+    """)
+
+    # write out the stats
+    out.write('<h1>Stats</h1>\n')
+    for tag,val in all_stats.items():
+        out.write(f'{tag}: {val} <br>\n')
+
+    for cline in content_order.split('\n'):
+        if not cline: # skip empty line
+            continue
+        cl = cline.split()
+        if len(cl) != 2 or cl[0] not in ['table','figure']:
+            print('WARNING skipping bad line in content_order:')
+            print(cline[:-1])
+            continue
+        df_or_png, content_tag = cl
+
+        if df_or_png == 'table': # show a table of results
+            if content_tag not in all_tables:
+                print('no results for', content_tag)
+                continue
+            df = all_tables[content_tag]
+            out.write(f'<h1>{content_tag}</h1>\n<br>\n')
+            msg = _add_html_newlines(help.table_help(content_tag))
+            if msg:
+                out.write(f'{msg}<br>\n')
+            out.write(df.head(max_dataframe_lines).to_html(
+                index=show_table_indices))
+            if df.shape[0] > max_dataframe_lines:
+                out.write(f'Omitted {df.shape[0]-max_dataframe_lines} lines\n')
+            out.write('<br>\n')
+
+        elif df_or_png == 'figure': # show a figure
+            if (content_tag not in all_figures or
+                not exists(all_figures[content_tag])):
+                print('no results for', content_tag)
+                continue
+            pngfile = all_figures[content_tag].split('/')[-1]
+            # hacking: limit the width/height on specific plots
+            extra_tag = ''
+            if content_tag.endswith('_logos'): # default is too big
+                extra_tag += ' width="1250" '
+            if '_tcrdist_tree' in content_tag: # full size is 1000, too big?
+                extra_tag += ' height="750" '
+            out.write(f'<h1>{content_tag}</h1>\n<br>\n')
+            msg = _add_html_newlines(help.figure_help(content_tag))
+            if msg:
+                out.write(f'{msg}<br>\n')
+            out.write(f'Image source: {pngfile}<br>\n')
+            out.write(f'<img src="{pngfile}" {extra_tag} />\n')
+
+    out.write("""
+    </body>
+    </html>
+    """)
+
+    out.close()

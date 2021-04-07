@@ -15,7 +15,7 @@ INCLUDES = -I ./include/
 # recompile if any .hh files changed
 HHS = ./src/*.hh
 
-all: ./bin/find_neighbors ./bin/calc_distributions ./bin/count_matches_single_chain ./bin/count_matches_paired ./bin/find_paired_matches
+all: ./bin/find_neighbors ./bin/calc_distributions ./bin/count_matches_single_chain ./bin/count_matches_paired ./bin/find_paired_matches ./bin/compute_single_chain_distance_matrix
 
 
 ./bin/find_neighbors:  ./src/find_neighbors.cc  $(HHS)
@@ -32,6 +32,9 @@ all: ./bin/find_neighbors ./bin/calc_distributions ./bin/count_matches_single_ch
 
 ./bin/find_paired_matches:  ./src/find_paired_matches.cc  $(HHS)
 	$(CC) $(CCFLAGS) $(INCLUDES) -o ./bin/find_paired_matches ./src/find_paired_matches.cc
+
+./bin/compute_single_chain_distance_matrix:  ./src/compute_single_chain_distance_matrix.cc  $(HHS)
+	$(CC) $(CCFLAGS) $(INCLUDES) -o ./bin/compute_single_chain_distance_matrix  ./src/compute_single_chain_distance_matrix.cc
 
 clean:
 	-rm ./bin/*
