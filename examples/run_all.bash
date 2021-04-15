@@ -4,7 +4,8 @@
 # sequentially, remove the '&' symbols at the end of the lines that start "$cmd"
 #
 # change this to point to the correct python executable
-PYTHON=/home/pbradley/anaconda2/envs/scanpy_new/bin/python
+#PYTHON=/home/pbradley/anaconda2/envs/scanpy_new/bin/python
+PYTHON=/home/pbradley/anaconda2/envs/scanpy_2021a/bin/python
 
 # change this to point to the place where you put the conga repository
 CONGA_REPO=/home/pbradley/gitrepos/conga/

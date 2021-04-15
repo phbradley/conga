@@ -533,7 +533,7 @@ def run_rank_genes_on_good_biclusters(
         clusters_gex,
         clusters_tcr,
         rank_method='wilcoxon',
-        rg_tag = 'test',
+        rg_tag = 'test', # temporary, removed at the end
         neg_tag='none',
         min_count=5,
         key_added = 'rank_genes_good_biclusters'
@@ -572,6 +572,9 @@ def run_rank_genes_on_good_biclusters(
     sc.tl.rank_genes_groups(
         adata, groupby=rg_tag, method=rank_method, groups=pos_tags,
         reference='rest', key_added = key_added)
+
+    # remove the temporary obs column
+    adata.obs.drop(columns=[rg_tag], inplace=True)
 
 
 def calc_good_cluster_tcr_features(
