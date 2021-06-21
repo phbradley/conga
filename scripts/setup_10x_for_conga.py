@@ -2,12 +2,14 @@ import argparse
 from os.path import exists
 import sys
 import os
+import yaml
 
 parser = argparse.ArgumentParser()
 
+parser.add_argument('--config', help="configuration file *.yml", type=str)
 parser.add_argument('--output_clones_file')
 parser.add_argument('--input_clones_file') # option to skip the 10x parsing if we already have a clones file
-parser.add_argument('--organism', choices=['mouse', 'human', 'mouse_gd', 'human_gd', 'human_ig'], required=True)
+parser.add_argument('--organism', choices=['mouse', 'human', 'mouse_gd', 'human_gd', 'human_ig'], default = None)
 #parser.add_argument('--n_components', type=int, default=50)
 parser.add_argument('--filtered_contig_annotations_csvfile', help='Required unless --input_clones_file is present')
 parser.add_argument('--consensus_annotations_csvfile', help='Not needed')
@@ -18,12 +20,26 @@ parser.add_argument('--kpca_gaussian_kernel_sdev', default=100.0, type=float,
                     help='only used if kpca_kernel==\'gaussian\'')
 parser.add_argument('--kpca_outfile')
 parser.add_argument('--condense_clonotypes_by_tcrdist', action='store_true')
-parser.add_argument('--tcrdist_threshold_for_condensing', type=float, default=50.)
+parser.add_argument('--tcrdist_threshold_for_condensing', type=float, default=50. )
 parser.add_argument('--verbose', action='store_true')
 
 args = parser.parse_args()
 
-if args.input_clones_file:
+# update args specified in yml file
+if args.config is not None:
+    assert exists(args.config)
+    yml_args = yaml.load(open(args.config), Loader=yaml.FullLoader)
+    for k, v in yml_args.items():
+        if k in args.__dict__:
+            args.__dict__[k] = v
+        else:
+            sys.stderr.write("Ignored unknown parameter {} in yaml.\n".format(k))
+
+if args.organism is None:
+    print('Organism not specified. Add to --config file or specify with --organism')
+    quit()
+    
+if args.input_clones_file is not None:
     assert exists(args.input_clones_file)
     assert exists(args.filtered_contig_annotations_csvfile is None) # doesn't make sense
 else:

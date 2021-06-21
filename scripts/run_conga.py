@@ -1,10 +1,15 @@
 ## 80 chars ####################################################################
 import argparse
+from os.path import exists
+import sys
+import os
+import yaml
 
 parser = argparse.ArgumentParser(
     description="Run the CoNGA clonotype neighbor-graph analysis pipeline")
 
 #type is str by default
+parser.add_argument('--config', help="configuration file *.yml", type=str)
 parser.add_argument('--gex_data',
                     help='Input file with the single-cell gene expression data')
 parser.add_argument('--gex_data_type',
@@ -26,7 +31,7 @@ parser.add_argument('--nbr_fracs', type=float, nargs='*', default=[0.01,0.1],
                     help='Size of neighborhoods to use in building K'
                     ' nearest neighbor graphs, expressed as a fraction'
                     ' of the total dataset size in clonotypes')
-parser.add_argument('--outfile_prefix', required=True,
+parser.add_argument('--outfile_prefix', default = None,
                     help='string that will be prepended to all output files'
                     ' and images')
 parser.add_argument('--restart',
@@ -151,11 +156,22 @@ parser.add_argument('--max_clones_for_clustermaps', type=int, default=30000,
 
 args = parser.parse_args()
 
+# update args specified in yml file
+if args.config is not None:
+    assert exists(args.config)
+    yml_args = yaml.load(open(args.config), Loader=yaml.FullLoader)
+    for k, v in yml_args.items():
+        if k in args.__dict__:
+            args.__dict__[k] = v
+        else:
+            sys.stderr.write("Ignored unknown parameter {} in yaml.\n".format(k))
+
+if args.outfile_prefix is None:
+    print('Prefix for output files not specified. Add to --config file or specify with --outfile_prefix')
+    quit()
+
 # do the imports now since they are so freakin slow
-import sys
-import os
 from collections import Counter, OrderedDict
-from os.path import exists
 import time
 # in order to import conga package
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
