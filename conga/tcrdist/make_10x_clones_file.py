@@ -115,7 +115,7 @@ def read_tcr_data(
 
     for l in df.itertuples():
         bc = l.barcode
-        clonotype = clone_id_prefix + l.raw_clonotype_id
+        clonotype = str(clone_id_prefix) + str(l.raw_clonotype_id)
         # annoying: pandas sometimes converts to True/False booleans
         #  and sometimes not.
         assert l.productive in [ 'None', 'False', 'True']
@@ -281,21 +281,22 @@ def read_tcr_data_batch(
 
     # read in contig files and update suffix to match GEX matrix
     contig_list = []
-    for x in range(len(md['file'])):
-        dfx = pd.read_csv( md.loc[ x , 'file'] ) #read contig_df
-
-        suffix = md.loc[ x , 'suffix'] # new suffix
+    for x in md.itertuples():
+    
+        dfx = pd.read_csv( x.file )
+        suffix = str(x.suffix)
+    
+        # strip the suffix off the barcode
         barcodes = dfx['barcode'].str.split('-').str.get(0)
-
-        #hacky
+    
+        # add correct suffix
         dfx['barcode'] = barcodes + '-' + suffix
-        dfx['contig_id'] = barcodes + '-' + suffix + '_' + \
-            dfx['contig_id'].str.split('_').str.get(1) + \
-            '_' + dfx['contig_id'].str.split('_').str.get(2) # currently unused, but can't hurt
-
-        # giving each library a tag here really boosted the number of clones I got back
+    
+        #update contig_id
+        dfx['contig_id'] = barcodes + '-' + suffix + '_contig_' + dfx['contig_id'].str.split('_').str.get(2) # currently unused, but can't hurt
+    
         dfx['raw_clonotype_id'] = clone_id_prefix + dfx['raw_clonotype_id'] + '_' + suffix
-        dfx['raw_consensus_id'] = clone_id_prefix + dfx['raw_consensus_id'] + '_' + suffix # currently unused, can't hurt
+        dfx['raw_consensus_id'] = clone_id_prefix + dfx['raw_consensus_id'] + '_' + suffix 
 
         contig_list.append(dfx)
 
@@ -320,7 +321,7 @@ def read_tcr_data_batch(
     for l in df.itertuples():
         # the fields we use:   barcode  raw_clonotype_id  productive  cdr3  cdr3_nt  chain  v_gene  j_gene  umis
         bc = l.barcode
-        clonotype = l.raw_clonotype_id
+        clonotype = str(clone_id_prefix) + str(l.raw_clonotype_id)
         # annoying: pandas sometimes converts to True/False booleans and sometimes not.
         assert l.productive in [ 'None', 'False', 'True']
         if clonotype =='None':
@@ -672,13 +673,15 @@ def make_10x_clones_file(
         stringent = True, # dont believe the 10x clonotypes; reduce 'duplicated' and 'fake' clones
         consensus_annotations_csvfile = None,
         verbose = False,
+        **kwargs
 ):
 
     clonotype2tcrs, clonotype2barcodes = read_tcr_data(
         organism,
         filtered_contig_annotations_csvfile,
         consensus_annotations_csvfile,
-        verbose=verbose
+        verbose=verbose,
+        **kwargs
     )
 
     if stringent:
@@ -694,9 +697,10 @@ def make_10x_clones_file_batch(
         organism,
         clones_file, # the OUTPUT file, the one we're making
         stringent = True, # dont believe the 10x clonotypes; reduce 'duplicated' and 'fake' clones
+        **kwargs
 ):
 
-    clonotype2tcrs, clonotype2barcodes = read_tcr_data_batch( organism, metadata_file )
+    clonotype2tcrs, clonotype2barcodes = read_tcr_data_batch( organism, metadata_file, **kwargs )
 
     if stringent:
         clonotype2tcrs, clonotype2barcodes = setup_filtered_clonotype_dicts( clonotype2tcrs, clonotype2barcodes )
