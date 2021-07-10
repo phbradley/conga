@@ -2,7 +2,7 @@
 import numpy as np
 from scipy import stats
 from sklearn.metrics import pairwise_distances
-from scipy.stats import hypergeom, mannwhitneyu, linregress, norm
+from scipy.stats import hypergeom, mannwhitneyu, linregress, norm, ttest_ind
 #from scipy.sparse import issparse, csr_matrix
 import scipy.sparse as sps
 from statsmodels.stats.multitest import multipletests
@@ -12,12 +12,15 @@ from . import preprocess
 from . import tcr_scoring
 from . import util
 from .tcrdist.all_genes import all_genes
+from .tags import *
 import sys
 import pandas as pd
 from sys import exit
 import time #debugging
 
-def find_neighbor_neighbor_interactions(
+MIN_CONGA_SCORE = 1e-100
+
+def _find_neighbor_neighbor_interactions(
         adata,
         nbrs_gex,
         nbrs_tcr,
@@ -29,7 +32,11 @@ def find_neighbor_neighbor_interactions(
         scale_pvals_by_num_clones=True,
         verbose=False
 ):
-    ''' Returns a pandas dataframe with results
+    ''' This is a helper function used in graph-vs-graph analysis
+
+    it runs the GEX KNN graph vs TCR KNN graph comparison
+
+    Returns a pandas dataframe with results
     of all clones with nbr-nbr overlaps having pvalues <= pval_threshold
 
     AND a numpy array of the adjusted_pvals
@@ -94,18 +101,20 @@ def find_neighbor_neighbor_interactions(
                 if nbr_pval > pval_threshold:
                     continue ## NOTE
 
-        results.append( dict( conga_score=nbr_pval,
-                              num_neighbors_gex=num_neighbors_gex,
-                              num_neighbors_tcr=num_neighbors_tcr,
-                              overlap=overlap,
-                              overlap_corrected=overlap_corrected,
-                              mait_fraction=np.sum(is_mait[double_nbrs])/overlap,
-                              clone_index=ii ))#double_nbrs ] )
+        nbr_pval = max(nbr_pval, MIN_CONGA_SCORE) # no 0s
+        results.append(dict(conga_score=nbr_pval,
+                            num_neighbors_gex=num_neighbors_gex,
+                            num_neighbors_tcr=num_neighbors_tcr,
+                            overlap=overlap,
+                            overlap_corrected=overlap_corrected,
+                            mait_fraction=np.sum(is_mait[double_nbrs])/overlap,
+                            clone_index=ii ))#double_nbrs ] )
 
-    return pd.DataFrame(results), np.array(adjusted_pvalues)
+    adjusted_pvalues = np.maximum(np.array(adjusted_pvalues), MIN_CONGA_SCORE)
 
+    return pd.DataFrame(results), adjusted_pvalues
 
-def find_neighbor_cluster_interactions(
+def _find_neighbor_cluster_interactions(
         adata,
         nbrs,
         clusters, # for example, or could be swapped: tcr/gex
@@ -114,9 +123,13 @@ def find_neighbor_cluster_interactions(
         pval_threshold,
         counts_correction=0, # if there are a lot of maits, for example; this is the number of them
         correct_overlaps_for_groups=True,
-        scale_pvals_by_num_clones=True
+        scale_pvals_by_num_clones=True,
 ):
-    ''' Returns a pandas dataframe with results
+    ''' This is a helper function used in graph-vs-graph analysis
+
+    It computes KNN graph vs cluster graph overlaps
+
+    Returns a pandas dataframe with results
     of all clones with nbr-cluster overlaps having pvalues <= pval_threshold
 
     AND a numpy array of the adjusted_pvals
@@ -173,6 +186,7 @@ def find_neighbor_cluster_interactions(
                     continue
 
         mait_fraction=np.sum(is_mait[same_cluster_nbrs])/overlap
+        nbr_pval = max(nbr_pval, MIN_CONGA_SCORE) # no 0s
         results.append(dict(conga_score=nbr_pval,
                             num_neighbors=num_neighbors,
                             cluster_size=ii_cluster_clustersize,
@@ -181,12 +195,26 @@ def find_neighbor_cluster_interactions(
                             mait_fraction=mait_fraction,
                             clone_index=ii ))#double_nbrs ] )
 
-    return pd.DataFrame(results), np.array(adjusted_pvalues)
+    adjusted_pvalues = np.maximum(np.array(adjusted_pvalues), MIN_CONGA_SCORE)
+
+    return pd.DataFrame(results), adjusted_pvalues
 
 
 
 def check_nbr_graphs_indegree_bias(all_nbrs):
-    ''' all_nbrs is a dict mapping from nbr_frac to (gex_nbrs, tcr_nbrs) setup by preprocess.calc_nbrs
+    ''' this routine looks at bias in the number of neighbor edges
+    going *into* each vertex (clonotype). By definition, each vertex
+    will have the same number going out, but not necessarily the same
+    number going in. This is especially true of the GEX graph.
+
+    Generally there is less bias in the TCR graph. If both graphs were biased
+    in the same direction (toward the same nodes), this could create
+    spurious graph-vs-graph signal.
+
+    So we look here at the correlation between the two biases.
+
+    all_nbrs is a dict mapping from nbr_frac to (gex_nbrs, tcr_nbrs)
+       setup by preprocess.calc_nbrs
     '''
     for nbr_frac in all_nbrs:
         nbrs_gex, nbrs_tcr = all_nbrs[nbr_frac]
@@ -238,6 +266,10 @@ def _compute_graph_overlap_stats(
         swaptags=False,
         max_calculation_time=2000,# in seconds
 ):
+    ''' Helper function for graph-graph overlap summary analysis
+
+    see compute_graph_vs_graph_stats(...) function below
+    '''
     starttime = time.time()
     gtag,ttag = 'gex','tcr'
     if swaptags:
@@ -397,8 +429,29 @@ def _compute_graph_overlap_stats(
 def compute_graph_vs_graph_stats(
         adata,
         all_nbrs,
-        num_random_repeats = 100
+        num_random_repeats = 100,
+        outfile_prefix = None,
 ):
+    '''Here we are assessing overall graph-vs-graph correlation by looking at
+    the shared edges between TCR and GEX neighbor graphs and comparing
+    that observed number to the number we would expect if the graphs were
+    completely uncorrelated. Our null model for uncorrelated graphs is to
+    take the vertices of one graph and randomly renumber them (permute their
+    labels). We compare the observed overlap to that expected under this null
+    model by computing a Z-score, either by permuting one of the graph's
+    vertices many times to get a mean and standard deviation of the overlap
+    distribution, or, for large graphs where this is time consuming,
+    by using a regression model for the
+    standard deviation.
+
+    This is different from graph-vs-graph analysis which looks at graph
+    overlap on a node-by-node basis
+
+    returns a pandas dataframe with the results, and also stores them in
+    adata.uns['conga_results'][conga.tags.GRAPH_VS_GRAPH_STATS]
+    '''
+
+
     num_clones = adata.shape[0]
     agroups, bgroups = preprocess.setup_tcr_groups(adata)
     clusters_gex = np.array(adata.obs['clusters_gex'])
@@ -436,14 +489,71 @@ def compute_graph_vs_graph_stats(
         stats['nbr_frac'] = nbr_frac
         stats['graph_overlap_type'] = 'gex_cluster_vs_tcr_nbr'
         dfl.append(stats)
-    return pd.DataFrame(dfl)
+
+    results = pd.DataFrame(dfl)
+
+
+    help_message = """
+Here we are assessing overall graph-vs-graph correlation by looking at
+the shared edges between TCR and GEX neighbor graphs and comparing
+that observed number to the number we would expect if the graphs were
+completely uncorrelated. Our null model for uncorrelated graphs is to
+take the vertices of one graph and randomly renumber them (permute their
+labels). We compare the observed overlap to that expected under this null
+model by computing a Z-score, either by permuting one of the graph's
+vertices many times to get a mean and standard deviation of the overlap
+distribution, or, for large graphs where this is time consuming,
+by using a regression model for the
+standard deviation. The different rows of this table correspond to the
+different graph-graph comparisons that we make in the conga graph-vs-graph
+analysis: we compare K-nearest-neighbor graphs for GEX and TCR at different
+K values ("nbr_frac" aka neighbor-fraction, which reports K as a fraction
+of the total number of clonotypes) to each other and to GEX and TCR "cluster"
+graphs in which each clonotype is connected to all the other clonotypes with
+the same (GEX or TCR) cluster assignment. For two K values (the default),
+this gives 2*3=6 comparisons: GEX KNN graph vs TCR KNN graph, GEX cluster
+graph vs TCR KNN graph, and GEX KNN graph vs TCR cluster graph, for each of the
+two K values (aka nbr_fracs).
+
+The column to look at is *overlap_zscore*. Higher values indicate more
+significant GEX/TCR covariation, with "interesting" levels starting around
+zscores of 3-5.
+
+Columns in more detail:
+
+graph_overlap_type: KNN ("nbr") or cluster versus KNN ("nbr") or cluster
+
+nbr_frac: the K value for the KNN graph, as a fraction of total clonotypes
+
+overlap: the observed overlap (number of shared edges) between GEX and TCR
+graphs
+
+expected_overlap: the expected overlap under a shuffled null model.
+
+overlap_zscore: a Z-score for the observed overlap computed by subtracting
+the expected overlap and dividing by the standard deviation estimated from
+shuffling.
+"""
+
+    ## store results in adata.uns
+    table_tag = GRAPH_VS_GRAPH_STATS
+    adata.uns.setdefault('conga_results', {})[table_tag] = results
+
+    # store the help message
+    adata.uns['conga_results'][table_tag+HELP_SUFFIX] = help_message
+
+    if outfile_prefix is not None:
+        util.save_table_and_helpfile(table_tag, adata, outfile_prefix)
+
+    return results
 
 
 def run_graph_vs_graph(
         adata,
         all_nbrs,
         pval_threshold=1.0, #pvals are multiplied by num_clones, so can be >> 1
-        verbose=False
+        verbose=False,
+        outfile_prefix=None,
 ):
     ''' Runs graph-vs-graph analysis for each nbr_frac in the all_nbrs dictionary
 
@@ -456,6 +566,11 @@ def run_graph_vs_graph(
     Note that the "pvalues" aka conga_scores have been crudely Bonferroni
     corrected by multiplying by the number of clones. That's why the
     default pval_threshold of 1.0 makes any kind of sense.
+
+    also stores the results dataframe in
+        adata.uns['conga_results'][GRAPH_VS_GRAPH]
+
+    and saves them to a tsvfile if outfile_prefix is not None
 
     '''
 
@@ -477,7 +592,7 @@ def run_graph_vs_graph(
         nbrs_gex, nbrs_tcr = all_nbrs[nbr_frac]
 
         print('find_neighbor_neighbor_interactions:')
-        results_df, adjusted_pvalues = find_neighbor_neighbor_interactions(
+        results_df, adjusted_pvalues = _find_neighbor_neighbor_interactions(
             adata, nbrs_gex, nbrs_tcr, agroups, bgroups, pval_threshold,
             verbose=verbose)
         conga_scores = np.minimum(conga_scores, adjusted_pvalues)
@@ -489,23 +604,27 @@ def run_graph_vs_graph(
             all_results.append(results_df)
 
         print('find_neighbor_cluster_interactions:')
-        results_df, adjusted_pvalues = find_neighbor_cluster_interactions(
+        results_df, adjusted_pvalues = _find_neighbor_cluster_interactions(
             adata, nbrs_tcr, clusters_gex, agroups, bgroups, pval_threshold)
         conga_scores = np.minimum(conga_scores, adjusted_pvalues)
         all_raw_pvalues[:, 3*inbr_frac+1] = adjusted_pvalues/num_clones
         if results_df.shape[0]:
             results_df['nbr_frac'] = nbr_frac
             results_df['graph_overlap_type'] = 'gex_cluster_vs_tcr_nbr'
+            results_df.rename(
+                columns={'num_neighbors':'num_neighbors_tcr'}, inplace=True)
             all_results.append(results_df)
 
         print('find_neighbor_cluster_interactions:')
-        results_df, adjusted_pvalues = find_neighbor_cluster_interactions(
+        results_df, adjusted_pvalues = _find_neighbor_cluster_interactions(
             adata, nbrs_gex, clusters_tcr, agroups, bgroups, pval_threshold)
         conga_scores = np.minimum(conga_scores, adjusted_pvalues)
         all_raw_pvalues[:, 3*inbr_frac+2] = adjusted_pvalues/num_clones
         if results_df.shape[0]:
             results_df['nbr_frac'] = nbr_frac
             results_df['graph_overlap_type'] = 'gex_nbr_vs_tcr_cluster'
+            results_df.rename(
+                columns={'num_neighbors':'num_neighbors_gex'}, inplace=True)
             all_results.append(results_df)
 
     # fdr calculation
@@ -518,11 +637,56 @@ def run_graph_vs_graph(
 
     if all_results:
         results_df = pd.concat(all_results, ignore_index=True)
+        ## add some more info to the results table, and sort by conga score
+        indices = results_df['clone_index']
+        results_df['gex_cluster'] = list(clusters_gex[indices])
+        results_df['tcr_cluster'] = list(clusters_tcr[indices])
+        for tag in 'va ja cdr3a vb jb cdr3b'.split():
+            results_df[tag] = list(adata.obs[tag][indices])
+        results_df.sort_values('conga_score', inplace=True)
+
     else:
         results_df = pd.DataFrame([])
 
     adata.obs['conga_scores'] = conga_scores
     adata.obs['conga_fdr_values'] = fdr_values
+
+    help_message = """Graph vs graph analysis looks for correlation between GEX and TCR space
+by finding statistically significant overlap between two similarity graphs,
+one defined by GEX similarity and one by TCR sequence similarity.
+
+Overlap is defined one node (clonotype) at a time by looking for overlap
+between that node's neighbors in the GEX graph and its neighbors in the
+TCR graph. The null model is that the two neighbor sets are chosen
+independently at random.
+
+CoNGA looks at two kinds of graphs: K nearest neighbor (KNN) graphs, where
+K = neighborhood size is specified as a fraction of the number of
+clonotypes (defaults for K are 0.01 and 0.1), and cluster graphs, where
+each clonotype is connected to all the other clonotypes in the same
+(GEX or TCR) cluster. Overlaps are computed 3 ways (GEX KNN vs TCR KNN,
+GEX KNN vs TCR cluster, and GEX cluster vs TCR KNN), for each of the
+K values (called nbr_fracs short for neighbor fractions).
+
+Columns (depend slightly on whether hit is KNN v KNN or KNN v cluster):
+conga_score = P value for GEX/TCR overlap * number of clonotypes
+mait_fraction = fraction of the overlap made up of 'invariant' T cells
+num_neighbors* = size of neighborhood (K)
+cluster_size = size of cluster (for KNN v cluster graph overlaps)
+clone_index = 0-index of clonotype in adata object
+
+    """
+
+    ## store results in adata.uns
+    table_tag = GRAPH_VS_GRAPH
+    adata.uns.setdefault('conga_results', {})[table_tag] = results_df
+
+    # store the help message
+    adata.uns['conga_results'][table_tag+HELP_SUFFIX] = help_message
+
+    if outfile_prefix is not None:
+        util.save_table_and_helpfile(table_tag, adata, outfile_prefix)
+
 
     return results_df
 
@@ -538,12 +702,24 @@ def run_rank_genes_on_good_biclusters(
         min_count=5,
         key_added = 'rank_genes_good_biclusters'
 ):
+    ''' Find differentially expressed genes for conga clusters
+    each cluster is defined by:
+    * good_mask must be True for all clonotypes in cluster
+    * all clonotypes in cluster have same GEX (clusters_gex) and
+      TCR (clusters_tcr) cluster assignment
+    * size of cluster must be at least min_count
+
+    for a while these were called 'biclusters' or 'cluster pairs'
+    'cluster pairs' gets shortened to 'clp' in places in the code
+    currently we are just calling them 'CoNGA clusters'
+
+    '''
     num_clones = adata.shape[0]
 
     clp_counts = Counter(
         (x,y) for x,y,z in zip(clusters_gex, clusters_tcr, good_mask) if z)
 
-    print( clp_counts.most_common())
+    #print( clp_counts.most_common())
 
     vals = [ neg_tag ]*num_clones
 
@@ -584,18 +760,31 @@ def calc_good_cluster_tcr_features(
         clusters_tcr,
         tcr_score_names,
         min_count=5,
-        verbose=True,
+        verbose=False, # was True,
 ):
+    ''' Find biased (significantly elevated or lowered) TCR sequence scores
+    for conga clusters. Each cluster is defined by:
+    * good_mask must be True for all clonotypes in cluster
+    * all clonotypes in cluster have same GEX (clusters_gex) and
+      TCR (clusters_tcr) cluster assignment
+    * size of cluster must be at least min_count
+
+    for a while these were called 'biclusters' or 'cluster pairs'
+    'cluster pairs' gets shortened to 'clp' in places in the code
+    currently we are just calling them 'CoNGA clusters'
+
+    '''
     num_clones = adata.shape[0]
 
-    # there seems to be a problem with np.nonzero on a pandas series, which is what these might be if
-    # taken from adata.obs
+    # there seems to be a problem with np.nonzero on a pandas series,
+    #   which is what these might be if taken from adata.obs:
     clusters_gex = np.array(clusters_gex)
     clusters_tcr = np.array(clusters_tcr)
     good_mask = np.array(good_mask)
 
-    clp_counts = Counter( (x,y) for x,y,z in zip( clusters_gex, clusters_tcr, good_mask ) if z )
-    print( clp_counts.most_common())
+    clp_counts = Counter((x,y) for x,y,z in zip(clusters_gex,
+                                                clusters_tcr,
+                                                good_mask) if z)
 
     good_clps = [ x for x,y in clp_counts.items() if y>=min_count]
 
@@ -605,7 +794,9 @@ def calc_good_cluster_tcr_features(
         clp=(cl_gex, cl_tcr)
         if m and clp in good_clps and clp not in seen:
             seen.add(clp)
-            fake_nbrs_gex.append( np.nonzero( (clusters_gex==cl_gex) & (clusters_tcr==cl_tcr) &good_mask )[0] )
+            fake_nbrs_gex.append(np.nonzero((clusters_gex==cl_gex) &
+                                            (clusters_tcr==cl_tcr) &
+                                            good_mask)[0])
         else:
             fake_nbrs_gex.append([])
 
@@ -617,26 +808,31 @@ def calc_good_cluster_tcr_features(
 
     all_tcr_features = {}
     for clp in good_clps:
-        all_tcr_features[clp] = [] # in case results_df doesn't have any rows for this clp
+        # in case results_df doesn't have any rows for this clp
+        all_tcr_features[clp] = []
 
     for row in results_df.itertuples():
         #clp = (row.gex_cluster, row.tcr_cluster)
         clp = (clusters_gex[row.clone_index], clusters_tcr[row.clone_index])
         assert clp in good_clps
-        all_tcr_features[clp].append( ( row.mwu_pvalue_adj, row.ttest_stat, row.feature))
+        all_tcr_features[clp].append((row.mwu_pvalue_adj, row.ttest_stat,
+                                      row.feature))
 
 
     for clp in all_tcr_features:
         # plotting code expects name then stat then pvalue
         # but we want them sorted by significance
-        all_tcr_features[clp] = [ (x[2], x[1], x[0]) for x in sorted(all_tcr_features[clp]) ]
+        all_tcr_features[clp] = [(x[2], x[1], x[0])
+                                 for x in sorted(all_tcr_features[clp])]
 
     return all_tcr_features
 
 
 
 
-def get_split_mean_var( X, X_sq, mask, mean, mean_sq ):
+def _get_split_mean_var( X, X_sq, mask, mean, mean_sq ):
+    ''' Helper function to quickly compute mean and variance
+    '''
     # use: var = (mean_sq - mean**2)
     #
     N = mask.shape[0]
@@ -664,11 +860,26 @@ def gex_nbrhood_rank_tcr_scores(
         prefix_tag='nbr',
         min_num_fg=3,
         verbose=False,
-        ttest_pval_threshold_for_mwu_calc=None
+        ttest_pval_threshold_for_mwu_calc=None,
+        also_return_help_message=False,
 ):
-    ''' pvalues are bonferroni corrected (actually just multiplied by numtests)
+    ''' Run graph-vs-features analysis comparing the GEX neighbor graph
+    to TCR features.
+
+    We also use this to find differential TCR features for conga clusters,
+    by passing in a fake GEX neighbor graph.
+
+    pvalues are bonferroni corrected (actually just multiplied by numtests)
+
+    returns a pandas dataframe with the results,
+
+    OR if also_return_help_message,
+
+    returns results, help_message
     '''
     num_clones = adata.shape[0]
+
+    assert len(tcr_score_names) == len(set(tcr_score_names)) # no dups
 
     tcrs = preprocess.retrieve_tcrs_from_adata(adata)
     preprocess.add_mait_info_to_adata_obs(adata)
@@ -679,7 +890,7 @@ def gex_nbrhood_rank_tcr_scores(
     if ttest_pval_threshold_for_mwu_calc is None:
         ttest_pval_threshold_for_mwu_calc = pval_threshold*10
 
-    print('making tcr score table:', tcr_score_names)
+    print('making tcr score table, #features=', len(tcr_score_names))
     score_table = tcr_scoring.make_tcr_score_table(adata, tcr_score_names)
     score_table_sq = np.multiply(score_table, score_table)
     mean = score_table.mean(axis=0)
@@ -698,14 +909,19 @@ def gex_nbrhood_rank_tcr_scores(
         nbrhood_mask.fill(False)
         nbrhood_mask[ nbrs_gex[ii] ] = True
         nbrhood_mask[ ii ] = True
-        mean_fg, var_fg, mean_bg, var_bg = get_split_mean_var(score_table, score_table_sq, nbrhood_mask, mean, mean_sq)
+        mean_fg, var_fg, mean_bg, var_bg = _get_split_mean_var(
+            score_table, score_table_sq, nbrhood_mask, mean, mean_sq)
         num_fg = np.sum(nbrhood_mask)
         if num_fg < min_num_fg:
             continue
         scores, pvals = stats.ttest_ind_from_stats(
-            mean1=mean_fg, std1=np.sqrt(np.maximum(var_fg, 1e-12)), nobs1=num_fg,
-            mean2=mean_bg, std2=np.sqrt(np.maximum(var_bg, 1e-12)), nobs2=num_clones-num_fg,
-            equal_var=False  # Welch's
+            mean1=mean_fg,
+            std1=np.sqrt(np.maximum(var_fg, 1e-12)),
+            nobs1=num_fg,
+            mean2=mean_bg,
+            std2=np.sqrt(np.maximum(var_bg, 1e-12)),
+            nobs2=num_clones-num_fg,
+            equal_var=False,  # Welch's
         )
 
         scores[np.isnan(scores)] = 0
@@ -722,51 +938,101 @@ def gex_nbrhood_rank_tcr_scores(
             if pval>ttest_pval_threshold_for_mwu_calc:
                 continue
 
-            _,mwu_pval = mannwhitneyu( score_table[:,ind][nbrhood_mask], score_table[:,ind][~nbrhood_mask],
-                                       alternative='two-sided')
+            _,mwu_pval = mannwhitneyu(score_table[:,ind][nbrhood_mask],
+                                      score_table[:,ind][~nbrhood_mask],
+                                      alternative='two-sided')
             mwu_pval_adj = mwu_pval * pval_rescale
 
-            if min(pval, mwu_pval_adj) <= pval_threshold:
+            # make more stringent
+            #if min(pval, mwu_pval_adj) <= pval_threshold:
+
+            if ((mwu_pval_adj <= pval_threshold) or
+                (pval <= pval_threshold and
+                 mwu_pval_adj <= 10*pval_threshold)):
                 if nbrhood_clusters_gex is None: # lazy
                     nbrhood_clusters_gex = clusters_gex[nbrhood_mask]
                     nbrhood_clusters_tcr = clusters_tcr[nbrhood_mask]
                     nbrhood_is_mait = is_mait[nbrhood_mask]
 
-                # get info about the clones most contributing to this skewed score
+                # get info about the clones most contributing to this skewed
+                #  score
                 score_name = tcr_score_names[ind]
                 score = scores[ind] # ie the t-statistic
 
                 num_top = max(1,num_fg//4)
                 if score>0: # score is high
-                    top_indices = np.argpartition( score_table[:,ind][nbrhood_mask], -num_top)[-num_top:]
+                    top_indices = np.argpartition(
+                        score_table[:,ind][nbrhood_mask], -num_top)[-num_top:]
                 else: # score is low
-                    top_indices = np.argpartition( score_table[:,ind][nbrhood_mask], num_top-1)[:num_top]
+                    top_indices = np.argpartition(
+                        score_table[:,ind][nbrhood_mask], num_top-1)[:num_top]
 
 
-                gex_cluster = Counter( nbrhood_clusters_gex[ top_indices ]).most_common(1)[0][0]
-                tcr_cluster = Counter( nbrhood_clusters_tcr[ top_indices ]).most_common(1)[0][0]
-                mait_fraction = np.sum(nbrhood_is_mait[ top_indices ] )/len(top_indices)
+                gex_cluster = Counter( nbrhood_clusters_gex[ top_indices ])\
+                              .most_common(1)[0][0]
+                tcr_cluster = Counter( nbrhood_clusters_tcr[ top_indices ])\
+                              .most_common(1)[0][0]
+                mait_fraction = np.sum(nbrhood_is_mait[ top_indices ] )\
+                                /len(top_indices)
 
                 if verbose and mwu_pval_adj <= pval_threshold:
                     print('gex_{}_score: {:9.2e} {:9.2e} {:7.2f} clp {:2d} {:2d} {:7.3f} {:7.3f} {:15s} {} {} mf: {:.3f} {}'\
-                          .format( prefix_tag, pval, mwu_pval_adj, score, gex_cluster, tcr_cluster, mean_fg[ind],
-                                   mean_bg[ind], score_name,
-                                   ' '.join(tcrs[ii][0][:3]), ' '.join(tcrs[ii][1][:3]), mait_fraction, ii ))
+                          .format(prefix_tag, pval, mwu_pval_adj, score,
+                                  gex_cluster, tcr_cluster, mean_fg[ind],
+                                  mean_bg[ind], score_name,
+                                  ' '.join(tcrs[ii][0][:3]),
+                                  ' '.join(tcrs[ii][1][:3]),
+                                  mait_fraction, ii ))
 
-                results.append( dict(ttest_pvalue_adj=pval,
-                                     ttest_stat=score,
-                                     mwu_pvalue_adj=mwu_pval_adj,
-                                     gex_cluster=gex_cluster,
-                                     tcr_cluster=tcr_cluster,
-                                     num_fg=num_fg,
-                                     mean_fg=mean_fg[ind],
-                                     mean_bg=mean_bg[ind],
-                                     feature=score_name,
-                                     mait_fraction=mait_fraction,
-                                     clone_index=ii) )
+                results.append(dict(ttest_pvalue_adj=pval,
+                                    ttest_stat=score,
+                                    mwu_pvalue_adj=mwu_pval_adj,
+                                    gex_cluster=gex_cluster,
+                                    tcr_cluster=tcr_cluster,
+                                    num_fg=num_fg,
+                                    mean_fg=mean_fg[ind],
+                                    mean_bg=mean_bg[ind],
+                                    feature=score_name,
+                                    mait_fraction=mait_fraction,
+                                    clone_index=ii) )
 
         sys.stdout.flush()
-    return pd.DataFrame(results)
+    results_df = pd.DataFrame(results)
+
+    help_message = """
+    This table has results from a graph-vs-features analysis in which we
+    look at the distribution of a set of TCR-defined features over the GEX
+    neighbor graph. We look for neighborhoods in the graph that have biased
+    score distributions, as assessed by a ttest first, for speed, and then
+    by a mannwhitneyu test for nbrhood/score combinations whose ttest P-value
+    passes an initial threshold (default is 10* the pvalue threshold).
+
+    Each row of the table represents a single significant association, in other
+    words a neighborhood (defined by the central clonotype index) and a
+    tcr feature.
+
+    The columns are as follows:
+
+    ttest_pvalue_adj= ttest_pvalue * number of comparisons
+    ttest_stat= ttest statistic (sign indicates where feature is up or down)
+    mwu_pvalue_adj= mannwhitney-U P-value * number of comparisons
+    gex_cluster= the consensus GEX cluster of the clonotypes w/ biased scores
+    tcr_cluster= the consensus TCR cluster of the clonotypes w/ biased scores
+    num_fg= the number of clonotypes in the neighborhood (including center)
+    mean_fg= the mean value of the feature in the neighborhood
+    mean_bg= the mean value of the feature outside the neighborhood
+    feature= the name of the TCR score
+    mait_fraction= the fraction of the skewed clonotypes that have an invariant
+        TCR
+    clone_index= the index in the anndata dataset of the clonotype that is the
+        center of the neighborhood.
+
+    """
+
+    if also_return_help_message: # a little hacky...
+        return results_df, help_message
+    else:
+        return results_df
 
 
 def tcr_nbrhood_rank_genes_fast(
@@ -778,12 +1044,24 @@ def tcr_nbrhood_rank_genes_fast(
         prefix_tag='nbr',
         min_num_fg=3,
         clone_display_names=None,
-        ttest_pval_threshold_for_mwu_calc=None
+        ttest_pval_threshold_for_mwu_calc=None,
+        also_return_help_message=False,
 ):
-    ''' Modeled on scanpy rank_genes_groups
+    ''' Run graph-vs-features analysis comparing the TCR neighbor graph
+    to GEX features (ie, expression levels of the different genes)
+
+
+    Modeled on scanpy rank_genes_groups
     All pvals are crude bonferroni corrected for:
     * number of non-empty nbrhoods in nbrs_tcr and number of genes in adata.raw.X with at least 3 nonzero cells
       (see pval_rescale below)
+
+    returns a pandas dataframe with the results
+
+    -OR- if also_return_help_message is True
+
+    return results_df, help_message
+
     '''
 
     ## unpack from adata
@@ -833,8 +1111,8 @@ def tcr_nbrhood_rank_genes_fast(
         X2 = np.log1p(np.argsort(-1*nndists_gex))[:,np.newaxis]
     else:
         genes2 = ['clone_sizes', 'nndists_gex_rank']
-        X2 = np.vstack( [np.log1p(np.array(adata.obs['clone_sizes'])),
-                         np.log1p(np.argsort(-1*nndists_gex))] ).transpose()
+        X2 = np.vstack([np.log1p(np.array(adata.obs['clone_sizes'])),
+                        np.log1p(np.argsort(-1*nndists_gex))]).transpose()
     assert X2.shape == (num_clones,len(genes2))
     X2_sq = X2*X2
     mean2 = X2.mean(axis=0)
@@ -849,7 +1127,8 @@ def tcr_nbrhood_rank_genes_fast(
     # len(genes) is probably too hard since lots of the genes are all zeros
     min_nonzero_cells = 3
     gene_nonzero_counts = Counter( X.nonzero()[1] )
-    bad_gene_mask = np.array([ gene_nonzero_counts[x] < min_nonzero_cells for x in range(len(genes)) ]+
+    bad_gene_mask = np.array([gene_nonzero_counts[x] < min_nonzero_cells
+                              for x in range(len(genes))]+
                              [False]*len(genes2))
     n_genes_eff = np.sum(~bad_gene_mask)
     pval_rescale = num_nonempty_nbrhoods * n_genes_eff
@@ -866,8 +1145,10 @@ def tcr_nbrhood_rank_genes_fast(
         nbrhood_mask[ nbrs_tcr[ii] ] = True
         nbrhood_mask[ ii ] = True
 
-        mean_fg, var_fg, mean_bg, var_bg = get_split_mean_var(X, X_sq, nbrhood_mask, mean, mean_sq)
-        mean2_fg, var2_fg, mean2_bg, var2_bg = get_split_mean_var(X2, X2_sq, nbrhood_mask, mean2, mean2_sq)
+        mean_fg, var_fg, mean_bg, var_bg = _get_split_mean_var(
+            X, X_sq, nbrhood_mask, mean, mean_sq)
+        mean2_fg, var2_fg, mean2_bg, var2_bg = _get_split_mean_var(
+            X2, X2_sq, nbrhood_mask, mean2, mean2_sq)
 
         num_fg = np.sum(nbrhood_mask)
         if num_fg < min_num_fg:
@@ -875,8 +1156,12 @@ def tcr_nbrhood_rank_genes_fast(
         mean_fg = np.hstack([mean_fg, mean2_fg])
         mean_bg = np.hstack([mean_bg, mean2_bg]) # note that we dont do the variances...
         scores, pvals = stats.ttest_ind_from_stats(
-            mean1=mean_fg, std1=np.sqrt(np.maximum(np.hstack([var_fg, var2_fg]), 1e-12)), nobs1=num_fg,
-            mean2=mean_bg, std2=np.sqrt(np.maximum(np.hstack([var_bg, var2_fg]), 1e-12)), nobs2=num_clones-num_fg,
+            mean1=mean_fg,
+            std1=np.sqrt(np.maximum(np.hstack([var_fg, var2_fg]),1e-12)),
+            nobs1=num_fg,
+            mean2=mean_bg,
+            std2=np.sqrt(np.maximum(np.hstack([var_bg, var2_bg]), 1e-12)),
+            nobs2=num_clones-num_fg,
             equal_var=False  # Welch's
         )
 
@@ -884,7 +1169,8 @@ def tcr_nbrhood_rank_genes_fast(
         scores[np.isnan(scores)] = 0.
         pvals [np.isnan(pvals)] = 1.
         pvals [bad_gene_mask] = 1.
-        logfoldchanges = np.log2((np.expm1(mean_fg) + 1e-9) / (np.expm1(mean_bg) + 1e-9))
+        logfoldchanges = np.log2((np.expm1(mean_fg) + 1e-9) /
+                                 (np.expm1(mean_bg) + 1e-9))
 
         pvals_adj = pvals * pval_rescale
 
@@ -906,23 +1192,32 @@ def tcr_nbrhood_rank_genes_fast(
                 continue
 
             is_real_gene = ind < num_real_genes
-            # here we are looking for genes (or clone_sizes/inverted nndists) that are LARGER in the forground (fg)
+            # here we are looking for genes (or clone_sizes/inverted nndists)
+            #  that are LARGER in the forground (fg)
             if is_real_gene:
                 col = X_csc[:,ind][nbrhood_mask]
                 noncol = X_csc[:,ind][~nbrhood_mask]
-                _, mwu_pval = mannwhitneyu( col.todense(), noncol.todense(), alternative='greater' )
+                _, mwu_pval = mannwhitneyu( col.todense(), noncol.todense(),
+                                            alternative='greater' )
             else:
                 col = X2[:,ind-num_real_genes][nbrhood_mask]
                 noncol = X2[:,ind-num_real_genes][~nbrhood_mask]
                 _, mwu_pval = mannwhitneyu(col, noncol, alternative='greater')
             mwu_pval_adj = mwu_pval * pval_rescale
 
-            if min(mwu_pval_adj, pval_adj) < pval_threshold:
+            # 2021-06-28 make this more stringent: it used to be either/or
+            #if min(mwu_pval_adj, pval_adj) < pval_threshold:
+            #
+            # sometimes MWU seems a little wonky, so allow good ttests also
+            # if MWU is not terrible
+            if ((mwu_pval_adj < pval_threshold) or
+                (pval_adj < pval_threshold and
+                 mwu_pval_adj < 10*pval_threshold)):
+
                 if nbrhood_clusters_gex is None: # lazy
                     nbrhood_clusters_gex = clusters_gex[nbrhood_mask]
                     nbrhood_clusters_tcr = clusters_tcr[nbrhood_mask]
                     nbrhood_is_mait = is_mait[nbrhood_mask]
-
 
                 # better annotation of the enriched tcrs...
                 num_top = num_fg//4
@@ -938,171 +1233,83 @@ def tcr_nbrhood_rank_genes_fast(
 
                 #top_indices = np.nonzero(nbrhood_mask)[0][col_top_inds]
 
-                gex_cluster = Counter( nbrhood_clusters_gex[ top_indices ]).most_common(1)[0][0]
-                tcr_cluster = Counter( nbrhood_clusters_tcr[ top_indices ]).most_common(1)[0][0]
-                mait_fraction = np.sum(nbrhood_is_mait[ top_indices ] )/len(top_indices)
-
+                gex_cluster = Counter(
+                    nbrhood_clusters_gex[ top_indices ]).most_common(1)[0][0]
+                tcr_cluster = Counter(
+                    nbrhood_clusters_tcr[ top_indices ]).most_common(1)[0][0]
+                mait_fraction = (np.sum(nbrhood_is_mait[top_indices]) /
+                                 len(top_indices))
 
                 if verbose and mwu_pval_adj<=pval_threshold:
-                    print('tcr_{}_gene: {:9.2e} {:9.2e} {:7.3f} clp {:2d} {:2d} {:8s} {:.4f} {:.4f} {:4d} {} mf: {:.3f} {} {}'\
-                          .format( prefix_tag, pval_adj, mwu_pval_adj, log2fold, gex_cluster, tcr_cluster, gene,
-                                   mean_fg[ind], mean_bg[ind], num_fg, clone_display_names[ii], mait_fraction,
-                                   ii, igene ))
-                results.append( dict(ttest_pvalue_adj=pval_adj,
-                                     mwu_pvalue_adj=mwu_pval_adj,
-                                     log2enr=log2fold,
-                                     gex_cluster=gex_cluster,
-                                     tcr_cluster=tcr_cluster,
-                                     feature=gene,
-                                     mean_fg=mean_fg[ind],
-                                     mean_bg=mean_bg[ind],
-                                     num_fg=num_fg,
-                                     clone_index=ii,
-                                     mait_fraction=mait_fraction ) )
+                    print(f'tcr_{prefix_tag}_gene: {pval_adj:9.2e} '
+                          f'{mwu_pval_adj:9.2e} {log2fold:7.3f} clp '
+                          f'{gex_cluster:2d} {tcr_cluster:2d} {gene:8s} '
+                          f'{mean_fg[ind]:.4f} {mean_bg[ind]:.4f} {num_fg:4d} '
+                          f'{clone_display_names[ii]} mf: {mait_fraction:.3f} '
+                          f'{ii} {igene}')
+
+                results.append(dict(ttest_pvalue_adj=pval_adj,
+                                    mwu_pvalue_adj=mwu_pval_adj,
+                                    log2enr=log2fold,
+                                    gex_cluster=gex_cluster,
+                                    tcr_cluster=tcr_cluster,
+                                    feature=gene,
+                                    mean_fg=mean_fg[ind],
+                                    mean_bg=mean_bg[ind],
+                                    num_fg=num_fg,
+                                    clone_index=ii,
+                                    mait_fraction=mait_fraction))
 
         sys.stdout.flush()
 
+    results_df = pd.DataFrame(results)
+
+
+
+    help_message = """
+    This table has results from a graph-vs-features analysis in which we
+    look for genes that are differentially expressed (elevated) in specific
+    neighborhoods of the TCR neighbor graph. Differential expression is
+    assessed by a ttest first, for speed, and then
+    by a mannwhitneyu test for nbrhood/score combinations whose ttest P-value
+    passes an initial threshold (default is 10* the pvalue threshold).
+
+    Each row of the table represents a single significant association, in other
+    words a neighborhood (defined by the central clonotype index) and a
+    gene.
+
+    The columns are as follows:
+
+    ttest_pvalue_adj= ttest_pvalue * number of comparisons
+    mwu_pvalue_adj= mannwhitney-U P-value * number of comparisons
+    log2enr = log2 fold change of gene in neighborhood (will be positive)
+    gex_cluster= the consensus GEX cluster of the clonotypes w/ biased scores
+    tcr_cluster= the consensus TCR cluster of the clonotypes w/ biased scores
+    num_fg= the number of clonotypes in the neighborhood (including center)
+    mean_fg= the mean value of the feature in the neighborhood
+    mean_bg= the mean value of the feature outside the neighborhood
+    feature= the name of the gene
+    mait_fraction= the fraction of the skewed clonotypes that have an invariant
+        TCR
+    clone_index= the index in the anndata dataset of the clonotype that is the
+        center of the neighborhood.
+
+    """
+
+    if also_return_help_message: # a little hacky...
+        return results_df, help_message
+    else:
+        return results_df
+
+
     return pd.DataFrame(results)
 
-def compute_distance_correlations( adata, verbose=False ):
-    ''' return pvalues, rvalues  (each 1 1d numpy array of shape (num_clones,))
-    '''
-    clusters_gex = np.array(adata.obs['clusters_gex'])
-    clusters_tcr = np.array(adata.obs['clusters_tcr'])
-
-    agroups, bgroups = preprocess.setup_tcr_groups(adata)
-
-    print('compute D_gex', adata.shape[0])
-    D_gex = pairwise_distances( adata.obsm['X_pca_gex'], metric='euclidean' )
-
-    print('compute D_tcr', adata.shape[0])
-    D_tcr = pairwise_distances( adata.obsm['X_pca_tcr'], metric='euclidean' )
-
-    pval_rescale = adata.shape[0]
-    print('compute distance correlations' )
-    results = []
-    for ii, (agroup, bgroup)  in enumerate( zip( agroups, bgroups ) ):
-        if verbose and ii%1000==0:
-            print(ii)
-        mask = (agroups != agroup)&(bgroups != bgroup)
-        reg = linregress( D_gex[ii, mask], D_tcr[ii, mask])
-        pval, rval = reg.pvalue, reg.rvalue
-        pval *= pval_rescale
-        results.append( [ pval, rval ] )
-        if verbose and pval < 1:
-            print(f'distcorr: {pval:9.2e} {rval:7.3f} {clusters_gex[ii]:2d} {clusters_tcr[ii]:2d} {ii:4d}')
-
-    results = np.array(results)
-    return results[:,0], results[:,1]
-
-
-def compute_cluster_interactions( aclusters_in, bclusters_in, barcodes_in, barcode2tcr, outlog, max_pval = 1.0 ):
-
-    ''' Compute the cluster-cluster intxn (positive) with the lowest hypergeometric pval, and report.
-    Then eliminate one of the two interacting clusters: first try taking the one with the fewest cells
-    outside the pairwise interaction... Then iterate.
-
-    pval includes a rescaling factor = num_a_clusters * num_b_clusters, max_pval applies to this rescaled pval
-
-    This code is not currently being used in the conga pipeline but might be useful someday
-
-    '''
-
-
-    # condense a/b tcr groups within cluster-cluster intxns
-    # confusing: the a/b here is alpha vs beta not aclusters vs bclusters (ie gex vs tcr)
-    tcrs_list = [ barcode2tcr[x] for x in barcodes_in ]
-    atcrs = sorted( set( x[0] for x in tcrs_list ) )
-    btcrs = sorted( set( x[1] for x in tcrs_list ) )
-    atcr2agroup = dict( (y,x) for x,y in enumerate(atcrs))
-    btcr2bgroup = dict( (y,x) for x,y in enumerate(btcrs))
-    groups1 = np.array( [ atcr2agroup[x[0]] for x in tcrs_list ] ) # alpha tcr groups
-    groups2 = np.array( [ btcr2bgroup[x[1]] for x in tcrs_list ] ) # beta tcr groups
-
-    aclusters = np.copy( aclusters_in )
-    bclusters = np.copy( bclusters_in )
-    barcodes = np.copy( barcodes_in )
-
-    pval_rescale = ( np.max(aclusters)+1 ) * ( np.max(bclusters)+1 )
-
-    while True:
-        if aclusters.shape[0] == 0:
-            break
-        num_a = np.max(aclusters)+1
-        num_b = np.max(bclusters)+1
-
-        overlaps1 = {}
-        overlaps2 = {}
-
-        for ii in range(len(barcodes)):
-            cl = (aclusters[ii],bclusters[ii])
-            if cl not in overlaps1:
-                overlaps1[cl] = set()
-                overlaps2[cl] = set()
-            overlaps1[cl].add( groups1[ii] )
-            overlaps2[cl].add( groups2[ii] )
-
-        abcounts = np.zeros( (num_a,num_b), dtype=int )
-        for i in range(num_a):
-            for j in range(num_b):
-                if (i,j) in overlaps1:
-                    abcounts[i,j] = min( len(overlaps1[(i,j)]), len(overlaps2[(i,j)] ) )
-
-        acounts = np.sum( abcounts, axis=1 )
-        bcounts = np.sum( abcounts, axis=0 )
-        assert acounts.shape[0] == num_a
-        assert bcounts.shape[0] == num_b
-
-
-        pvals = np.ones( ( num_a, num_b ) )
-
-        total = np.sum( acounts ) # or bcounts
-
-        for a in range(num_a):
-            for b in range(num_b):
-                overlap = abcounts[a,b]
-                expected = acounts[a] * bcounts[b] / float(total)
-
-                if overlap>expected and overlap>1: # otherwise just stays at 1.0
-                    pvals[a,b] = hypergeom.sf( overlap-1, total, acounts[a], bcounts[b] )
-
-
-        # most significant interaction:
-        a,b = np.unravel_index( np.argmin( pvals ), pvals.shape )
-        overlap = abcounts[a,b]
-        if not overlap:
-            break
-        overlap_barcodes = barcodes[ ( aclusters==a ) & ( bclusters==b ) ]
-        expected = acounts[a] * bcounts[b] / float(total)
-        pval = pval_rescale * pvals[a,b]
-
-        if pval > max_pval:
-            break
-
-        outlog.write('clusclus2_intxn: {:2d} {:2d} {:8.1e} {:3d} {:6.1f} {:4d} {:4d} {:2d} {:2d} {:5d} ex {}\n'\
-                     .format( a,b,pval,overlap,expected,acounts[a],bcounts[b],
-                              len(set(aclusters)),len(set(bclusters)),len(barcodes),
-                              len(overlap_barcodes)-overlap ))
-
-        # now iterate
-        if acounts[a] <= bcounts[b]:
-            mask = aclusters!=a
-        else:
-            mask = bclusters!=b
-        aclusters = aclusters[ mask ]
-        bclusters = bclusters[ mask ]
-        barcodes = barcodes[ mask ]
-        groups1 = groups1[ mask ]
-        groups2 = groups2[ mask ]
-    return
-
-
-
 def setup_fake_nbrs_from_clusters( clusters ):
-    ''' Make a fake nbr graph in which one clone in each cluster has a set of nbrs to the other
-    cluster members. Everybody else has empty nbr lists. For graph-vs-feature correlation analyses.
+    ''' Make a fake nbr graph in which one clone in each cluster has a set
+    of nbrs to the other cluster members. Everybody else has empty nbr lists.
+    For graph-vs-feature correlation analyses.
     '''
-    clusters = np.array(clusters) # just in case; there's a problem w/ np.nonzero on some pandas series
+    clusters = np.array(clusters) # just in case: pandas Series problem
 
     fake_nbrs = []
     seen = set()
@@ -1114,6 +1321,179 @@ def setup_fake_nbrs_from_clusters( clusters ):
             fake_nbrs.append(np.nonzero( clusters==cl )[0])
     return fake_nbrs
 
+## wrapper for graph vs features analysis
+def run_graph_vs_features(
+        adata,
+        all_nbrs,
+        pval_threshold= 1., # 'pvalues' are raw_pvalue * num_tests
+        outfile_prefix= None,
+):
+    ''' This runs graph-vs-features analysis comparing the TCR graph to
+    GEX features and the GEX graph to TCR features. It also looks for genes
+    that are associated with particular TCR V or J segments
+
+    results are stored in adata.uns['conga_results'] under the tags
+
+    GEX_GRAPH_VS_TCR_FEATURES
+    TCR_GRAPH_VS_GEX_FEATURES
+    TCR_GENES_VS_GEX_FEATURES
+
+    and written to tsvfiles if outfile_prefix is not None
+
+    '''
+
+    util.setup_uns_dicts(adata) # make life easier
+
+    clusters_gex = np.array(adata.obs['clusters_gex'])
+    clusters_tcr = np.array(adata.obs['clusters_tcr'])
+
+    nbr_fracs = sorted(all_nbrs.keys())
+
+    #### TCR GRAPHS VS GEX FEATURES ###################
+    tcr_graph_results = []
+
+    ## first use the TCRdist KNN nbr graph:
+
+    for nbr_frac in nbr_fracs:
+        nbrs_gex, nbrs_tcr = all_nbrs[nbr_frac]
+        results_df, tcr_graph_help_message = tcr_nbrhood_rank_genes_fast(
+            adata, nbrs_tcr, pval_threshold, also_return_help_message=True)
+
+        results_df['nbr_frac'] = nbr_frac
+        results_df['graph_type'] = 'tcr_nbr'
+
+        tcr_graph_results.append(results_df)
+
+
+
+    # now make a TCR cluster graph and use the nbrhoods in there
+    # make some fake nbrs-- note that only one clone per cluster has
+    #  a nonempty nbrhood
+    fake_nbrs_tcr = setup_fake_nbrs_from_clusters(clusters_tcr)
+    results_df = tcr_nbrhood_rank_genes_fast(
+        adata, fake_nbrs_tcr, pval_threshold, prefix_tag='clust')
+
+    results_df['clone_index'] = -1
+    results_df['nbr_frac'] = 0.0
+    results_df['graph_type'] = 'tcr_cluster'
+
+    tcr_graph_results.append(results_df)
+
+    results_df = pd.concat(tcr_graph_results, ignore_index=True)
+    if not results_df.empty:
+        results_df.sort_values('mwu_pvalue_adj', inplace=True)
+    table_tag = TCR_GRAPH_VS_GEX_FEATURES
+
+    adata.uns['conga_results'][table_tag] = results_df
+    adata.uns['conga_results'][table_tag+HELP_SUFFIX] = tcr_graph_help_message
+
+    ##
+    ## now make another fake nbr graph defined by TCR gene segment usage
+    tcrs = preprocess.retrieve_tcrs_from_adata(adata)
+
+    tcr_genes_results = []
+    for iab,ab in enumerate('AB'):
+        for iseg,seg in enumerate('VJ'):
+            genes = [ x[iab][iseg] for x in tcrs ]
+            genes = np.array([ x[:x.index('*')] for x in genes ])
+
+            # make some fake nbrs
+            fake_nbrs_tcr = []
+            clone_display_names = []
+            seen = set()
+            for g in genes:
+                if g in seen:
+                    fake_nbrs_tcr.append([])
+                    clone_display_names.append('')
+                else:
+                    seen.add(g)
+                    # this will include self but dont think thats a problem
+                    fake_nbrs_tcr.append(np.nonzero( genes==g )[0])
+                    clone_display_names.append(g)
+
+            results_df = tcr_nbrhood_rank_genes_fast(
+                adata, fake_nbrs_tcr, pval_threshold, prefix_tag=seg+ab,
+                clone_display_names=clone_display_names)
+
+            if results_df.shape[0]:
+                inds = np.array(results_df['clone_index'])
+                results_df['gene_segment'] = genes[inds]
+                results_df['clone_index'] = -1
+                results_df['graph_type'] = 'tcr_genes'
+                tcr_genes_results.append(results_df)
+
+    if tcr_genes_results:
+        results_df = pd.concat(tcr_genes_results, ignore_index=True)
+        results_df.sort_values('mwu_pvalue_adj', inplace=True)
+        table_tag = TCR_GENES_VS_GEX_FEATURES
+        adata.uns['conga_results'][table_tag] = results_df
+        tcr_genes_help_message = tcr_graph_help_message+"""
+        In this analysis the TCR graph is defined by
+        connecting all clonotypes that have the same VA/JA/VB/JB-gene segment
+        (it's run four times, once with each gene segment type)
+        """
+        adata.uns['conga_results'][table_tag+HELP_SUFFIX]=tcr_genes_help_message
+
+
+    #### GEX GRAPHS VS TCR FEATURES ###################
+    tcr_score_names = tcr_scoring.all_tcr_scorenames[:]
+    # also add on the genes that occur in at least 5 clonotypes
+    min_gene_count = 5
+    tcrs = preprocess.retrieve_tcrs_from_adata(adata)
+    organism = adata.uns['organism']
+    organism_genes = all_genes[organism]
+    counts = Counter([organism_genes[x[i_ab][j_vj]].count_rep
+                      for x in tcrs
+                      for i_ab in range(2)
+                      for j_vj in range(2)])
+    count_reps = [x for x,y in counts.most_common() if y>=min_gene_count ]
+    tcr_score_names += count_reps
+
+    gex_graph_results = []
+    for nbr_frac in nbr_fracs:
+        nbrs_gex, nbrs_tcr = all_nbrs[nbr_frac]
+        results_df, gex_graph_help_message = gex_nbrhood_rank_tcr_scores(
+            adata, nbrs_gex, tcr_score_names, pval_threshold,
+            also_return_help_message = True)
+        results_df['nbr_frac'] = nbr_frac
+        results_df['graph_type'] = 'gex_nbr'
+        gex_graph_results.append(results_df)
+
+
+    # make some fake nbrs
+    fake_nbrs_gex = setup_fake_nbrs_from_clusters(
+        clusters_gex)
+    results_df = gex_nbrhood_rank_tcr_scores(
+        adata, fake_nbrs_gex, tcr_score_names, pval_threshold,
+        prefix_tag = 'clust' )
+    results_df['clone_index'] = -1
+    results_df['nbr_frac'] = 0.0
+    results_df['graph_type'] = 'gex_cluster'
+    gex_graph_results.append(results_df)
+
+    results_df = pd.concat(gex_graph_results, ignore_index=True)
+    if not results_df.empty:
+        results_df.sort_values('mwu_pvalue_adj', inplace=True)
+    table_tag = GEX_GRAPH_VS_TCR_FEATURES
+
+    adata.uns['conga_results'][table_tag] = results_df
+    adata.uns['conga_results'][table_tag+HELP_SUFFIX] = gex_graph_help_message
+
+
+    # write the tables to files:
+    if outfile_prefix is not None:
+        for table_tag in [TCR_GRAPH_VS_GEX_FEATURES,
+                          TCR_GENES_VS_GEX_FEATURES,
+                          GEX_GRAPH_VS_TCR_FEATURES]:
+            util.save_table_and_helpfile(
+                table_tag, adata, outfile_prefix)
+
+
+    return # all done with graph-vs-features analysis
+
+
+
+
 def find_hotspot_features(
         X,
         nbrs,
@@ -1122,7 +1502,8 @@ def find_hotspot_features(
         verbose=False
 ):
     """ My hacky first implementation of the HotSpot method:
-    "Identifying Informative Gene Modules Across Modalities of Single Cell Genomics"
+    "Identifying Informative Gene Modules Across Modalities of
+       Single Cell Genomics"
 
     David DeTomaso, Nir Yosef
     https://www.biorxiv.org/content/10.1101/2020.02.06.937805v1
@@ -1130,8 +1511,8 @@ def find_hotspot_features(
     pvalues are crude bonferroni corrected
 
     """
-    print('START computing H matrix', type(X)) # we want this to be a sps.csr_matrix since we are working with rows...
-    assert type(X) is sps.csr_matrix # right now anyhow; not a strict requirement
+    # right now anyhow; not a strict requirement:
+    assert type(X) is sps.csr_matrix
 
     num_clones, num_features = X.shape
     assert len(features) == num_features
@@ -1149,7 +1530,7 @@ def find_hotspot_features(
 
     last_time = time.time()
     for ii in range(num_clones):
-        if ii%500==0:
+        if ii%1000==0:
             elapsed_time = time.time() - last_time
             if ii:
                 rate = 10*elapsed_time
@@ -1182,7 +1563,7 @@ def find_hotspot_features(
     mask1 = (H==0)
     mask2 = (X_var==0)
     mask3 = mask2 & (~mask1) # H nonzero but stddev 0
-    print('zeros:', np.sum(mask1), np.sum(mask2), np.sum(mask3))
+    #print('zeros:', np.sum(mask1), np.sum(mask2), np.sum(mask3))
 
     H /= np.maximum(1e-9, X_var)
 
@@ -1197,7 +1578,7 @@ def find_hotspot_features(
         nbrs_sets.append( frozenset(nbrs[ii]) )
 
     H_var = 0
-    print('compute H_var')
+    #print('compute H_var')
     for ii in range(num_clones):
         for jj in nbrs[ii]:
             if ii in nbrs_sets[jj]:
@@ -1212,14 +1593,17 @@ def find_hotspot_features(
         feature = features[ind]
         true_std = np.std(X[:,ind].toarray()[:,0])
         if true_std<1e-6:
-            print('WHOAH var prob? {} {} =?= {}'.format(feature, X_var[ind], true_std**2))
+            print('WHOAH var prob? {} {} =?= {}'\
+                  .format(feature, X_var[ind], true_std**2))
             continue
         Z = H[ind]
         pvalue_adj = num_features * norm.sf(Z)
         if pvalue_adj > pval_threshold:
             break
         if verbose:
-            print('top_var: {} =?= {} {} {} {} {}'.format(X_var[ind], true_std**2, true_std, Z, pvalue_adj, feature))
+            print('top_var: {} =?= {} {} {} {} {}'\
+                  .format(X_var[ind], true_std**2, true_std, Z,
+                          pvalue_adj, feature))
         results.append(OrderedDict(Z=Z, pvalue_adj=pvalue_adj, feature=feature))
 
     return pd.DataFrame(results)
@@ -1230,15 +1614,22 @@ def find_hotspot_features(
 def find_hotspot_genes(
         adata,
         nbrs_tcr,
-        pval_threshold
+        pval_threshold,
+        verbose=False,
 ):
-    """ My hacky first implementation of the HotSpot method:
-    "Identifying Informative Gene Modules Across Modalities of Single Cell Genomics"
+    """ Find genes that show a biased distribution across the TCR neighbor graph
+    using a simplified version of the Hotspot method from the Yosef lab.
+
+    This is my hacky first implementation of the HotSpot method:
+    "Identifying Informative Gene Modules Across Modalities of
+       Single Cell Genomics"
 
     David DeTomaso, Nir Yosef
     https://www.biorxiv.org/content/10.1101/2020.02.06.937805v1
 
     pvalues are crude bonferroni corrected
+
+    returns a pandas dataframe
 
     """
 
@@ -1254,26 +1645,28 @@ def find_hotspot_genes(
         Y[:,ii] = (clusters_gex==ii).astype(float)
     Y = sps.csr_matrix(Y)
 
-    print('stacking extra columns!', X.shape, Y.shape)
     X = sps.hstack([X,Y]).tocsr()
-    print('DONE stacking extra columns!')
 
 
-    df = find_hotspot_features(X, nbrs_tcr, list(genes)+['gex_cluster{}'.format(x) for x in range(num_clusters)],
-                               pval_threshold)
+    df = find_hotspot_features(
+        X, nbrs_tcr,
+        list(genes)+['gex_cluster{}'.format(x) for x in range(num_clusters)],
+        pval_threshold)
 
     if df.shape[0]==0:
         return df
 
     # filter out VDJ genes
-    mask = [ not util.is_vdj_gene(x.feature, organism, include_constant_regions=True) for x in df.itertuples()]
+    mask = [not util.is_vdj_gene(x, organism, include_constant_regions=True)
+            for x in df.feature]
 
     df = df[mask]
     df['feature_type'] = 'gex'
 
-    # show the top 100 hits
-    for ii,l in enumerate(df[:100].itertuples()):
-        print('hotspot_gene: {:4d} {:9.3f} {:8.1e} {:10s}'.format(ii, l.Z, l.pvalue_adj, l.feature))
+    if verbose: # show the top 100 hits
+        for ii,l in enumerate(df[:100].itertuples()):
+            print('hotspot_gene: {:4d} {:9.3f} {:8.1e} {:10s}'\
+                  .format(ii, l.Z, l.pvalue_adj, l.feature))
 
     return df
 
@@ -1282,10 +1675,16 @@ def find_hotspot_tcr_features(
         adata,
         nbrs_gex,
         pval_threshold,
-        min_gene_count=5
+        min_gene_count=5,
+        verbose=False,
 ):
-    """ My hacky first implementation of the HotSpot method:
-    "Identifying Informative Gene Modules Across Modalities of Single Cell Genomics"
+    """ Find TCR features that show a biased distribution across the
+    GEX neighbor graph, using a simplified version of the Hotspot method
+    from the Yosef lab.
+
+    This is my hacky first implementation of the HotSpot method:
+    "Identifying Informative Gene Modules Across Modalities of
+       Single Cell Genomics"
 
     David DeTomaso, Nir Yosef
     https://www.biorxiv.org/content/10.1101/2020.02.06.937805v1
@@ -1299,110 +1698,27 @@ def find_hotspot_tcr_features(
     num_clusters = np.max(adata.obs['clusters_tcr'])+1
 
     organism_genes = all_genes[organism]
-    counts = Counter( [ organism_genes[x[i_ab][j_vj]].count_rep
-                        for x in tcrs for i_ab in range(2) for j_vj in range(2)] )
+    counts = Counter([organism_genes[x[i_ab][j_vj]].count_rep
+                      for x in tcrs for i_ab in range(2) for j_vj in range(2)])
     count_reps = [x for x,y in counts.most_common() if y >= min_gene_count ]
 
-    features = tcr_scoring.all_tcr_scorenames + count_reps + ['tcr_cluster{}'.format(x) for x in range(num_clusters)]
+    features = (tcr_scoring.all_tcr_scorenames +
+                count_reps +
+                ['tcr_cluster{}'.format(x) for x in range(num_clusters)])
+
     score_table = tcr_scoring.make_tcr_score_table(adata, features)
     X = sps.csr_matrix(score_table)
-    #print('find_hotspot_tcr_features: X=', X)
 
-    df = find_hotspot_features(X, nbrs_gex, features, pval_threshold)#, verbose=True)
+    df = find_hotspot_features(X, nbrs_gex, features, pval_threshold)
     df['feature_type'] = 'tcr'
 
-    # show the top 100 hits
-    for ii,l in enumerate(df[:100].itertuples()):
-        print('hotspot_tcr_feature: {:4d} {:9.3f} {:8.1e} {:10s}'.format(ii, l.Z, l.pvalue_adj, l.feature))
+    if verbose: # show the top 100 hits
+        for ii,l in enumerate(df[:100].itertuples()):
+            print('hotspot_tcr_feature: {:4d} {:9.3f} {:8.1e} {:10s}'\
+                  .format(ii, l.Z, l.pvalue_adj, l.feature))
 
     return df
 
-
-def find_hotspot_nbrhoods(
-        adata,
-        nbrs_gex,
-        nbrs_tcr,
-        pval_threshold,
-        also_use_cluster_graphs=False
-):
-    """ My hacky first implementation of the HotSpot method:
-    "Identifying Informative Gene Modules Across Modalities of Single Cell Genomics"
-
-    David DeTomaso, Nir Yosef
-    https://www.biorxiv.org/content/10.1101/2020.02.06.937805v1
-
-    pvalues are crude bonferroni corrected
-
-    """
-
-    organism = adata.uns['organism']
-    tcrs = preprocess.retrieve_tcrs_from_adata(adata)
-    clusters_gex = np.array(adata.obs['clusters_gex'])
-    clusters_tcr = np.array(adata.obs['clusters_tcr'])
-    nbrs_gex_clusters = setup_fake_nbrs_from_clusters( clusters_gex )
-    nbrs_tcr_clusters = setup_fake_nbrs_from_clusters( clusters_tcr )
-    # create csr_matrix
-    # >>> row = np.array([0, 0, 1, 2, 2, 2])
-    # >>> col = np.array([0, 2, 2, 0, 1, 2])
-    # >>> data = np.array([1, 2, 3, 4, 5, 6])
-    # >>> csr_matrix((data, (row, col)), shape=(3, 3)).toarray()
-    # array([[1, 0, 2],
-    #        [0, 0, 3],
-    #        [4, 5, 6]])
-
-    num_clones = adata.shape[0]
-
-    dfl = []
-    for feature_nbr_tag, feature_nbrs, graph_tag, graph_nbrs in [ ['gex', nbrs_gex, 'graph', nbrs_tcr],
-                                                                  ['gex', nbrs_gex, 'clust', nbrs_tcr_clusters],
-                                                                  ['tcr', nbrs_tcr, 'graph', nbrs_gex],
-                                                                  ['tcr', nbrs_tcr, 'clust', nbrs_gex_clusters]]:
-        if graph_tag == 'clust' and not also_use_cluster_graphs:
-            continue
-
-        rows = [] # list of (1,num_clones) csr_matrix'es
-        for ii in range(num_clones):
-            ii_nbrs = feature_nbrs[ii]
-            num_nbrs = len(ii_nbrs)
-            data = np.full((num_nbrs,),1.0)
-            row_ind = np.full((num_nbrs,),0).astype(int)
-            new_row = sps.csr_matrix((data, (row_ind, ii_nbrs)), shape=(1,num_clones))
-            new_row[0,ii] = 1.
-            rows.append(new_row)
-        X = sps.vstack(rows)
-        assert X.shape == (num_clones, num_clones)
-        # find_hotspot_features expects X to look like the GEX matrix, ie
-        #  shape=(num_clones,num_features) ie the features are the columns
-        # but we set it up with the features (the nbrhoods) as the rows
-        # so we need to transpose
-        X = X.transpose().tocsr()
-
-        feature_names = [str(x) for x in range(num_clones)]
-        #
-        df = find_hotspot_features(X, graph_nbrs, feature_names, pval_threshold)#, verbose=True)
-
-        if df.shape[0] == 0:
-            continue
-
-        feature_type = '{}_nbrs_vs_{}'.format(feature_nbr_tag, graph_tag)
-        df['feature_type'] = feature_type
-        df['clone_index'] = df.feature.astype(int)
-
-        # show the top 100 hits
-        for ii,l in enumerate(df[:100].itertuples()):
-            atcr, btcr = tcrs[l.clone_index]
-            print('hotspot_{}: {:4d} {:9.3f} {:8.1e} {:2d} {:2d} {:4d} {} {} {} {} {} {}'\
-                  .format(feature_type, ii, l.Z, l.pvalue_adj,
-                          clusters_gex[l.clone_index], clusters_tcr[l.clone_index],
-                          l.clone_index,
-                          atcr[0], atcr[1], atcr[2], btcr[0], btcr[1], btcr[2]))
-        dfl.append(df)
-
-    if dfl:
-        df = pd.concat(dfl)
-        return df.drop(columns=['feature']) # feature is just str(clone_index), ie superfluous
-    else:
-        return pd.DataFrame()
 
 def find_hotspots( adata, nbrs, pval_threshold = None ):
     """
@@ -1418,194 +1734,38 @@ def find_hotspots( adata, nbrs, pval_threshold = None ):
     nbrs_gex, nbrs_tcr = nbrs
 
     gene_df = find_hotspot_genes(adata , nbrs_tcr, pval_threshold )
-    gene_df['feature_type'] = 'gex'
+    #gene_df['feature_type'] = 'gex' ## now done in find_hotspot_genes
 
     tcr_df = find_hotspot_tcr_features(adata , nbrs_gex , pval_threshold  )
-    tcr_df['feature_type'] = 'tcr'
+    #tcr_df['feature_type'] = 'tcr' ## now done in find_hotspot_tcr_features
 
-    hotspot_df = pd.concat([gene_df, tcr_df])
+    hotspot_df = pd.concat([gene_df, tcr_df], ignore_index=True)
 
     return hotspot_df
 
-def find_batch_biases(
+def find_hotspots_wrapper(
         adata,
         all_nbrs,
-        pval_threshold=0.05,
-        exclude_batch_keys=None
+        pval_threshold=None,
+        outfile_prefix=None,
+        nbr_fracs = None,
 ):
-    ''' Look for graph neighborhoods that are biased in their batch distribution
+    if nbr_fracs is None:
+        nbr_fracs = sorted(all_nbrs.keys())
+    all_results = []
+    for nbr_frac in nbr_fracs:
+        results = find_hotspots(adata, all_nbrs[nbr_frac], pval_threshold)
+        results['nbr_frac'] = nbr_frac
+        all_results.append(results)
+    results = pd.concat(all_results, ignore_index=True)
+    if not results.empty:
+        results.sort_values('pvalue_adj', inplace=True)
+    table_tag = HOTSPOT_FEATURES
+    adata.uns.setdefault('conga_results',{})[table_tag] = results
+    help_message = 'Need a better help message here'
+    adata.uns['conga_results'][table_tag+HELP_SUFFIX] = help_message
 
-    Returns a tuple of two dataframes: nbrhood_results, hotspot_results
+    if outfile_prefix is not None:
+        util.save_table_and_helpfile(table_tag, adata, outfile_prefix)
 
-    in nbrhood_results, the hits are grouped by clusters_tcr assignment
-    and shared biased batches into
-    groups using single-linkage clustering, stored in the 'cluster_group' column
-
-    '''
-    if 'batch_keys' not in adata.uns_keys():
-        print('find_batch_biases:: no batch_keys in adata.uns!!!')
-        return
-
-    tcrs = preprocess.retrieve_tcrs_from_adata(adata)
-
-    # for grouping the hit clones
-    clusters_gex = np.array(adata.obs['clusters_gex'])
-    clusters_tcr = np.array(adata.obs['clusters_tcr'])
-
-    num_clones = adata.shape[0]
-    batch_keys = adata.uns['batch_keys']
-
-    nbrhood_results = []
-
-    hotspot_results = []
-
-    is_significant = np.full((num_clones,), False)
-
-    for bkey in batch_keys:
-        if exclude_batch_keys and bkey in exclude_batch_keys:
-            continue
-        bcounts = np.array(adata.obsm[bkey])
-        num_choices = bcounts.shape[1]
-        assert bcounts.shape == (num_clones, num_choices)
-        clone_sizes = np.sum(bcounts,axis=1)
-        bfreqs = bcounts.astype(float)/clone_sizes[:,np.newaxis]
-
-        ## hotspot analysis
-        X = sps.csr_matrix(bfreqs)
-
-        for nbr_frac in all_nbrs:
-            nbrs_gex, nbrs_tcr = all_nbrs[nbr_frac]
-            for nbrs_tag, nbrs in [['gex', nbrs_gex], ['tcr', nbrs_tcr]]:
-                if nbrs_tag=='gex':
-                    continue
-                ## look for neighborhoods with skewed distribution of scores
-                num_nbrs = nbrs.shape[1]
-                bfreqs_nbr_avged = bfreqs[nbrs[:, :, np.newaxis],
-                                          np.arange(num_choices)[np.newaxis, np.newaxis, :]]
-                assert bfreqs_nbr_avged.shape == (num_clones, num_nbrs, num_choices)
-                bfreqs_nbr_avged = (bfreqs + bfreqs_nbr_avged.sum(axis=1))/(num_nbrs+1)
-                assert bfreqs_nbr_avged.shape == (num_clones, num_choices)
-
-                bfreqs_mean = np.mean(bfreqs, axis=0)
-                bfreqs_std = np.std(bfreqs, axis=0)
-
-                zscores = (bfreqs_nbr_avged - bfreqs_mean[np.newaxis,:])/bfreqs_std[np.newaxis,:]
-
-                for ib in range(num_choices):
-                    if bfreqs_std[ib] < 1e-6:
-                        continue # no variation at this choice
-                    for ii in np.argsort(-1*zscores[:,ib]):
-                        zscore = zscores[ii,ib]
-                        if zscore<1e-2: # .1 could be significant but not really .01
-                            break
-                        nbr_scores = list(bfreqs[:,ib][nbrs[ii]])+[bfreqs[ii,ib]]
-                        nbrs_mask = np.full((num_clones,), False)
-                        nbrs_mask[nbrs[ii]] = True
-                        nbrs_mask[ii] = True
-                        non_nbr_scores = bfreqs[:,ib][~nbrs_mask]
-                        _,mwu_pval1 = mannwhitneyu( nbr_scores, non_nbr_scores, alternative='greater')
-                        #_,mwu_pval2 = mannwhitneyu( nbr_scores, non_nbr_scores, alternative='less')
-                        mwu_pval1 *= num_clones
-                        if mwu_pval1 < pval_threshold:
-                            is_significant[ii] = True
-                            nbrhood_results.append( OrderedDict(
-                                batch_key=bkey,
-                                batch_choice=ib,
-                                nbrs_tag=nbrs_tag, # 'gex' or 'tcr'
-                                nbr_frac=nbr_frac,
-                                clone_index=ii,
-                                pvalue_adj=mwu_pval1,
-                                zscore=zscore,
-                                nbrs_mean=np.mean(nbr_scores),
-                                non_nbrs_mean=np.mean(non_nbr_scores)
-                                ))
-
-                            print('nbr_batch_bias: {:9.1e} {:7.3f} {:7.4f} {:7.4f} {} {} {} {} {} {}'\
-                                  .format(mwu_pval1, zscore, np.mean(nbr_scores), np.mean(non_nbr_scores),
-                                          bkey, ib, nbr_frac, nbrs_tag,
-                                          ' '.join(tcrs[ii][0][:3]), ' '.join(tcrs[ii][1][:3])))
-
-                ## hotspot
-                features = ['{}_{}'.format(bkey, x) for x in range(num_choices)]
-                print(f'find hotspot features for {bkey} vs {nbrs_tag} at {nbr_frac:.4f}')
-                results = find_hotspot_features(X, nbrs, features, pval_threshold)
-
-                for ii, l in enumerate(results.itertuples()):
-                    if l.pvalue_adj <= pval_threshold:
-                        hotspot_results.append( OrderedDict(
-                            batch_key='_'.join(l.feature.split('_')[:-1]),
-                            batch_choice=int(l.feature.split('_')[-1]),
-                            nbrs_tag=nbrs_tag,
-                            nbr_frac=nbr_frac,
-                            pvalue_adj=l.pvalue_adj,
-                            zscore=l.Z,
-                            ))
-
-                    print('hotspot_batch: {:2d} {:9.3f} {:8.1e} {} {} {:.4f}'\
-                          .format(ii, l.Z, l.pvalue_adj, l.feature, nbrs_tag, nbr_frac))
-    sys.stdout.flush()
-
-    # now try identifying groups of related nbrhoods
-    nbrhood_results = pd.DataFrame(nbrhood_results)
-    if nbrhood_results.shape[0]:
-        #
-        significant_inds = np.nonzero(is_significant)[0]
-
-        all_sig_nbrs = {}
-        all_batches = {}
-        for ii in significant_inds:
-            all_sig_nbrs[ii] = set([ii])
-            # the batch-key combos for which ii has a significant bias
-            # itertuples with index=False and name=None returns simple row tuples
-            all_batches[ii] = set( nbrhood_results[nbrhood_results.clone_index==ii][['batch_key','batch_choice']]\
-                                   .itertuples(index=False, name=None))
-
-        for ii in significant_inds:
-            # for nbrs_tag, nbr_frac in set(nbrhood_results[nbrhood_results.clone_index==ii][['nbrs_tag','nbr_frac']]\
-            #                               .itertuples(index=False, name=None)):
-            #     nbrs = all_nbrs[nbr_frac][0] if nbrs_tag=='gex' else all_nbrs[nbr_frac][1]
-            for nbrs_tag in set(nbrhood_results[nbrhood_results.clone_index==ii].nbrs_tag): # should just be 'tcr' now
-                assert nbrs_tag=='tcr' # tmp hack
-                clusters = clusters_gex if nbrs_tag=='gex' else clusters_tcr
-                for jj in np.nonzero( (clusters==clusters[ii]) & is_significant )[0]:
-                    if len(all_batches[ii]&all_batches[jj]):
-                        all_sig_nbrs[ii].add(jj)
-                        all_sig_nbrs[jj].add(ii)
-
-
-        all_smallest_nbr = {}
-        for ii in significant_inds:
-            all_smallest_nbr[ii] = min(all_sig_nbrs[ii])
-
-        while True:
-            updated = False
-            for ii in significant_inds:
-                nbr = all_smallest_nbr[ii]
-                new_nbr = min(nbr, np.min([all_smallest_nbr[x] for x in all_sig_nbrs[ii]]))
-                if nbr != new_nbr:
-                    all_smallest_nbr[ii] = new_nbr
-                    updated = True
-            if not updated:
-                break
-        # define clusters, choose cluster centers
-        clusters = np.array([0]*num_clones) # 0 if not clumped
-
-        cluster_number=0
-        for ii in significant_inds:
-            nbr = all_smallest_nbr[ii]
-            if ii==nbr:
-                cluster_number += 1
-                members = [ x for x,y in all_smallest_nbr.items() if y==nbr]
-                clusters[members] = cluster_number
-
-        for ii, nbrs in all_sig_nbrs.items():
-            for nbr in nbrs:
-                assert clusters[ii] == clusters[nbr] # confirm single-linkage clusters
-
-        assert not np.any(clusters[is_significant]==0)
-        assert np.all(clusters[~is_significant]==0)
-
-        nbrhood_results['cluster_group'] = [ clusters[x.clone_index] for x in nbrhood_results.itertuples()]
-
-
-    return nbrhood_results, pd.DataFrame(hotspot_results) # first is already converted to DF
+    return results

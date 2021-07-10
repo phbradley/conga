@@ -26,6 +26,7 @@ parser.add_argument('--nbr_fracs', type=float, nargs='*', default=[0.01,0.1],
                     help='Size of neighborhoods to use in building K'
                     ' nearest neighbor graphs, expressed as a fraction'
                     ' of the total dataset size in clonotypes')
+parser.add_argument('--min_nbrhood_size', type=int)
 parser.add_argument('--outfile_prefix', required=True,
                     help='string that will be prepended to all output files'
                     ' and images')
@@ -76,8 +77,7 @@ parser.add_argument('--all', action='store_true',
                     help='Run all standard analyses')
 parser.add_argument('--graph_vs_graph', action='store_true')
 parser.add_argument('--graph_vs_graph_stats', action='store_true')
-parser.add_argument('--graph_vs_tcr_features', action='store_true')
-parser.add_argument('--graph_vs_gex_features', action='store_true')
+parser.add_argument('--graph_vs_features', action='store_true')
 # some extra analyses
 parser.add_argument('--match_to_tcr_database', action='store_true',
                     help='Find significant matches to paired tcrs in the'
@@ -102,6 +102,7 @@ parser.add_argument('--find_pmhc_nbrhood_overlaps', action='store_true')
 parser.add_argument('--find_distance_correlations', action='store_true')
 parser.add_argument('--find_gex_cluster_degs', action='store_true')
 parser.add_argument('--find_hotspot_features', action='store_true')
+parser.add_argument('--find_hotspot_nbrhoods', action='store_true')
 parser.add_argument('--plot_cluster_gene_compositions', action='store_true')
 parser.add_argument('--make_tcrdist_trees', action='store_true')
 parser.add_argument('--make_hotspot_nbrhood_logos', action='store_true')
@@ -141,6 +142,8 @@ parser.add_argument('--shuffle_gex_nbrs', action='store_true')
 parser.add_argument('--exclude_vgene_strings', type=str, nargs='*')
 parser.add_argument('--suffix_for_non_gene_features', type=str)
 parser.add_argument('--max_genes_per_cell', type=int)
+parser.add_argument('--min_genes_per_cell', type=int)
+parser.add_argument('--max_percent_mito', type=float)
 parser.add_argument('--qc_plots', action='store_true')
 parser.add_argument('--max_clones_for_clustermaps', type=int, default=30000,
                     help='Currently the clustermapping code computes the full'
@@ -163,6 +166,7 @@ import matplotlib
 matplotlib.use('Agg') # for remote calcs
 import matplotlib.pyplot as plt
 import conga
+from conga import util
 import scanpy as sc
 import scanpy.neighbors
 from sklearn.metrics import pairwise_distances
@@ -172,8 +176,6 @@ from pathlib import Path
 
 start_time = time.time()
 
-ALL_STATS = OrderedDict() # for writing to the summary html file
-
 
 #############################################################################
 ###
@@ -182,13 +184,12 @@ ALL_STATS = OrderedDict() # for writing to the summary html file
 #############################################################################
 
 if args.gex_nbrhood_tcr_score_names is None:
-    args.gex_nbrhood_tcr_score_names = conga.tcr_scoring.all_tcr_scorenames
+    args.gex_nbrhood_tcr_score_names = conga.tcr_scoring.all_tcr_scorenames[:]
 
 if args.all:
     all_modes = """graph_vs_graph
     graph_vs_graph_stats
-    graph_vs_gex_features
-    graph_vs_tcr_features
+    graph_vs_features
     cluster_vs_cluster
     find_hotspot_features
     find_gex_cluster_degs
@@ -281,7 +282,6 @@ if args.restart is None: ################################## load GEX/TCR data
         allow_missing_kpca_file = allow_missing_kpca_file,
         gex_only = False,
         suffix_for_non_gene_features = args.suffix_for_non_gene_features,
-        save_stats = ALL_STATS,
     )
 
     if args.rerun_kpca and args.clones_file is None:
@@ -368,7 +368,6 @@ if args.restart is None: ################################## load GEX/TCR data
                   args.bad_barcodes_file)
 
 
-    assert not adata.isview
     # is the tcr-dist kPCA info present?
     assert allow_missing_kpca_file or 'X_pca_tcr' in adata.obsm_keys()
     assert 'cdr3a' in adata.obs # tcr sequence (VDJ) info (plus other obs keys)
@@ -378,11 +377,15 @@ if args.restart is None: ################################## load GEX/TCR data
     outfile_prefix_for_qc_plots = None if args.qc_plots is None else \
                                   args.outfile_prefix
     adata = conga.preprocess.filter_and_scale(
-        adata, n_genes = args.max_genes_per_cell,
+        adata,
+        max_genes_per_cell = args.max_genes_per_cell,
+        min_genes_per_cell = args.min_genes_per_cell,
+        max_percent_mito = args.max_percent_mito,
         outfile_prefix_for_qc_plots = outfile_prefix_for_qc_plots )
 
     if args.filter_ribo_norm_low_cells:
-        adata = conga.preprocess.filter_cells_by_ribo_norm( adata )
+        # this is sketchy
+        adata = conga.devel.filter_cells_by_ribo_norm( adata )
 
     if args.calc_clone_pmhc_pvals:
         # do this before condensing to a single clone per cell
@@ -397,7 +400,8 @@ if args.restart is None: ################################## load GEX/TCR data
         # these will be re-computed once we reduce to a single
         # cell per clonotype
         print('make_clone_plots: cluster_and_tsne_and_umap')
-        adata = pp.cluster_and_tsne_and_umap( adata, skip_tcr=True )
+        adata = conga.preprocess.cluster_and_tsne_and_umap(
+            adata, skip_tcr=True)
 
         conga.plotting.make_clone_gex_umap_plots(adata, args.outfile_prefix)
 
@@ -426,8 +430,7 @@ if args.restart is None: ################################## load GEX/TCR data
     print('run cluster_and_tsne_and_umap'); sys.stdout.flush()
     adata = conga.preprocess.cluster_and_tsne_and_umap(
         adata, clustering_resolution = clustering_resolution,
-        clustering_method=args.clustering_method,
-        skip_tcr=(args.use_tcrdist_umap and args.use_tcrdist_clusters))
+        clustering_method=args.clustering_method)
 
     if args.checkpoint:
         adata.write_h5ad(args.outfile_prefix+'_checkpoint.h5ad')
@@ -467,8 +470,7 @@ else: ### restarting from a previous conga run
         # need to redo the cluster/tsne/umap
         adata = conga.preprocess.cluster_and_tsne_and_umap(
             adata, clustering_method=args.clustering_method,
-            clustering_resolution=args.clustering_resolution,
-            skip_tcr=(args.use_tcrdist_umap and args.use_tcrdist_clusters))
+            clustering_resolution=args.clustering_resolution)
 
 
     if args.shuffle_tcr_kpcs:
@@ -530,8 +532,7 @@ if args.exclude_gex_clusters:
 
     adata = conga.preprocess.cluster_and_tsne_and_umap(
         adata, clustering_method=args.clustering_method,
-        clustering_resolution=args.clustering_resolution,
-        skip_tcr=(args.use_tcrdist_umap and args.use_tcrdist_clusters))
+        clustering_resolution=args.clustering_resolution)
 
     if args.checkpoint:
         adata.write_h5ad(args.outfile_prefix+'_checkpoint.h5ad')
@@ -544,15 +545,19 @@ if args.subset_to_CD4 or args.subset_to_CD8:
 
     adata = conga.preprocess.cluster_and_tsne_and_umap(
         adata, clustering_method=args.clustering_method,
-        clustering_resolution=args.clustering_resolution,
-        skip_tcr=(args.use_tcrdist_umap and args.use_tcrdist_clusters))
+        clustering_resolution=args.clustering_resolution)
 
+# this will probably not happen anymore, since we are computing these
+# inside preprocess.cluster_and_tsne_and_umap if X_pca_tcr is missing.
+# Special case is if we have the kernel PCS but we still want to use
+# UMAP/clusters based on exact tcrdists...
 need_to_compute_tcrdist_umap = (
-    args.use_tcrdist_umap and
-    (args.restart is None or 'X_tcr_2d' not in adata.obsm_keys()))
+    'X_tcr_2d' not in adata.obsm_keys() or # missing
+    (args.use_tcrdist_umap and 'X_pca_tcr' in adata.obs_keys())) #recompute
+
 need_to_compute_tcrdist_clusters = (
-    args.use_tcrdist_clusters and
-    (args.restart is None or 'clusters_tcr' not in adata.obs_keys()))
+    'clusters_tcr' not in adata.obs_keys() or # missing
+    (args.use_tcrdist_clusters and 'X_pca_tcr' in adata.obs_keys())) #recompute
 
 if need_to_compute_tcrdist_umap or need_to_compute_tcrdist_clusters:
     umap_key_added = 'X_tcr_2d' if need_to_compute_tcrdist_umap else \
@@ -561,7 +566,9 @@ if need_to_compute_tcrdist_umap or need_to_compute_tcrdist_clusters:
                         'clusters_tcrdist'
     num_nbrs = 10
     conga.preprocess.calc_tcrdist_nbrs_umap_clusters_cpp(
-        adata, num_nbrs, args.outfile_prefix, umap_key_added=umap_key_added,
+        adata, num_nbrs,
+        tmpfile_prefix=args.outfile_prefix,
+        umap_key_added=umap_key_added,
         cluster_key_added=cluster_key_added)
 
 
@@ -572,16 +579,25 @@ if need_to_compute_tcrdist_umap or need_to_compute_tcrdist_clusters:
 ###############################################################################
 
 
-# dictionaries to hold all the results, for passing into the summary-making code
-ALL_TABLES = {}
-ALL_FIGURES = {}
-
 # all_nbrs is dict from nbr_frac to [nbrs_gex, nbrs_tcr]
 # for nndist calculations, use a smallish nbr_frac, but not too small:
 num_clones = adata.shape[0]
+
+# adjust nbr_fracs if necessary
+if args.min_nbrhood_size is not None:
+    min_nbr_frac = args.min_nbrhood_size/num_clones
+    min_nbr_frac = int(1000*min_nbr_frac)/1000. # dont need all the precision
+    old_nbr_fracs = args.nbr_fracs[:]
+    args.nbr_fracs = sorted(set(max(min_nbr_frac,x) for x in args.nbr_fracs))
+    if args.nbr_fracs != old_nbr_fracs:
+        print('adjusted nbr_fracs:', args.min_nbrhood_size, num_clones,
+              old_nbr_fracs, args.nbr_fracs)
+
 nbr_frac_for_nndists = min( x for x in args.nbr_fracs
                             if x*num_clones>=10 or x==max(args.nbr_fracs) )
 outlog.write(f'nbr_frac_for_nndists: {nbr_frac_for_nndists}\n')
+adata.uns['conga_stats']['nbr_frac_for_nndists'] = nbr_frac_for_nndists
+
 obsm_tag_tcr = None if args.use_exact_tcrdist_nbrs else 'X_pca_tcr'
 all_nbrs, nndists_gex, nndists_tcr = conga.preprocess.calc_nbrs(
     adata,
@@ -648,32 +664,23 @@ if args.verbose_nbrs:
 ###
 ###############################################################################
 
-match_results = None
-if args.match_to_tcr_database: ################################################
-    if args.tcr_database_tsvfile or adata.uns['organism'] == 'human':
-        # we only have a built-in database for human alpha-beta tcrs right now
+if (args.match_to_tcr_database and
+    (args.tcr_database_tsvfile or adata.uns['organism'] == 'human')):
+    # we only have a built-in database for human alpha-beta tcrs right now
 
-        match_results = conga.tcr_clumping.match_adata_tcrs_to_db_tcrs(
-            adata,
-            args.tcr_database_tsvfile,
-            args.outfile_prefix,
-            num_random_samples_for_bg_freqs= args.num_random_samples_for_tcr_matching,
-            adjusted_pvalue_threshold= args.pvalue_threshold_for_db_matching
-        )
-
-
-        if match_results.shape[0]:
-            match_results.sort_values('pvalue_adj', inplace=True)
-            outfile = args.outfile_prefix+'_db_matches.tsv'
-            match_results.to_csv(outfile, sep='\t', index=False)
-            print('wrote', match_results.shape[0], 'matches to', outfile)
-            # for html output, reduce to the best match for each clone
-            ALL_TABLES['tcr_db_match'] = match_results.drop_duplicates(
-                subset='clone_index')
-        else:
-            print('match_to_tcr_database: no matches below ADJUSTED',
-                  'pval threshold of', args.pvalue_threshold_for_db_matching)
-            match_results = None
+    # this function
+    #  * returns results as a pandas DataFrame
+    #  * saves the results in adata.uns['conga_results'][TCR_DB_MATCH]
+    #  * writes the results to a tsvfile (since we passed outfile_prefix)
+    conga.tcr_clumping.match_adata_tcrs_to_db_tcrs(
+        adata,
+        db_tcrs_tsvfile= args.tcr_database_tsvfile,
+        outfile_prefix= args.outfile_prefix, # save results as tsvfile
+        tmpfile_prefix= args.outfile_prefix,
+        num_random_samples_for_bg_freqs=
+            args.num_random_samples_for_tcr_matching, # long line
+        adjusted_pvalue_threshold= args.pvalue_threshold_for_db_matching
+    )
 
 
 if args.tcr_clumping: #########################################################
@@ -682,8 +689,11 @@ if args.tcr_clumping: #########################################################
     radii = [24, 48, 72, 96] if args.radii_for_tcr_clumping is None else \
             args.radii_for_tcr_clumping
 
-    results = conga.tcr_clumping.assess_tcr_clumping(
+    # results are stored in adata.uns['conga_results'][TCR_CLUMPING]
+    # and also returned by this function:
+    conga.tcr_clumping.assess_tcr_clumping(
         adata,
+        outfile_prefix= args.outfile_prefix, # will save results as .tsv file
         tmpfile_prefix= args.outfile_prefix,
         radii= radii,
         num_random_samples= num_random_samples,
@@ -691,162 +701,159 @@ if args.tcr_clumping: #########################################################
         also_find_clumps_within_gex_clusters= args.intra_cluster_tcr_clumping,
     )
 
-    if results.shape[0]:
-        # add clusters info for results tsvfile
-        clusters_gex = np.array(adata.obs['clusters_gex'])
-        clusters_tcr = np.array(adata.obs['clusters_tcr'])
-        results['clusters_gex'] = [clusters_gex[x] for x in results.clone_index]
-        results['clusters_tcr'] = [clusters_tcr[x] for x in results.clone_index]
+    nbrs_gex, nbrs_tcr = all_nbrs[ max(args.nbr_fracs) ]
 
-        tsvfile = args.outfile_prefix+'_tcr_clumping.tsv'
-        results.to_csv(tsvfile, sep='\t', index=False)
+    # now call plotting function, after results are stashed in adata
+    conga.plotting.make_tcr_clumping_plots(
+        adata,
+        nbrs_gex,
+        nbrs_tcr,
+        args.outfile_prefix,
+        min_cluster_size_for_logos=args.min_cluster_size_for_tcr_clumping_logos,
+        pvalue_threshold_for_logos=args.pvalue_threshold_for_tcr_clumping,
+        )
 
-        nbrs_gex, nbrs_tcr = all_nbrs[ max(args.nbr_fracs) ]
-
-        lit_matches = None if args.dont_show_lit_matches_in_logos else \
-                      match_results
-
-        conga.plotting.make_tcr_clumping_plots(
-            adata,
-            results,
-            nbrs_gex,
-            nbrs_tcr,
-            args.min_cluster_size_for_tcr_clumping_logos,
-            args.pvalue_threshold_for_tcr_clumping,
-            args.outfile_prefix,
-            lit_matches=lit_matches,
-            )
-        # made by the above function:
-        ALL_FIGURES['tcr_clumping_logos'] = '{}_tcr_clumping_logos.png'\
-                                             .format(args.outfile_prefix)
-        results.sort_values('pvalue_adj', inplace=True)
-        ALL_TABLES['tcr_clumping'] = results.drop_duplicates(
-            subset='clone_index')
-
-    num_clones = adata.shape[0]
-    tcr_clumping_pvalues = np.full((num_clones,), num_clones).astype(float)
-    for l in results.itertuples():
-        tcr_clumping_pvalues[l.clone_index] = min(
-            tcr_clumping_pvalues[l.clone_index], l.pvalue_adj)
-    # stash in adata.obs
-    adata.obs['tcr_clumping_pvalues'] = tcr_clumping_pvalues
 
 if args.graph_vs_graph_stats: #################################################
-    results = conga.correlations.compute_graph_vs_graph_stats(
-        adata, all_nbrs, num_random_repeats=100)
-    tsvfile = args.outfile_prefix+'_graph_vs_graph_overlap_stats.tsv'
-    results.to_csv(tsvfile, sep='\t', index=False)
+    conga.correlations.compute_graph_vs_graph_stats(
+        adata, all_nbrs, num_random_repeats=100,
+        outfile_prefix=args.outfile_prefix)
 
-    # subset the columns for the html output:
-    cols = ('graph_overlap_type nbr_frac overlap expected_overlap'
-            ' overlap_zscore').split()
-    ALL_TABLES['graph_vs_graph_stats'] = results[cols]
+    # cols = ('graph_overlap_type nbr_frac overlap expected_overlap'
+    #         ' overlap_zscore').split()
 
 
 if args.graph_vs_graph: #######################################################
-    # make these numpy arrays because there seems to be a problem with
-    #  np.nonzero on pandas series...
-    clusters_gex = np.array(adata.obs['clusters_gex'])
-    clusters_tcr = np.array(adata.obs['clusters_tcr'])
-
     # run the graph vs graph analysis
-    results_df = conga.correlations.run_graph_vs_graph(
-        adata, all_nbrs, verbose=args.verbose_nbrs)
+    # this fxn returns results as pandas DataFrame,
+    #  stashes them in adata.uns['conga_results'][GRAPH_VS_GRAPH]
+    #  and saves them to a tsvfile (since we pass outfile_prefix argument)
+    conga.correlations.run_graph_vs_graph(
+        adata, all_nbrs, verbose=args.verbose_nbrs,
+        outfile_prefix=args.outfile_prefix)
 
-    if results_df.shape[0]:
-        # add in some extra info that may be useful before writing to tsv file
-        indices = results_df['clone_index']
-        results_df['gex_cluster'] = list(clusters_gex[indices])
-        results_df['tcr_cluster'] = list(clusters_tcr[indices])
-        for tag in 'va ja cdr3a vb jb cdr3b'.split():
-            results_df[tag] = list(adata.obs[tag][indices])
-        tsvfile = args.outfile_prefix+'_graph_vs_graph_hits.tsv'
-        results_df.sort_values('conga_score', inplace=True)
-        results_df.to_csv(tsvfile, sep='\t', index=False)
-    ALL_TABLES['graph_vs_graph'] = results_df
-
-    # the conga scores
-    conga_scores = np.array(adata.obs['conga_scores'])
-    good_mask = (conga_scores <= 1.0)
-
-
-    adata.obs['good_score_mask'] = good_mask
-
-    bic_counts = Counter((x,y) for x,y,m in zip(clusters_gex, clusters_tcr,
-                                                good_mask) if m )
 
     # take the LARGER of the two min_cluster_size thresholds
     min_cluster_size = max(
         args.min_cluster_size,
         int( 0.5 + args.min_cluster_size_fraction * num_clones))
 
-    num_good_biclusters = sum(1 for x,y in bic_counts.items()
-                              if y>=min_cluster_size )
+    nbrs_gex, nbrs_tcr = all_nbrs[max(args.nbr_fracs)]
+    gex_header_tcr_score_names = [] if args.skip_tcr_scores_in_gex_header \
+                                 else None
 
-    outlog.write(f'num_gvg_hit_clonotypes: {np.sum(good_mask)} '
-                 f'num_gvg_hit_biclusters: {num_good_biclusters}\n')
-    print('num_good_biclusters:', num_good_biclusters)
+    conga.plotting.make_graph_vs_graph_logos(
+        adata,
+        args.outfile_prefix,
+        min_cluster_size,
+        nbrs_gex,
+        nbrs_tcr,
+        gex_nbrhood_tcr_score_names=args.gex_nbrhood_tcr_score_names,
+        gex_header_tcr_score_names=gex_header_tcr_score_names,
+        make_gex_header = not args.skip_gex_header,
+        make_gex_header_raw = not args.skip_gex_header_raw,
+        make_gex_header_nbrZ = not args.skip_gex_header_nbrZ,
+        include_alphadist_in_tcr_feature_logos =
+            args.include_alphadist_in_tcr_feature_logos,
+        show_pmhc_info_in_logos = args.show_pmhc_info_in_logos,
+        logo_genes=args.gex_logo_genes,
+        gex_header_genes=args.gex_header_genes,
+    )
 
-    # for the logo plots, use the largest nbr_frac
-    nbrs_gex, nbrs_tcr = all_nbrs[ max(args.nbr_fracs) ]
+if args.graph_vs_features:
+    # compute and store the tables in adata.uns['conga_results']
+    conga.correlations.run_graph_vs_features(
+        adata, all_nbrs, outfile_prefix=args.outfile_prefix)
+
+    # make the plots
+    conga.plotting.make_graph_vs_features_plots(
+        adata, all_nbrs, args.outfile_prefix)
 
 
-    if num_good_biclusters:
-        # calc tcr sequence features of good cluster pairs
-        good_bicluster_tcr_scores = conga.correlations.calc_good_cluster_tcr_features(
-            adata, good_mask, clusters_gex, clusters_tcr,
-            args.gex_nbrhood_tcr_score_names, min_count=min_cluster_size)
+if args.graph_vs_graph and args.graph_vs_features: #########################
+    conga.plotting.make_summary_figure(adata, args.outfile_prefix)
 
-        # run rank_genes on most common bics
-        rank_genes_uns_tag = 'rank_genes_good_biclusters'
-        conga.correlations.run_rank_genes_on_good_biclusters(
-            adata, good_mask, clusters_gex, clusters_tcr,
-            min_count=min_cluster_size, key_added= rank_genes_uns_tag)
+## some extra analyses
 
-        if args.skip_tcr_scores_in_gex_header:
-            gex_header_tcr_score_names = []
-        elif args.gex_header_tcr_score_names is None:
-            if '_ig' in adata.uns['organism']:
-                gex_header_tcr_score_names = ['af2', 'cdr3len', 'volume',
-                                              'nndists_tcr']
-            else:
-                gex_header_tcr_score_names = ['imhc', 'cdr3len', 'cd8',
-                                              'nndists_tcr']
-        else:
-            gex_header_tcr_score_names = args.gex_header_tcr_score_names
+if args.make_tcrdist_trees: ###################################################
+    # make tcrdist trees for each of the gex clusters,
+    conga.plotting.make_tcrdist_trees(
+        adata, args.outfile_prefix, group_by = 'clusters_gex')
 
-        # we could get fancier here and see if any of the clusters
-        # actually have any lit matches, to avoid taking up an extra
-        # empy column in the output...
-        lit_matches = None if args.dont_show_lit_matches_in_logos else \
-                      match_results
 
-        pngfile = args.outfile_prefix+'_bicluster_logos.png'
-        conga.plotting.make_logo_plots(
-            adata,
-            nbrs_gex,
-            nbrs_tcr,
-            min_cluster_size,
-            pngfile,
-            good_bicluster_tcr_scores=good_bicluster_tcr_scores,
-            make_gex_header = not args.skip_gex_header,
-            make_gex_header_raw = not args.skip_gex_header_raw,
-            make_gex_header_nbrZ = not args.skip_gex_header_nbrZ,
-            include_alphadist_in_tcr_feature_logos=args.include_alphadist_in_tcr_feature_logos,
-            rank_genes_uns_tag = rank_genes_uns_tag,
-            show_pmhc_info_in_logos = args.show_pmhc_info_in_logos,
-            gex_header_tcr_score_names = gex_header_tcr_score_names,
-            lit_matches=lit_matches,
-            logo_genes=args.gex_logo_genes,
-            gex_header_genes=args.gex_header_genes,
+    conga.plotting.make_tcrdist_tree_for_conga_score_threshold(
+        adata, 10., args.outfile_prefix)
+
+
+if args.cluster_vs_cluster:
+    tcrs = conga.preprocess.retrieve_tcrs_from_adata(adata)
+    clusters_gex = np.array(adata.obs['clusters_gex'])
+    clusters_tcr = np.array(adata.obs['clusters_tcr'])
+    barcodes = list(adata.obs_names)
+    barcode2tcr = dict(zip(barcodes,tcrs))
+    conga.devel.compute_cluster_interactions(
+        clusters_gex, clusters_tcr, barcodes, barcode2tcr, outlog )
+
+if args.plot_cluster_gene_compositions:
+    pngfile = args.outfile_prefix+'_cluster_gene_compositions.png'
+    conga.plotting.plot_cluster_gene_compositions(adata, pngfile)
+
+
+if args.find_gex_cluster_degs:
+    # look at differentially expressed genes in gex clusters
+
+    conga.devel.find_gex_cluster_degs(adata, args.outfile_prefix)
+
+
+if args.find_hotspot_features: ################################################
+    # My hacky and probably buggy first implementation of the HotSpot method:
+    #
+    # "Identifying Informative Gene Modules Across Modalities of
+    #  Single Cell Genomics"
+    # David DeTomaso, Nir Yosef
+    # https://www.biorxiv.org/content/10.1101/2020.02.06.937805v1
+
+    conga.correlations.find_hotspots_wrapper(
+        adata, all_nbrs, outfile_prefix=args.outfile_prefix)
+
+    conga.plotting.make_hotspot_plots(
+        adata, all_nbrs, args.outfile_prefix,
+        make_raw_feature_plots=args.make_hotspot_raw_feature_plots,
+        max_clones_for_clustermaps=args.max_clones_for_clustermaps,
         )
-        ALL_FIGURES['graph_vs_graph_logos'] = pngfile
+
+if args.find_hotspot_nbrhoods:
+    conga.devel.find_hotspot_nbrhoods(
+        adata, all_nbrs, args.outfile_prefix,
+        make_hotspot_nbrhood_logos=args.make_hotspot_nbrhood_logos,
+        min_cluster_size=args.min_cluster_size,
+        min_cluster_size_fraction=args.min_cluster_size_fraction,
+        )
+
+
+if args.analyze_CD4_CD8:
+    min_nbrs = 10
+    for nbr_frac in sorted(all_nbrs.keys()):
+        if nbr_frac * adata.shape[0] > min_nbrs:
+            nbr_frac_for_plotting = nbr_frac
+            break
+    else:
+        nbr_frac_for_plotting = max(all_nbrs.keys())
+
+    conga.devel.analyze_CD4_CD8(
+        adata, all_nbrs[nbr_frac_for_plotting][0], args.outfile_prefix)
+
+if args.analyze_proteins:
+    conga.devel.analyze_proteins(adata, args.outfile_prefix)
+
+if args.analyze_special_genes:
+    conga.devel.analyze_special_genes(adata, args.outfile_prefix)
 
 
 batch_bias_results = None
 if args.find_batch_biases: #####################################################
     pval_threshold = 0.05 # kind of arbitrary
-    nbrhood_results, hotspot_results = conga.correlations.find_batch_biases(
+    nbrhood_results, hotspot_results = conga.devel.find_batch_biases(
         adata,
         all_nbrs,
         pval_threshold=pval_threshold,
@@ -876,703 +883,6 @@ if args.find_batch_biases: #####################################################
     batch_bias_results = (nbrhood_results, hotspot_results)
 
 
-if args.graph_vs_gex_features: ################################################
-    clusters_gex = np.array(adata.obs['clusters_gex'])
-    clusters_tcr = np.array(adata.obs['clusters_tcr'])
-
-    ## first use the TCRdist kPCA nbr graph:
-    pval_threshold = 1.
-    results = []
-    for nbr_frac in args.nbr_fracs:
-        nbrs_gex, nbrs_tcr = all_nbrs[nbr_frac]
-        results.append( conga.correlations.tcr_nbrhood_rank_genes_fast(
-            adata, nbrs_tcr, pval_threshold))
-        results[-1]['nbr_frac'] = nbr_frac
-
-    tsvfile = args.outfile_prefix+'_tcr_nbr_graph_vs_gex_features.tsv'
-    print('making:', tsvfile)
-    results_df = pd.concat(results, ignore_index=True)
-    results_df.to_csv(tsvfile, index=False, sep='\t')
-
-    tcr_nbrhood_genes_results = results_df
-    combo_results = []
-    if results_df.shape[0]:
-        combo_results.append( results_df)
-
-
-    # now make a TCR cluster graph and use the nbrhoods in there
-    # make some fake nbrs-- note that only one clone per cluster has
-    #  a nonempty nbrhood
-    fake_nbrs_tcr = conga.correlations.setup_fake_nbrs_from_clusters(
-        clusters_tcr)
-    pval_threshold = 1.
-    results_df = conga.correlations.tcr_nbrhood_rank_genes_fast(
-        adata, fake_nbrs_tcr, pval_threshold, prefix_tag='clust')
-    if results_df.shape[0]:
-        results_df['clone_index'] = -1
-        tsvfile = args.outfile_prefix+'_tcr_cluster_graph_vs_gex_features.tsv'
-        print('making:', tsvfile)
-        results_df.to_csv(tsvfile, index=False, sep='\t')
-        results_df['nbr_frac'] = 0.0
-        tcr_cluster_genes_results = results_df
-        combo_results.append(results_df)
-    else:
-        tcr_cluster_genes_results = None
-
-    if combo_results:
-        results_df = pd.concat(combo_results, ignore_index=True)
-        results_df.sort_values('mwu_pvalue_adj', inplace=True)
-        ALL_TABLES['tcr_graph_vs_gex_features'] \
-            = results_df.drop_duplicates(subset=['feature','gex_cluster',
-                                                 'tcr_cluster'])
-
-        pngfile = args.outfile_prefix+'_tcr_nbr_graph_vs_gex_features.png'
-        print('making:', pngfile)
-        conga.plotting.plot_ranked_strings_on_cells(
-            adata, results_df, 'X_tcr_2d', 'clone_index', 'mwu_pvalue_adj',
-            1.0, 'feature', pngfile)
-        ALL_FIGURES['tcr_graph_vs_gex_features'] = pngfile
-
-        pngfile = (args.outfile_prefix+
-                   '_tcr_nbr_graph_vs_gex_features_panels.png')
-        print('making:', pngfile)
-        conga.plotting.make_feature_panel_plots(
-            adata, 'tcr', all_nbrs, results_df, pngfile)
-        ALL_FIGURES['tcr_graph_vs_gex_features_panels'] = pngfile
-
-        # show the genes in a clustermap
-        clustermap_pvalue_threshold = 0.05
-        gene_pvalues = {}
-        for l in results_df.itertuples():
-            if l.mwu_pvalue_adj <= clustermap_pvalue_threshold:
-                gene_pvalues[l.feature] = min(
-                    l.mwu_pvalue_adj, gene_pvalues.get(l.feature, 1.0))
-        genes = list(gene_pvalues.keys())
-        if (len(genes)>1 and 'X_pca_tcr' in adata.obsm_keys() and
-            adata.shape[0] <= args.max_clones_for_clustermaps):
-            gene_labels = ['{:9.1e} {}'.format(gene_pvalues[x], x)
-                           for x in genes]
-            pngfile= f'{args.outfile_prefix}_all_tcr_graph_genes_clustermap.png'
-            nbr_frac = max(args.nbr_fracs)
-            gex_nbrs, tcr_nbrs = all_nbrs[nbr_frac]
-            conga.plotting.plot_interesting_features_vs_clustermap(
-                adata, genes, pngfile, 'tcr', nbrs=tcr_nbrs,
-                compute_nbr_averages=True, feature_labels=gene_labels)
-
-
-    ## now make another fake nbr graph defined by TCR gene segment usage
-    tcrs = conga.preprocess.retrieve_tcrs_from_adata(adata)
-
-    combo_results = []
-    for iab,ab in enumerate('AB'):
-        for iseg,seg in enumerate('VJ'):
-            genes = [ x[iab][iseg] for x in tcrs ]
-            genes = np.array([ x[:x.index('*')] for x in genes ])
-
-            # make some fake nbrs
-            fake_nbrs_tcr = []
-            clone_display_names = []
-            seen = set()
-            for g in genes:
-                if g in seen:
-                    fake_nbrs_tcr.append([])
-                    clone_display_names.append('')
-                else:
-                    seen.add(g)
-                    # this will include self but dont think thats a problem
-                    fake_nbrs_tcr.append(np.nonzero( genes==g )[0] )
-                    clone_display_names.append(g)
-
-            pval_threshold = 1.
-
-            results_df = conga.correlations.tcr_nbrhood_rank_genes_fast(
-                adata, fake_nbrs_tcr, pval_threshold, prefix_tag=seg+ab,
-                clone_display_names=clone_display_names)
-
-            if results_df.shape[0]:
-                inds = np.array(results_df['clone_index'])
-                results_df['gene_segment'] = genes[inds]
-                results_df['clone_index'] = -1
-                combo_results.append(results_df)
-
-    if combo_results:
-        results_df = pd.concat(combo_results, ignore_index=True)
-        tsvfile = (args.outfile_prefix+
-                   '_tcr_gene_segments_vs_gex_features.tsv')
-        print('making:', tsvfile)
-        results_df.to_csv(tsvfile, index=False, sep='\t')
-        results_df.sort_values('mwu_pvalue_adj', inplace=True)
-
-        ALL_TABLES['tcr_genes_vs_gex_features'] = results_df
-
-        results_df['nbr_frac'] = 0.0
-        pngfile = (args.outfile_prefix+
-                   '_tcr_gene_segments_vs_gex_features_panels.png')
-        print('making:', pngfile)
-        use_nbr_frac = max(args.nbr_fracs)
-        conga.plotting.make_feature_panel_plots(
-            adata, 'tcr', all_nbrs, results_df, pngfile,
-            use_nbr_frac=use_nbr_frac)
-        ALL_FIGURES['tcr_genes_vs_gex_features_panels'] = pngfile
-
-
-
-if args.graph_vs_tcr_features: ################################################
-    clusters_gex = np.array(adata.obs['clusters_gex'])
-    clusters_tcr = np.array(adata.obs['clusters_tcr'])
-
-    pval_threshold = 1.
-    results = []
-    tcr_score_names = list(args.gex_nbrhood_tcr_score_names)
-    if True: #args.include_vj_genes_as_tcr_features: # (used to be an option)
-        min_gene_count = 5
-        tcrs = conga.preprocess.retrieve_tcrs_from_adata(adata)
-        organism = adata.uns['organism']
-        organism_genes = conga.tcrdist.all_genes.all_genes[organism]
-        counts = Counter([organism_genes[x[i_ab][j_vj]].count_rep
-                          for x in tcrs
-                          for i_ab in range(2)
-                          for j_vj in range(2)])
-        count_reps = [x for x,y in counts.most_common() if y>=min_gene_count ]
-        tcr_score_names += count_reps
-
-    for nbr_frac in args.nbr_fracs:
-        nbrs_gex, nbrs_tcr = all_nbrs[nbr_frac]
-        results.append( conga.correlations.gex_nbrhood_rank_tcr_scores(
-            adata, nbrs_gex, tcr_score_names, pval_threshold ))
-        results[-1]['nbr_frac'] = nbr_frac
-    results_df = pd.concat(results, ignore_index=True)
-
-    tsvfile = args.outfile_prefix+'_gex_nbr_graph_vs_tcr_features.tsv'
-    print('making:', tsvfile)
-    results_df.to_csv(tsvfile, index=False, sep='\t')
-    gex_nbrhood_scores_results = results_df
-
-    combo_results = []
-    if results_df.shape[0]:
-        combo_results.append(results_df)
-
-    # make some fake nbrs
-    fake_nbrs_gex = conga.correlations.setup_fake_nbrs_from_clusters(
-        clusters_gex)
-    pval_threshold = 1.
-    results_df = conga.correlations.gex_nbrhood_rank_tcr_scores(
-        adata, fake_nbrs_gex, tcr_score_names, pval_threshold,
-        prefix_tag = 'clust' )
-    if results_df.shape[0]:
-        # the clone_index values are not meaningful
-        results_df['clone_index'] = -1
-        tsvfile = args.outfile_prefix+'_gex_cluster_graph_vs_tcr_features.tsv'
-        print('making:', tsvfile)
-        results_df.to_csv(tsvfile, index=False, sep='\t')
-        results_df['nbr_frac'] = 0.0
-
-        gex_cluster_scores_results = results_df
-        combo_results.append(results_df)
-    else:
-        gex_cluster_scores_results = None
-
-    if combo_results:
-        results_df = pd.concat(combo_results, ignore_index=True)
-
-        pngfile = args.outfile_prefix+'_gex_nbr_graph_vs_tcr_features.png'
-        print('making:', pngfile)
-        conga.plotting.plot_ranked_strings_on_cells(
-            adata, results_df, 'X_gex_2d', 'clone_index', 'mwu_pvalue_adj',
-            1.0, 'feature', pngfile, direction_column='ttest_stat')
-        ALL_FIGURES['gex_graph_vs_tcr_features'] = pngfile
-
-        pngfile= args.outfile_prefix+'_gex_nbr_graph_vs_tcr_features_panels.png'
-        print('making:', pngfile)
-        conga.plotting.make_feature_panel_plots(
-            adata, 'gex', all_nbrs, results_df, pngfile)
-        ALL_FIGURES['gex_graph_vs_tcr_features_panels'] = pngfile
-
-        results_df.sort_values('mwu_pvalue_adj', inplace=True)
-        ALL_TABLES['gex_graph_vs_tcr_features'] \
-            = results_df.drop_duplicates(subset=['feature','gex_cluster',
-                                                 'tcr_cluster'])
-
-if ( args.graph_vs_graph and
-     args.graph_vs_tcr_features and
-     args.graph_vs_gex_features ): ################################
-    pngfile = args.outfile_prefix+'_summary.png'
-    print('making:', pngfile)
-
-    if tcr_cluster_genes_results is not None:
-        tcr_genes_results = pd.concat(
-            [tcr_nbrhood_genes_results, tcr_cluster_genes_results ],
-            ignore_index=True)
-    else:
-        tcr_genes_results = tcr_nbrhood_genes_results
-
-    if gex_cluster_scores_results is not None:
-        gex_scores_results = pd.concat(
-            [gex_nbrhood_scores_results, gex_cluster_scores_results],
-            ignore_index=True)
-    else:
-        gex_scores_results = gex_nbrhood_scores_results
-
-    # default pval thresholds are .05
-    conga.plotting.make_summary_figure(
-        adata, tcr_genes_results, gex_scores_results, pngfile )
-
-    ALL_FIGURES['conga_summary'] = pngfile
-
-## some extra analyses
-
-if args.make_tcrdist_trees: ###################################################
-    # make tcrdist trees for each of the gex clusters,
-    #   and for conga hits with score < 10
-    #
-    width = 800
-    height = 1000
-    xpad = 25
-    organism = adata.uns['organism']
-
-    #precomputed = False
-    #read the raw tcrdist distances (could instead use the kpca euclidean dists)
-    #distfile = args.clones_file
-
-    clusters_gex = np.array(adata.obs['clusters_gex'])
-
-    num_clusters = np.max(clusters_gex)+1
-    tcrs = conga.preprocess.retrieve_tcrs_from_adata(adata)
-
-    num_clones = adata.shape[0]
-    if 'conga_scores' in adata.obs_keys():
-        conga_scores = np.maximum(1e-100, np.array(adata.obs['conga_scores']))
-        scores = np.sqrt(
-            np.maximum( 0.0, -1*np.log10( 100*conga_scores/num_clones)))
-    else:
-        scores = np.zeros((adata.shape[0],))
-
-    tcrdist = conga.tcrdist.tcr_distances.TcrDistCalculator(organism)
-
-    x_offset = 0
-    all_cmds = []
-
-    #color_score_range = [-1*np.log(10), -1*np.log(1e-5)]
-    color_score_range = [0, 3.0]
-    print('color_score_range:', color_score_range)
-
-    for clust in range(num_clusters):
-        cmask = (clusters_gex==clust)
-        csize = np.sum(cmask)
-        #cinds = np.nonzero(cmask)[0]
-
-        ctcrs   = [x for x,y in zip(  tcrs, cmask) if y]
-        cscores = [x for x,y in zip(scores, cmask) if y]
-
-        print('computing tcrdist distances:', clust, csize)
-        if csize>1000 and conga.util.tcrdist_cpp_available():
-            cdists = conga.preprocess.calc_tcrdist_matrix_cpp(
-                ctcrs, adata.uns['organism'])
-        else:
-            cdists = np.array([ tcrdist(x,y) for x in ctcrs for y in ctcrs])\
-                       .reshape(csize,csize)
-
-        cmds = conga.tcrdist.make_tcr_trees.make_tcr_tree_svg_commands(
-            ctcrs, organism, [x_offset,0], [width,height], cdists,
-            max_tcrs_for_trees=400, tcrdist_calculator=tcrdist,
-            color_scores=cscores, color_score_range = color_score_range,
-            title='GEX cluster {}'.format(clust))
-
-        x_offset += width + xpad
-
-        all_cmds.extend(cmds)
-
-    svgfile = args.outfile_prefix+'_gex_cluster_tcrdist_trees.svg'
-    print('making:', svgfile[:-3]+'png')
-    conga.svg_basic.create_file(
-        all_cmds, x_offset-xpad, height, svgfile, create_png=True)
-    ALL_FIGURES['gex_cluster_tcrdist_trees'] = svgfile[:-3]+'png'
-
-
-    if 'conga_scores' in adata.obs_keys():
-        # also make a tree of tcrs with conga score < threshold (10?)
-        threshold = 10.
-        # recalibrate the scores
-        scores = np.sqrt(np.maximum(0.0, -1*np.log10( conga_scores/threshold)))
-        color_score_range = [0, 3.0] #max(3.0, np.max(scores))]
-        cmask = (conga_scores<=threshold)
-        csize = np.sum(cmask)
-        if csize >= threshold and csize >= 2:
-
-            ctcrs   = [x for x,y in zip(  tcrs, cmask) if y]
-            cscores = [x for x,y in zip(scores, cmask) if y]
-
-            if csize>1000 and conga.util.tcrdist_cpp_available():
-                cdists = conga.preprocess.calc_tcrdist_matrix_cpp(
-                    ctcrs, adata.uns['organism'])
-            else:
-                print('computing tcrdist distances:', clust, csize)
-                cdists = np.array([tcrdist(x,y) for x in ctcrs for y in ctcrs])\
-                           .reshape(csize,csize)
-
-            cmds = conga.tcrdist.make_tcr_trees.make_tcr_tree_svg_commands(
-                ctcrs, organism, [0,0], [width,height], cdists,
-                max_tcrs_for_trees=400, tcrdist_calculator=tcrdist,
-                color_scores=cscores, color_score_range = color_score_range,
-                title='conga_score_threshold {:.1f}'.format(threshold))
-
-            svgfile = '{}_conga_score_lt_{:.1f}_tcrdist_tree.svg'\
-                      .format(args.outfile_prefix, threshold)
-            print('making:', svgfile[:-3]+'png')
-            conga.svg_basic.create_file(cmds, width, height, svgfile,
-                                        create_png=True )
-            ALL_FIGURES['conga_score_lt_10_tcrdist_tree'] = svgfile[:-3]+'png'
-
-if args.cluster_vs_cluster:
-    tcrs = conga.preprocess.retrieve_tcrs_from_adata(adata)
-    clusters_gex = np.array(adata.obs['clusters_gex'])
-    clusters_tcr = np.array(adata.obs['clusters_tcr'])
-    barcodes = list(adata.obs_names)
-    barcode2tcr = dict(zip(barcodes,tcrs))
-    conga.correlations.compute_cluster_interactions(
-        clusters_gex, clusters_tcr, barcodes, barcode2tcr, outlog )
-
-if args.plot_cluster_gene_compositions:
-    pngfile = args.outfile_prefix+'_cluster_gene_compositions.png'
-    conga.plotting.plot_cluster_gene_compositions(adata, pngfile)
-
-
-if args.find_gex_cluster_degs:
-    # look at differentially expressed genes in gex clusters
-    obs_tag = 'clusters_gex_for_degs'
-    adata.obs[obs_tag] = [str(x) for x in adata.obs['clusters_gex']]
-    key_added = 'degs_for_gex_clusters'
-    rank_method = 'wilcoxon'
-    all_clusters = sorted(set(adata.obs[obs_tag]))
-    sc.tl.rank_genes_groups(
-        adata,
-        groupby=obs_tag,
-        method=rank_method,
-        groups=all_clusters,
-        reference='rest',
-        key_added=key_added,
-    )
-    n_genes = 25
-    sc.pl.rank_genes_groups(
-        adata,
-        n_genes=n_genes,
-        sharey=False,
-        show=False,
-        key=key_added,
-    )
-    pngfile = args.outfile_prefix+'_gex_cluster_degs.png'
-    plt.savefig(pngfile, bbox_inches="tight")
-    print('made:', pngfile)
-
-
-    new_rank_genes_genes, var_group_positions, var_group_labels = [],[],[]
-    allow_gene_repeats = False
-    min_rank_genes_log2fold_change = 1.0
-    max_rank_genes_pval_adj=0.05
-    n_genes_for_plotting = 5
-
-    for group in all_clusters:
-        my_genes = []
-        for igene,gene in enumerate( adata.uns[key_added]['names'][group] ):
-            log2fold = adata.uns[key_added]['logfoldchanges'][group][igene]
-            pval_adj = adata.uns[key_added]['pvals_adj'][group][igene]
-            #print('rank_gene:',group, igene, gene, log2fold, pval_adj)
-            if len(my_genes) >= n_genes_for_plotting:
-                continue
-            if gene in new_rank_genes_genes and not allow_gene_repeats:
-                continue # no repeats
-            elif gene.startswith('MT-'):
-                continue
-            elif gene[:3] in ['RPL','RPS'] and gene[3].isdigit():
-                continue
-            elif abs(log2fold) < min_rank_genes_log2fold_change:
-                continue
-            elif pval_adj > max_rank_genes_pval_adj:
-                continue
-            print('log2fold: {:.2f} pval_adj: {:9.1e} score: {:.1f} {} {}'\
-                  .format( log2fold, pval_adj,
-                           adata.uns[key_added]['scores'][group][igene],
-                           gene, group ) )
-            my_genes.append( gene )
-        if my_genes:
-            var_group_positions.append((len(new_rank_genes_genes),
-                                        len(new_rank_genes_genes)+
-                                        len(my_genes)-1 ) )
-            var_group_labels.append( group )
-            new_rank_genes_genes.extend( my_genes )
-
-    if new_rank_genes_genes:
-        sc.pl.stacked_violin(
-            adata, var_names = new_rank_genes_genes, groupby=obs_tag,
-            figsize=(10,n_genes_for_plotting*10),
-            use_raw = True, stripplot=True, show=False, swap_axes=True,
-            var_group_positions = var_group_positions,
-            var_group_labels = var_group_labels,
-            var_group_rotation = 1.0 )
-        pngfile = args.outfile_prefix+'_gex_cluster_degs_violin.png'
-        plt.savefig(pngfile, bbox_inches="tight")
-        print('made:',pngfile)
-
-        sc.pl.dotplot(
-            adata, var_names=new_rank_genes_genes, groupby=obs_tag, show=False,
-            var_group_labels=var_group_labels,
-            var_group_positions=var_group_positions)
-        pngfile = args.outfile_prefix+'_gex_cluster_degs_dotplot.png'
-        plt.savefig(pngfile, bbox_inches="tight")
-        print('made:', pngfile)
-
-        # this plot_scatter seems to have moved in scanpy; need to update
-        #sc.pl._tools.plot_scatter(adata, 'gex_2d', ncols = 6,
-        #                          color = new_rank_genes_genes, show=False,
-        #                          use_raw = True, s=40)
-        #pngfile = args.outfile_prefix+'_gex_cluster_degs_tsne.png'
-        #plt.savefig(pngfile, bbox_inches="tight")
-        #print('made:', pngfile)
-
-
-    if adata.uns['organism'] == 'human_ig':
-        # list of B cell marker genes from "Human germinal centres engage
-        # memory and naive B cells after influenza vaccination"
-        # Turner...Ellebedy, Nature 2020:
-        # https://doi.org/10.1038/s41586-020-2711-0
-        # note that they say activated B cells are distinguished by lack of CR2
-        genes_lines = """GC-Bs BCL6, RGS13, MEF2B, STMN1, ELL3, SERPINA9
-        PBs XBP1, IRF4, SEC11C, FKBP11, JCHAIN, PRDM1
-        naive TCL1A, IL4R, CCR7, IGHM, IGHD
-        act-Bs TBX21, FCRL5, ITGAX, NKG7, ZEB2, CR2
-        rest TNFRSF13B, CD27, CD24
-        misc IGHA1 IGHA2 IGHG1 IGHG2 IGHG3 IGHG4 IGHE"""\
-            .replace(',',' ').split('\n')
-        genes, var_group_positions, var_group_labels = [], [], []
-        for line in genes_lines:
-            my_genes = [x for x in line.split()[1:] if x in adata.raw.var_names]
-            print(len(my_genes), line.split())
-            if my_genes:
-                var_group_positions.append((len(genes),
-                                            len(genes)+len(my_genes)-1))
-                var_group_labels.append( line.split()[0])
-                genes.extend(my_genes)
-        sc.pl.dotplot(
-            adata, var_names=genes, groupby=obs_tag, show=False,
-            var_group_labels=var_group_labels,
-            var_group_positions=var_group_positions)
-        pngfile = args.outfile_prefix+'_gex_cluster_bcell_genes_dotplot.png'
-        plt.savefig(pngfile, bbox_inches="tight")
-        print('made:', pngfile)
-
-    # show some of our marker genes
-    organism = adata.uns['organism']
-    genes = (conga.plotting.default_logo_genes[organism] +
-             conga.plotting.default_gex_header_genes[organism])
-    genes = sorted(set(x for x in genes if x in adata.raw.var_names))
-    sc.pl.dotplot(adata, var_names=genes, groupby=obs_tag, show=False)
-    pngfile = args.outfile_prefix+'_gex_cluster_marker_genes_dotplot.png'
-    plt.savefig(pngfile, bbox_inches="tight")
-    print('made:', pngfile)
-
-
-
-if args.find_hotspot_features: ################################################
-    # My hacky and probably buggy first implementation of the HotSpot method:
-    #
-    # "Identifying Informative Gene Modules Across Modalities of
-    #  Single Cell Genomics"
-    # David DeTomaso, Nir Yosef
-    # https://www.biorxiv.org/content/10.1101/2020.02.06.937805v1
-
-    all_hotspot_nbrhood_results = []
-    for nbr_frac in args.nbr_fracs:
-        nbrs_gex, nbrs_tcr = all_nbrs[nbr_frac]
-        print('find_hotspot_nbrhoods for nbr_frac', nbr_frac)
-        nbrhood_results = conga.correlations.find_hotspot_nbrhoods(
-            adata, nbrs_gex, nbrs_tcr, pval_threshold=1.0,
-            also_use_cluster_graphs=False)
-        # the feature_type column is already set in nbrhood_results
-        #  to {tcr/gex}_nbrs_vs_graph
-        if nbrhood_results.shape[0]: #make some simple plots
-            nbrhood_results['nbr_frac'] = nbr_frac
-            all_hotspot_nbrhood_results.append( nbrhood_results )
-
-        print('find_hotspot_genes for nbr_frac', nbr_frac)
-        gex_results = conga.correlations.find_hotspot_genes(
-            adata, nbrs_tcr, pval_threshold=0.05)
-        #gex_results['feature_type'] = 'gex'
-
-        print('find_hotspot_tcr_features for nbr_frac', nbr_frac)
-        tcr_results = conga.correlations.find_hotspot_tcr_features(
-            adata, nbrs_gex, pval_threshold=0.05)
-        #tcr_results['feature_type'] = 'tcr'
-
-        combo_results = pd.concat([gex_results, tcr_results])
-        if combo_results.shape[0]:
-            tsvfile = '{}_hotspot_features_{:.3f}_nbrs.tsv'.format(
-                args.outfile_prefix, nbr_frac)
-            combo_results.to_csv(tsvfile, sep='\t', index=False)
-
-        for tag, results in [ ['gex', gex_results],
-                              ['tcr', tcr_results],
-                              ['combo', combo_results] ]:
-            if results.shape[0]<1:
-                continue
-
-            for plot_tag, plot_nbrs in [['gex',nbrs_gex], ['tcr',nbrs_tcr]]:
-                if tag == plot_tag:
-                    continue
-                pngfile_prefix = '{}_hotspot_{}_features_{:.3f}_nbrs_{}_plot'\
-                                 .format(args.outfile_prefix, tag, nbr_frac,
-                                         plot_tag)
-                # 2D UMAPs colored by nbr-averaged feature values
-                pngfile = f'{pngfile_prefix}_umap_nbr_avg.png'
-                print('making:', pngfile)
-                conga.plotting.plot_hotspot_umap(
-                    adata, plot_tag, results, pngfile, nbrs=plot_nbrs,
-                    compute_nbr_averages=True)
-
-                if nbr_frac == max(args.nbr_fracs) and tag == 'combo':
-                    ALL_FIGURES[f'hotspot_{plot_tag}_umap'] = pngfile
-
-                if args.make_hotspot_raw_feature_plots:
-                    pngfile = f'{pngfile_prefix}_umap_raw.png'
-                    print('making:', pngfile)
-                    conga.plotting.plot_hotspot_umap(
-                        adata, plot_tag, results, pngfile, nbrs=plot_nbrs,
-                        compute_nbr_averages=False)
-
-                if results.shape[0]<2:
-                    continue # clustermap not interesting...
-
-                if 'X_pca_'+plot_tag not in adata.obsm_keys():
-                    print(f'skipping clustermap vs {plot_tag} since no',
-                          f'X_pca_{plot_tag} in adata.obsm_keys!')
-                    continue
-
-                if adata.shape[0] > args.max_clones_for_clustermaps:
-                    ############### TEMPORARY HACKING #################
-                    print('skipping hotspot clustermaps because adata',
-                          'is too big:', adata.shape)
-                    continue
-
-                ## clustermap of features versus cells
-                features = list(results.feature)
-                feature_labels = ['{:9.1e} {} {}'.format(x,y,z)
-                                  for x,y,z in zip(results.pvalue_adj,
-                                                   results.feature_type,
-                                                   results.feature)]
-                min_pval = 1e-299 # dont want log10 of 0.0
-                feature_scores = [
-                    np.sqrt(-1*np.log10(max(min_pval, x.pvalue_adj)))
-                    for x in results.itertuples()]
-
-                # nbr-averaged version
-                pngfile = f'{pngfile_prefix}_clustermap_nbr_avg.png'
-                # duplicates if linear correlation > 0.9
-                redundancy_threshold = 0.9
-                if len(features)>60:
-                    # ie anything 1 or higher ==> no duplicates
-                    max_redundant_features = 0
-                elif len(features)>30:
-                    # at most 1 duplicate
-                    max_redundant_features = 1
-                else:
-                    # at most 2 duplicates
-                    max_redundant_features = 2
-
-                conga.plotting.plot_interesting_features_vs_clustermap(
-                    adata, features, pngfile, plot_tag, nbrs=plot_nbrs,
-                    compute_nbr_averages=True, feature_labels=feature_labels,
-                    feature_types = list(results.feature_type),
-                    max_redundant_features=max_redundant_features,
-                    redundancy_threshold=redundancy_threshold,
-                    feature_scores=feature_scores)
-
-                if nbr_frac == max(args.nbr_fracs) and tag == 'combo':
-                    ALL_FIGURES[f'hotspot_{plot_tag}_clustermap'] = pngfile
-
-                if args.make_hotspot_raw_feature_plots:
-                    # RAW scores (non-nbr-averaged) version
-                    pngfile = f'{pngfile_prefix}_clustermap_raw.png'
-                    conga.plotting.plot_interesting_features_vs_clustermap(
-                        adata, features, pngfile, plot_tag, nbrs=plot_nbrs,
-                        compute_nbr_averages=False,
-                        feature_labels=feature_labels,
-                        feature_types = list(results.feature_type),
-                        max_redundant_features=max_redundant_features,
-                        redundancy_threshold=redundancy_threshold,
-                        feature_scores=feature_scores)
-
-
-    # make a plot summarizing the hotspot nbrhood pvals and also
-    #  save them to a file
-    if all_hotspot_nbrhood_results:
-        nbrhood_results = pd.concat(all_hotspot_nbrhood_results)
-
-        tcrs = conga.preprocess.retrieve_tcrs_from_adata(adata)
-
-        outfile = '{}_hotspot_nbrhoods.tsv'.format(args.outfile_prefix)
-        for iab, ivj in [ (x,y) for x in range(2) for y in range(3) ]:
-            key = [ 'va ja cdr3a'.split(), 'vb jb cdr3b'.split()][iab][ivj]
-            nbrhood_results[key] = [tcrs[x.clone_index][iab][ivj]
-                                    for x in nbrhood_results.itertuples()]
-        print('making:', outfile)
-        nbrhood_results.to_csv(outfile, sep='\t', index=False)
-
-        num_clones = adata.shape[0]
-        nbrhood_pvals = {'gex':np.full((num_clones,), num_clones).astype(float),
-                         'tcr':np.full((num_clones,), num_clones).astype(float)}
-        for l in nbrhood_results.itertuples():
-            assert l.feature_type[3:] == '_nbrs_vs_graph'
-            tag = l.feature_type[:3]
-            nbrhood_pvals[tag][l.clone_index] = min(
-                l.pvalue_adj, nbrhood_pvals[tag][l.clone_index])
-
-        plt.figure(figsize=(12,6))
-        for icol, tag in enumerate(['gex','tcr']):
-            plt.subplot(1,2,icol+1)
-            log10_pvals = np.log10(np.maximum(1e-100, nbrhood_pvals[tag]))
-            colors = np.sqrt(np.maximum(0.0, -1*log10_pvals))
-            reorder = np.argsort(colors)
-            # same umap as feature nbr-type
-            xy = adata.obsm['X_{}_2d'.format(tag)]
-            vmax = np.sqrt(-1*np.log10(1e-5))
-            plt.scatter(xy[reorder,0], xy[reorder,1], c=colors[reorder],
-                        vmin=0, vmax=vmax)
-            plt.xticks([],[])
-            plt.yticks([],[])
-            plt.xlabel('{} UMAP1'.format(tag))
-            plt.ylabel('{} UMAP2'.format(tag))
-            plt.title('{} hotspot nbrhood pvalues'.format(tag))
-        plt.tight_layout()
-        pngfile = '{}_hotspot_nbrhoods.png'.format(args.outfile_prefix)
-        print('making:', pngfile)
-        plt.savefig(pngfile)
-
-        if args.make_hotspot_nbrhood_logos:
-            nbrs_gex, nbrs_tcr = all_nbrs[ max(args.nbr_fracs) ]
-            min_cluster_size = max(
-                args.min_cluster_size,
-                int(0.5 + args.min_cluster_size_fraction * num_clones))
-            conga.plotting.make_hotspot_nbrhood_logo_figures(
-                adata, nbrs_gex, nbrs_tcr, nbrhood_results,
-                min_cluster_size, args.outfile_prefix,
-                pvalue_threshold=1.0)
-
-if args.analyze_CD4_CD8:
-    min_nbrs = 10
-    for nbr_frac in sorted(all_nbrs.keys()):
-        if nbr_frac * adata.shape[0] > min_nbrs:
-            nbr_frac_for_plotting = nbr_frac
-            break
-    else:
-        nbr_frac_for_plotting = max(all_nbrs.keys())
-
-    conga.plotting.analyze_CD4_CD8(
-        adata, all_nbrs[nbr_frac_for_plotting][0], args.outfile_prefix)
-
-if args.analyze_proteins:
-    conga.plotting.analyze_proteins(adata, args.outfile_prefix)
-
-if args.analyze_special_genes:
-    conga.plotting.analyze_special_genes(adata, args.outfile_prefix)
 
 ## make summary plots of top clones and their batch distributions
 ## also make umaps colored by batch assignment of rep cell
@@ -1598,7 +908,7 @@ conga.correlations.check_nbr_graphs_indegree_bias(all_nbrs)
 if args.find_distance_correlations:
     clusters_gex = np.array(adata.obs['clusters_gex'])
     clusters_tcr = np.array(adata.obs['clusters_tcr'])
-    pvalues, rvalues = conga.correlations.compute_distance_correlations(adata)
+    pvalues, rvalues = conga.devel.compute_distance_correlations(adata)
     results = []
     for ii, (pval, rval) in enumerate(zip(rvalues, pvalues)):
         if pval<1:
@@ -1633,14 +943,20 @@ if args.write_proj_info:
     outfile = args.outfile_prefix+'_2d_proj_info.txt'
     conga.preprocess.write_proj_info( adata, outfile )
 
-adata.write_h5ad(args.outfile_prefix+'_final.h5ad')
+try:
+    adata.write_h5ad(args.outfile_prefix+'_final.h5ad')
+except:
+    print('error writing adata to file, dropping the conga_results dict')
+    save = adata.uns['conga_results']
+    del adata.uns['conga_results']
+    adata.write_h5ad(args.outfile_prefix+'_final.h5ad')
+    adata.uns['conga_results'] = save
+
 adata.obs.to_csv(args.outfile_prefix+'_final_obs.tsv', sep='\t')
 
 html_summary_file = args.outfile_prefix+'_results_summary.html'
 conga.plotting.make_html_summary(
-    adata, html_summary_file, all_tables=ALL_TABLES,
-    all_figures=ALL_FIGURES, all_stats=ALL_STATS,
-    command_string = ' '.join(sys.argv),
+    adata, html_summary_file, command_string = ' '.join(sys.argv),
     title = args.outfile_prefix)
 
 outlog.write('run_conga took {:.3f} minutes\n'\

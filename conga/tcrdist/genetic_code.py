@@ -68,24 +68,6 @@ gencode = {
     }
 
 
-## http://www.cmbi.kun.nl/pythoncourse/spy/index.spy?site=python&action=Grand%20Finale&flag=chap
-
-standard = { 'TTT': 'F', 'TCT': 'S', 'TAT': 'Y', 'TGT': 'C',
-             'TTC': 'F', 'TCC': 'S', 'TAC': 'Y', 'TGC': 'C',
-             'TTA': 'L', 'TCA': 'S', 'TAA': '*', 'TGA': 'W',
-             'TTG': 'L', 'TCG': 'S', 'TAG': '*', 'TGG': 'W',
-             'CTT': 'L', 'CCT': 'P', 'CAT': 'H', 'CGT': 'R',
-             'CTC': 'L', 'CCC': 'P', 'CAC': 'H', 'CGC': 'R',
-             'CTA': 'L', 'CCA': 'P', 'CAA': 'Q', 'CGA': 'R',
-             'CTG': 'L', 'CCG': 'P', 'CAG': 'Q', 'CGG': 'R',
-             'ATT': 'I', 'ACT': 'T', 'AAT': 'N', 'AGT': 'S',
-             'ATC': 'I', 'ACC': 'T', 'AAC': 'N', 'AGC': 'S',
-             'ATA': 'M', 'ACA': 'T', 'AAA': 'K', 'AGA': 'R',
-             'ATG': 'M', 'ACG': 'T', 'AAG': 'K', 'AGG': 'R',
-             'GTT': 'V', 'GCT': 'A', 'GAT': 'D', 'GGT': 'G',
-             'GTC': 'V', 'GCC': 'A', 'GAC': 'D', 'GGC': 'G',
-             'GTA': 'V', 'GCA': 'A', 'GAA': 'E', 'GGA': 'G',
-             'GTG': 'V', 'GCG': 'A', 'GAG': 'E', 'GGG': 'G'}
 
 ## http://www.pasteur.fr/formation/infobio/python/ch15.html
 
@@ -118,9 +100,33 @@ for codon in gencode:
     if aa not in reverse_genetic_code: reverse_genetic_code[aa] = []
     reverse_genetic_code[aa].append( lowcodon )
 
-if __name__ == "__main__":
-    print('hi')
-    for c in code:
-        d = c.upper()
-        if standard[d] != code[c] or gencode[d] != code[c]:
-            print(code[c], standard.get(c.upper(),'?'), gencode.get(c.upper(),'?'))
+if 1:
+    ## this is partial, just what's needed for the code below...
+    degmap = {
+        'a':'a',
+        'c':'c',
+        'g':'g',
+        't':'t',
+        'ct':'y',
+        'ag':'r',
+        'act':'h',
+        'acgt':'n'
+    }
+
+
+    aa2degenerate_codons = {}
+    for aa,codons in reverse_genetic_code.items():
+        if aa=='*':continue
+        ## write this as one or more degenerate strings
+        degenerate_codons = []
+
+        xys = set( [ x[:2] for x in codons] )
+
+        for xy in xys:
+            thirdnucs = ''.join(
+                sorted(set((x[2] for x in codons if x[:2] == xy ))))
+            degenerate_codons.append( xy + degmap[ thirdnucs ] )
+
+        #print(aa, degenerate_codons)
+        aa2degenerate_codons[aa] = degenerate_codons
+

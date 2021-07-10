@@ -459,7 +459,7 @@ def setup_filtered_clonotype_dicts(
     '''
 
     # get count of how many cells support each pairing
-    #
+    #  (pairing_counts_by_umi was just for diagnostics)
     pairing_counts, pairing_counts_by_umi = Counter(), Counter()
     for cid, tcrs in clonotype2tcrs.items():
         size = len(clonotype2barcodes[cid])

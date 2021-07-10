@@ -156,8 +156,8 @@ def make_tcr_tree_svg_commands(
             all_center_dists[ (fake_ic,fake_jc) ] = all_dists[center][other_center]
 
 
-    print('num_tcrs:',len(tcrs),'num_clusters:',len(centers),'fake_num_tcrs',sum(sizes),\
-        'fake_num_clusters:',len(sizes))
+    #print('num_tcrs:',len(tcrs),'num_clusters:',len(centers),
+    #      'fake_num_tcrs',sum(sizes),'fake_num_clusters:',len(sizes))
 
     cmds = []
     toplabel_fontsize = 15
@@ -331,7 +331,7 @@ def make_tcr_tree_svg_commands(
         for (loc,edge) in reversed(l): # from bottom to top
             if glyph_location[edge] < min_glyph_loc:
                 glyph_location[edge] += stepsize
-                print('bump3', loc)
+                #print('bump3', loc)
                 bump = True
 
         if not bump:

@@ -40,7 +40,7 @@ for ab in 'AB':
         'NC':None,
         }
     model_file = Path.joinpath( Path(util.path_to_data),f'cd8_logreg_params_{ab}.txt')
-    tags, weights = [], []
+    mtags, weights = [], []
     #print(f'loading cd8 model for chain {ab} {model_file}')
     with open(model_file, 'r') as data:
         for line in data:
@@ -49,16 +49,16 @@ for ab in 'AB':
             if tag in model_params:
                 model_params[tag] = int(value)
             else:
-                tags.append(tag)
+                mtags.append(tag)
                 weights.append(float(value))
     NV, NJ, NL, NC = [model_params[x] for x in 'NV NJ NL NC'.split()]
     NTOT = NV + NJ + NL + NC
-    assert tags[-1] == 'BIAS'
+    assert mtags[-1] == 'BIAS'
     bias = float(weights[-1])
     assert len(weights) == NTOT+1
     weights = np.array(weights)
-    vgenes = tags[:NV-1] # last is UNK gene
-    jgenes = tags[NV:NV+NJ-1]
+    vgenes = mtags[:NV-1] # last is UNK gene
+    jgenes = mtags[NV:NV+NJ-1]
     assert all(x.startswith(f'TR{ab}V') for x in vgenes)
     assert all(x.startswith(f'TR{ab}J') for x in jgenes)
     vgene_indexer = {x:i for i,x in enumerate(vgenes)}

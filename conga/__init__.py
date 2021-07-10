@@ -8,6 +8,9 @@ from . import imhc_scoring
 from . import cd8_scoring
 from . import tcrdist
 from . import tcr_clumping
+from . import devel # where development / possibly legacy / unused code goes
+from . import tags
+
 
 
 

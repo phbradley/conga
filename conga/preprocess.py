@@ -210,7 +210,7 @@ def read_adata(
               "should be one of ['h5ad', '10x_mtx', '10x_h5', 'loom']")
         exit()
 
-    if adata.isview: # this is so weird
+    if adata.isview: # ran into trouble with AnnData views vs copies
         adata = adata.copy()
     return adata
 
@@ -224,7 +224,6 @@ def read_dataset(
         allow_missing_kpca_file = False, # only relevant if clones_file!=None
         gex_only=True, #only applies to 10x-formatted data
         suffix_for_non_gene_features=None, #None or a string
-        save_stats=None,
 ):
     ''' returns adata
 
@@ -240,9 +239,10 @@ def read_dataset(
 
     adata = read_adata(gex_data, gex_data_type, gex_only=gex_only)
 
-    if save_stats is not None:
-        save_stats['num_cells_w_gex'] = adata.shape[0]
-        save_stats['num_features_start'] = adata.shape[1]
+    util.setup_uns_dicts(adata) # for storing conga results
+
+    adata.uns['conga_stats']['num_cells_w_gex'] = adata.shape[0]
+    adata.uns['conga_stats']['num_features_start'] = adata.shape[1]
 
     if suffix_for_non_gene_features is not None:
         feature_types_colname = util.get_feature_types_varname( adata )
@@ -373,12 +373,9 @@ def read_dataset(
     mask = [ x in barcode2tcr for x in adata.obs.index ]
 
     print(f'Reducing to the {np.sum(mask)} barcodes (out of {adata.shape[0]}) with paired TCR sequence data')
-    assert not adata.isview
     #adata = adata[mask,:]
     adata = adata[mask,:].copy()
-    assert not adata.isview
-    if save_stats is not None:
-        save_stats['num_cells_w_tcr'] = adata.shape[0]
+    adata.uns['conga_stats']['num_cells_w_tcr'] = adata.shape[0]
 
     if not missing_kpca_file: # stash the kPCA info in adata.obsm
         X_kpca = np.array( [ barcode2kpcs[x] for x in adata.obs.index ] )
@@ -395,57 +392,66 @@ def read_dataset(
 #return or pass in adata?
 def filter_normalize_and_hvg(
         adata,
-        min_genes=None,
-        n_genes=None,
-        percent_mito=None,
-        min_cells=3,
-        hvg_min_mean = 0.0125,
-        hvg_max_mean=3,
-        antibody = False,
+        min_genes_per_cell=None,
+        max_genes_per_cell=None,
+        max_percent_mito=None,
+        min_cells_per_gene=3,
+        hvg_min_mean= 0.0125, #hvg= highly variable genes
+        hvg_max_mean= 3,
         hvg_min_disp=0.5,
-        exclude_TR_genes = True,
-        also_exclude_TR_constant_region_genes = True, ## this is NEW and not the default for the old TCR analysis!!!!
+        exclude_TR_genes = True, # this should really be True
+        also_exclude_TR_constant_region_genes = True,
         exclude_sexlinked = False,
         outfile_prefix_for_qc_plots = None,
         normalize_antibody_features_CLR=True, # centered log normalize
 ):
     '''Filters cells and genes to find highly variable genes'''
+    if not exclude_TR_genes:
+        print('WARNING!!! conga.preprocess.filter_normalize_and_hvg::',
+              'exclude_TR_genes should be True unless you have a really',
+              'good reason!!!')
+
+    util.setup_uns_dicts(adata) # in case not set
 
     organism = adata.uns['organism']
 
-    if min_genes is None:
-        min_genes=200
-        print('min_genes not set. Using default ' + str(min_genes) )
+    if min_genes_per_cell is None:
+        min_genes_per_cell = 200
+        print('min_genes_per_cell not set. Using default',
+              min_genes_per_cell)
 
-    if n_genes is None:
-        n_genes=2500 # change from 2000 to 2500 on 2020-10-24. Ideally these would be set on a per-dataset basis
+    if max_genes_per_cell is None:
+        # change from 2000 to 2500 on 2020-10-24.
+        # Ideally these parameters would be set on a per-dataset basis
+        max_genes_per_cell=2500
         # on a per-dataset basis
-        print('n_genes not set. Using default ' + str(n_genes) )
+        print('max_genes_per_cell not set. Using default',
+              max_genes_per_cell)
 
-    if percent_mito is None:
-        percent_mito=0.1
-        print('percent_mito not set. Using default ' + str(percent_mito) )
-
-    ## notes:
-    ## * AGTB specific things that we removed
-    ##   - exclude "antibody" features before normalizing
-    ##   - "qcheck" thingy
+    if max_percent_mito is None:
+        max_percent_mito=0.1
+        print('max_percent_mito not set. Using default',
+              max_percent_mito)
 
     global all_sexlinked_genes
+
+    adata.uns['conga_stats']['min_genes_per_cell'] = min_genes_per_cell
+    adata.uns['conga_stats']['max_genes_per_cell'] = max_genes_per_cell
+    adata.uns['conga_stats']['max_percent_mito'] = max_percent_mito
 
     #filters out cells with less than given number of genes expressed (200)
     #filters out genes present in less than given number of cells (3)
     #adds n_genes to obs
-    sc.pp.filter_cells(adata, min_genes=min_genes)
-    assert not adata.isview
-    sc.pp.filter_genes(adata, min_cells=min_cells)
-    assert not adata.isview
+    sc.pp.filter_cells(adata, min_genes=min_genes_per_cell)
+    sc.pp.filter_genes(adata, min_cells=min_cells_per_gene)
 
 
     #find mitochondrial genes
     #add percent_mito and n_counts to obs
-    mito_genesA = ( adata.var_names.str.startswith('MT-') | adata.var_names.str.startswith('mt-') )
-    adata.obs['percent_mito'] = np.sum(adata[:, mito_genesA].X, axis=1).A1 / np.sum(adata.X, axis=1).A1
+    mito_genesA = (adata.var_names.str.startswith('MT-') |
+                   adata.var_names.str.startswith('mt-'))
+    adata.obs['percent_mito'] = (np.sum(adata[:, mito_genesA].X, axis=1).A1 /
+                                 np.sum(adata.X, axis=1).A1)
     adata.obs['n_counts'] = adata.X.sum(axis=1).A1
 
     if outfile_prefix_for_qc_plots is not None:
@@ -458,7 +464,8 @@ def filter_normalize_and_hvg(
 
         pngfile = outfile_prefix_for_qc_plots+'_counts_vs_genes.png'
         plt.figure(figsize=(8,8))
-        plt.scatter(adata.obs['n_counts'], adata.obs['n_genes'], s=5, c=adata.obs['percent_mito'])
+        plt.scatter(adata.obs['n_counts'], adata.obs['n_genes'], s=5,
+                    c=adata.obs['percent_mito'])
         plt.colorbar()
         plt.xlabel('n_counts')
         plt.ylabel('n_genes')
@@ -469,24 +476,27 @@ def filter_normalize_and_hvg(
 
 
     #filter n_genes and percent_mito based on param
-    print('filtered out {} cells with more than {} genes'\
-          .format( np.sum( adata.obs['n_genes'] >= n_genes ), n_genes ) )
-    assert not adata.isview
-    adata = adata[adata.obs['n_genes'] < n_genes, :].copy()
-    assert not adata.isview
-    print('filtered out {} cells with more than {} percent mito'\
-          .format( np.sum( adata.obs['percent_mito'] >= percent_mito ), percent_mito ) )
-    adata = adata[adata.obs['percent_mito'] < percent_mito, :].copy()
-    assert not adata.isview
+    num_filt = np.sum(adata.obs['n_genes'] >= max_genes_per_cell)
+    adata     = adata[adata.obs['n_genes']  < max_genes_per_cell, :].copy()
+    print(f'filtered out {num_filt} cells with more than {max_genes_per_cell}',
+          'genes')
+    adata.uns['conga_stats']['num_filt_max_genes_per_cell'] = num_filt
+
+    num_filt = np.sum(adata.obs['percent_mito'] >= max_percent_mito)
+    adata     = adata[adata.obs['percent_mito']  < max_percent_mito, :].copy()
+    print(f'filtered out {num_filt} cells with more than {max_percent_mito}',
+          'percent mito')
+    adata.uns['conga_stats']['num_filt_max_percent_mito'] = num_filt
 
     adata.raw = adata
 
     feature_types_colname = util.get_feature_types_varname( adata )
     if feature_types_colname:
-        mask = (adata.var[feature_types_colname]=='Antibody Capture' )
+        mask = (adata.var[feature_types_colname] ==
+                util.ANTIBODY_CAPTURE_FEATURE_TYPE)
         print('num antibody features:', np.sum(mask))
+        adata.uns['conga_stats']['num_antibody_features'] = np.sum(mask)
         if np.sum(mask):
-            assert not antibody # sanity check
             adata = adata[:,~mask].copy()
             removed_at_end = (np.sum(mask[:adata.shape[1]])==0)
             print('Removed {} antibody features from adata, using colname {}'\
@@ -498,18 +508,34 @@ def filter_normalize_and_hvg(
     sc.pp.log1p(adata)
 
     #find and filter by highly variable genes
-    sc.pp.highly_variable_genes(adata, min_mean=hvg_min_mean, max_mean=hvg_max_mean, min_disp=hvg_min_disp)
+    sc.pp.highly_variable_genes(adata, min_mean=hvg_min_mean,
+                                max_mean=hvg_max_mean, min_disp=hvg_min_disp)
     hvg_mask = np.array(adata.var['highly_variable'])
+
+    # allow the user to specify which variable genes to use
+    if 'force_variable_genes' in adata.uns.keys():
+        force_variable_genes = set(adata.uns['force_variable_genes'])
+        hvg_mask = np.array([x in force_variable_genes
+                             for x in adata.var_names])
+        print('using user-specified variable genes:',
+              len(force_variable_genes), np.sum(hvg_mask))
+        print('will still exclude TR/IG genes as appropriate, and sex-linked',
+              'genes if requested')
 
     # exclude TCR genes
     if exclude_TR_genes:
         is_tr = []
         for gene in adata.var.index:
-            is_tr.append( util.is_vdj_gene(gene, organism,
-                                           include_constant_regions=also_exclude_TR_constant_region_genes))
-        print('excluding {} TR genes ({} variable)'.format(sum(is_tr), sum(hvg_mask[is_tr])))
+            is_tr.append(util.is_vdj_gene(
+                gene, organism, include_constant_regions=
+                also_exclude_TR_constant_region_genes))
+        num_tr = np.sum(is_tr)
+        num_variable_tr = np.sum(hvg_mask[is_tr])
+        print(f'excluding {num_tr} TR genes ({num_variable_tr} variable)')
+        adata.uns['conga_stats']['num_TR_genes'] = num_tr
+        adata.uns['conga_stats']['num_TR_genes_in_hvg_set'] = num_variable_tr
         hvg_mask[is_tr] = False
-        assert sum( hvg_mask[is_tr] )==0 # sanity check
+        assert sum(hvg_mask[is_tr])==0 # sanity check
 
     if exclude_sexlinked:
         is_sexlinked = [ x in all_sexlinked_genes for x in adata.var.index ]
@@ -518,6 +544,8 @@ def filter_normalize_and_hvg(
 
     print('total of', np.sum(hvg_mask), 'variable genes', adata.shape)
     adata = adata[:, hvg_mask].copy()
+    adata.uns['conga_stats']['num_highly_variable_genes'] = adata.shape[1]
+    adata.uns['conga_stats']['num_cells_after_filtering'] = adata.shape[0]
 
     # new: normalize the raw matrix here; used to do this later
     adata = normalize_and_log_the_raw_matrix(
@@ -625,14 +653,20 @@ def cluster_and_tsne_and_umap(
         adata.obsm['X_pca_gex'] = adata.obsm['X_pca']
 
     assert 'X_pca_gex' in adata.obsm_keys()
-    if not skip_tcr:
-        assert 'X_pca_tcr' in adata.obsm_keys()
-
+    # if not skip_tcr:
+    #     assert 'X_pca_tcr' in adata.obsm_keys()
 
     for tag in ['gex','tcr']:
         if skip_tcr and tag=='tcr':
             # might want to do this if we havent reduced to clones yet
             # or if we are using exact TCRdist neighbors instead of kernel PCs
+            continue
+
+        if tag == 'tcr' and 'X_pca_tcr' not in adata.obsm_keys():
+            print('preprocess.cluster_and_tsne_and_umap:: X_pca_tcr is'
+                  ' not present in adata.obsm; using exact tcrdist nbrs'
+                  ' for umap and clustering')
+            calc_tcrdist_nbrs_umap_clusters_cpp(adata, n_neighbors)
             continue
 
         adata.obsm['X_pca'] = adata.obsm['X_pca_'+tag]
@@ -669,23 +703,29 @@ def cluster_and_tsne_and_umap(
         adata.obsm['X_{}_2d'.format(tag)] = adata.obsm['X_umap_'+tag]
 
 
-    del adata.obsm['X_umap']
-    del adata.obsm['X_pca']
+    if 'X_umap' in adata.obsm_keys():
+        del adata.obsm['X_umap']
+    if 'X_pca' in adata.obsm_keys():
+        del adata.obsm['X_pca']
 
     return adata
 
 def filter_and_scale(
         adata,
-        min_genes = None,
-        n_genes= None,
-        percent_mito= None,
-        outfile_prefix_for_qc_plots = None,
+        min_genes_per_cell= None, # defaults are in filter_normalize_and_hvg
+        max_genes_per_cell= None,
+        max_percent_mito= None,
+        outfile_prefix_for_qc_plots= None,
         normalize_antibody_features_CLR=True, # centered log normalize
 ):
-    ## now process as before
+    ## filter, normalize, identify highly variable genes ('hvg')
     adata = filter_normalize_and_hvg(
-        adata, min_genes=min_genes, n_genes=n_genes, percent_mito=percent_mito,
-        exclude_TR_genes= True, exclude_sexlinked=True,
+        adata,
+        min_genes_per_cell=min_genes_per_cell,
+        max_genes_per_cell=max_genes_per_cell,
+        max_percent_mito=max_percent_mito,
+        exclude_TR_genes= True,
+        exclude_sexlinked=True,
         outfile_prefix_for_qc_plots=outfile_prefix_for_qc_plots,
         normalize_antibody_features_CLR=normalize_antibody_features_CLR,
     )
@@ -719,6 +759,8 @@ def reduce_to_single_cell_per_clone(
     obs: clone_sizes
     '''
 
+    util.setup_uns_dicts(adata) # just in case
+
     # compute pcs
     if use_existing_pca_obsm_tag is None:
         print('compute pca to find rep cell for each clone', adata.shape)
@@ -737,6 +779,7 @@ def reduce_to_single_cell_per_clone(
 
     num_clones = len(tcrs)
     print('num_clones:',num_clones)
+    adata.uns['conga_stats']['num_clonotypes'] = num_clones
 
     tcr2clone_id = { y:x for x,y in enumerate(tcrs) }
 
@@ -762,10 +805,12 @@ def reduce_to_single_cell_per_clone(
             assert np.min(adata.obs[k]) >= 0
             max_val = np.max(adata.obs[k])
             if max_val==0: # we need at least two choices for obsm
-                print(f'WARNING adding fake extra option "1" for batch key {k} so we can store counts in obsm')
+                print(f'WARNING adding fake extra option "1" for batch key {k}',
+                      'so we can store counts in obsm')
                 max_val = 1
             num_batch_key_choices[k] = max_val+1
-            print(f'storing clone batch counts for key {k} with {num_batch_key_choices[k]} choices in adata.obsm')
+            print(f'storing clone batch counts for key {k} with '
+                  f'{num_batch_key_choices[k]} choices in adata.obsm')
     else:
         batch_keys = None
 
@@ -785,7 +830,8 @@ def reduce_to_single_cell_per_clone(
     ## rep_cell_indices is parallel with and aligned to the tcrs list
     for c in range(num_clones):
         if c%1000==0:
-            print('choose representative cell for clone:', c, num_clones, adata.shape)
+            print('choose representative cell for clone:', c, num_clones,
+                  adata.shape)
             sys.stdout.flush()
         clone_mask = clone_ids==c
         clone_cells = np.nonzero(clone_mask)[0] #array( [ x for x,y in enumerate(clone_ids) if y==c] )
@@ -829,6 +875,8 @@ def reduce_to_single_cell_per_clone(
     adata = adata[ rep_cell_indices, : ].copy() ## seems like we need to copy here, something to do with adata 'views'
     adata.obs['clone_sizes'] = np.array( clone_sizes )
     adata.obs['gex_variation'] = np.sqrt(np.array( gex_var ))
+    adata.uns['conga_stats']['max_clonotype_size'] = np.max(clone_sizes)
+    adata.uns['conga_stats']['num_singleton_clonotypes'] = clone_sizes.count(1)
 
     if average_clone_gex:
         print('vstacking new_X_rows...'); sys.stdout.flush()
@@ -877,57 +925,6 @@ def write_proj_info( adata, outfile ):
                           ' '.join(tcrs[ii][0]), ' '.join(tcrs[ii][1])))
     out.close()
 
-
-
-def filter_cells_by_ribo_norm(adata):
-    ''' returns  new filtered adata
-    will normalize_and_log_the_raw_matrix if not already done
-    '''
-    from scipy.stats import gaussian_kde
-
-    normalize_and_log_the_raw_matrix(adata)
-
-    X_norm = adata.raw.X
-
-    X_norm_ribo = []
-    var_names = [x.upper() for x in adata.raw.var_names ] ## NOTE UPPER-- help for mouse
-    for ig,g in enumerate(var_names):
-        if g.startswith('RP') and len(g)>=4 and g[2] in 'SL' and g[3].isdigit():
-            X_norm_ribo.append( X_norm[:,ig].toarray() )
-
-    X_norm_ribo = np.sum(np.hstack( X_norm_ribo ), axis=1 )/len(X_norm_ribo)
-
-    dens = gaussian_kde(X_norm_ribo)
-    # look for two maxima and a minima in between
-    # or look for the closest minimum to 2.0
-    step = 0.01
-    x=2.0
-    while True:
-        y0 = dens(x)[0]
-        yl = dens(x-step)[0]
-        yr = dens(x+step)[0]
-        print('filter_cells_by_ribo_norm:: minfind:',x,y0,yl,yr)
-        if yl < yr:
-            if yl < y0:
-                x = x-step
-            else:
-                # found a local min
-                ribo_norm_threshold=x
-                break
-        else:
-            if yr < y0:
-                x = x+step
-            else:
-                ribo_norm_threshold=x
-                break
-    print('filter_cells_by_ribo_norm:: ribo_norm localmin:',ribo_norm_threshold)
-
-    mask = (X_norm_ribo>ribo_norm_threshold)
-    print('filter_cells_by_ribo_norm::', adata.shape, 'downto:', np.sum(mask))
-    sys.stdout.flush()
-    adata = adata[mask,:].copy()
-    assert np.sum(mask) == adata.shape[0]
-    return adata
 
 
 def setup_tcr_groups_for_tcrs( tcrs ):
@@ -990,6 +987,12 @@ def calc_nbrs_batched(
 
     if use_exact_tcrdist_nbrs:
         obsm_tag_tcr = None # dont do the standard calculation
+
+    if obsm_tag_tcr is not None and obsm_tag_tcr not in adata.obsm_keys():
+        print('calc_nbrs: obsm_tag_tcr not present in adata.obsm so'
+              ' calculating exact tcrdist nbrs')
+        obsm_tag_tcr = None
+        use_exact_tcrdist_nbrs = True
 
     N = adata.shape[0]
     # try for a dataset size of target_N, ie batch_size*N = target_N**2,
@@ -1103,6 +1106,12 @@ def calc_nbrs(
     if use_exact_tcrdist_nbrs:
         obsm_tag_tcr = None # dont do the standard calculation
 
+    if obsm_tag_tcr is not None and obsm_tag_tcr not in adata.obsm_keys():
+        print('calc_nbrs: obsm_tag_tcr not present in adata.obsm'
+              ' calculating exact tcrdist nbrs')
+        obsm_tag_tcr = None
+        use_exact_tcrdist_nbrs = True
+
     all_nbrs = {}
     for nbr_frac in nbr_fracs:
         all_nbrs[nbr_frac] = [ None, None ]
@@ -1189,7 +1198,7 @@ def calculate_tcrdist_nbrs_python(
 
     tcrs = retrieve_tcrs_from_adata(adata)
 
-    tcrdist = TcrDistCalculator(adata.uns['organism'])
+    tcrdister = TcrDistCalculator(adata.uns['organism'])
 
     num_clones = adata.shape[0]
 
@@ -1204,7 +1213,7 @@ def calculate_tcrdist_nbrs_python(
             print('recalculate_tcrdist_nbrs:', ii, num_clones)
             sys.stdout.flush()
         ii_tcr = tcrs[ii]
-        dists = np.array([ tcrdist(ii_tcr, x) for x in tcrs])
+        dists = np.array([ tcrdister(ii_tcr, x) for x in tcrs])
         dists[ agroups==agroups[ii] ] = 1e3
         dists[ bgroups==bgroups[ii] ] = 1e3
         for nbr_frac in nbr_fracs: # could do this more efficiently by going in decreasing order, saving partitions...
@@ -1660,13 +1669,16 @@ def condense_clones_file_and_barcode_mapping_file_by_tcrdist(
 def calc_tcrdist_nbrs_umap_clusters_cpp(
         adata,
         num_nbrs,
-        outfile_prefix,
-        umap_key_added = 'X_tcrdist_2d',
-        cluster_key_added = 'clusters_tcrdist',
+        tmpfile_prefix = None, # old name outfile_prefix, confusing
+        umap_key_added = 'X_tcr_2d', # change to default loc
+        cluster_key_added = 'clusters_tcr', # change to default loc
         clustering_resolution = None,
         n_components_umap = 2,
 ):
-    tcrs_filename = outfile_prefix+'_tcrs.tsv'
+    if tmpfile_prefix is None:
+        tmpfile_prefix = f'tmp_tcrdists{random.randrange(1,10000)}'
+
+    tcrs_filename = tmpfile_prefix+'_tcrs.tsv'
     adata.obs['va cdr3a vb cdr3b'.split()].to_csv(tcrs_filename, sep='\t', index=False)
 
     if os.name == 'posix':
@@ -1684,7 +1696,7 @@ def calc_tcrdist_nbrs_umap_clusters_cpp(
         print('need to create database file:', db_filename)
         exit(1)
 
-    outprefix = outfile_prefix+'_calc_tcrdist'
+    outprefix = tmpfile_prefix+'_calc_tcrdist'
 
     cmd = '{} -f {} -n {} -d {} -o {}'.format(exe, tcrs_filename, num_nbrs, db_filename, outprefix)
 
@@ -1733,7 +1745,7 @@ def calc_tcrdist_nbrs_umap_clusters_cpp(
     adata.uns['neighbors']['connectivities'] = connectivities
 
     # as far as I can tell, these are used if there are multiple components in the graph...
-    print('putting random pca vectors into adata!!!')
+    print('temporarily putting random pca vectors into adata...')
     fake_pca = np.random.randn(adata.shape[0], 10)
     adata.obsm['X_pca'] = fake_pca
 

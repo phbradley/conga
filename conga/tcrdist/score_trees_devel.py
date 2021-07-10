@@ -357,8 +357,8 @@ def Canvas_tree(tree, names, sizes, upper_left, lower_right, branch_width_fracti
     remainder = plot_height - total
     cluster_width = float(remainder)/len(names) ## padding alotted to each cluster
 
-    print('branch_width_pixels: {:.2f} plot_height: {:.2f} cluster_padding: {:.3f} w_factor: {:.3f} num_clusters: {} total_members: {}'\
-        .format( branch_width_pixels,plot_height,cluster_width,w_factor,len(sizes),sum(sizes)))
+    #print('branch_width_pixels: {:.2f} plot_height: {:.2f} cluster_padding: {:.3f} w_factor: {:.3f} num_clusters: {} total_members: {}'\
+    #    .format( branch_width_pixels,plot_height,cluster_width,w_factor,len(sizes),sum(sizes)))
 
     ## position nodes vertically on tree
     nodes = Node_members(tree)
@@ -400,7 +400,7 @@ def Canvas_tree(tree, names, sizes, upper_left, lower_right, branch_width_fracti
 
     min_score = min(scores)
     max_score = max(scores)
-    print('min_score:',min_score,'max_score:',max_score,score_range_for_coloring)
+    #print('min_score:',min_score,'max_score:',max_score,score_range_for_coloring)
     if max_score == min_score:
         max_score = max_score + 1
     if score_range_for_coloring:

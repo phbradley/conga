@@ -5,8 +5,9 @@ import os.path
 from pathlib import Path
 import os
 from scipy.sparse import issparse
-from collections import Counter
+from collections import Counter, OrderedDict
 import subprocess
+from . import tags
 
 # try not to have any conga imports here
 #
@@ -147,4 +148,58 @@ def get_feature_types_varname( adata ):
     print('unable to find feature_types varname')
     print(adata.var_names)
     return None
+
+
+
+
+def setup_uns_dicts(adata):
+    if 'conga_results' not in adata.uns_keys():
+        adata.uns['conga_results'] = {}
+
+    if 'conga_stats' not in adata.uns_keys():
+        adata.uns['conga_stats'] = OrderedDict()
+
+
+
+def save_table_and_helpfile(
+        table_tag,
+        adata,
+        outfile_prefix
+):
+    if ('conga_results' not in adata.uns or
+        table_tag not in adata.uns['conga_results']):
+        print('ERROR missing results for table_tag:', table_tag)
+        return
+
+    results = adata.uns['conga_results'][table_tag]
+    tsvfile = f'{outfile_prefix}_{table_tag}.tsv'
+    results.to_csv(tsvfile, sep='\t', index=False)
+    print('saved', table_tag, 'results to tsvfile:', tsvfile)
+
+    help_tag = table_tag + tags.HELP_SUFFIX
+    if help_tag not in adata.uns['conga_results']:
+        print('WARNING: no help for table', table_tag)
+        return
+
+    helpfile = tsvfile+'_README.txt'
+    out = open(helpfile, 'w')
+    out.write(adata.uns['conga_results'][help_tag])
+    out.close()
+
+
+def make_figure_helpfile(
+        figure_tag,
+        adata,
+):
+    pngfile = adata.uns['conga_results'][figure_tag]
+    help_message = adata.uns['conga_results'].get(
+        figure_tag+tags.HELP_SUFFIX, '')
+    if help_message:
+        helpfile = pngfile+'_README.txt'
+        out = open(helpfile, 'w')
+        print('writing help message to file:', helpfile)
+        out.write(help_message+'\n')
+        out.close()
+    else:
+        print('WARNING: no help message for figure_tag:', figure_tag)
 
