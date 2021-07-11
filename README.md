@@ -259,17 +259,24 @@ The `conga` image-making pipeline requires an svg to png conversion. There seem 
 options for doing this, with the best choice being somewhat platform dependent. We've had good luck with
 ImageMagick `convert` (on Linux, MacOS, and Windows) and Inkscape (on mac).
 
-On Mac, we recommend installing ImageMagick using Homebrew with:
-`brew install imagemagick`
+On Mac, we recommend installing Inkscape (https://inkscape.org/ or via conda
+`conda install -c conda-forge inkscape`)
 
-or via conda:
-`conda install -c conda-forge imagemagick`
+or
+
+ImageMagick (using Homebrew with `brew install imagemagick` or
+via conda with `conda install -c conda-forge imagemagick`).
 
 On Windows, we recommend the self-installing executable available from ImageMagick:
 (https://imagemagick.org/script/download.php)
 
+Another possibility is `pip install cairosvg` from within the relevant
+environment.
+
 The conversion is handled in the file `conga/convert_svg_to_png.py`, so you can modify that file if things are
-not working and you have a tool installed; `conga` may not be looking in the right place. Also if the fonts
+not working and you have a tool installed; `conga` may not be looking in the right place. For example, the Inkscape install location on Mac seems to
+switch around; it may be necessary to fiddle with the variable
+`PATH_TO_INKSCAPE` in `conga/convert_svg_to_png.py`. Also if the fonts
 in the TCR/BCR logos look bad you could try switching the MONOSPACE_FONT_FAMILY
 variable in that python file (see comments at the top of the file).
 
