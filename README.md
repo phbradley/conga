@@ -1,6 +1,6 @@
-# [2021-07-18] We are just finishing a big refactor. There may be a few glitches...*
-
 # Clonotype Neighbor Graph Analysis (CoNGA) -- pre-beta
+
+## [2021-07-18] We are just finishing a big refactor. There may still be a few glitches...
 
 This repository contains the `conga` python package and associated scripts
 and workflows. `conga` was developed to detect correlation between
