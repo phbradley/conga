@@ -34,7 +34,7 @@ import time #debugging
 ## thanks to Matt Weirauch and collaborators
 ##
 try:
-    _tfs_listfile = path_to_data / 'Lambert_et_al_PMID_29425488_TF_names_v_1.01.txt'
+    _tfs_listfile = util.path_to_data / 'Lambert_et_al_PMID_29425488_TF_names_v_1.01.txt'
     human_tf_gene_names = [x.split()[0] for x in open(_tfs_listfile,'r')]
 except:
     print('conga.devel:: failed to read human TFs list; prob not a big deal')
