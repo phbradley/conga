@@ -2151,9 +2151,7 @@ def make_raw_feature_scores_table(
                         if y]
     inds0 = [x[0] for x in gene_index_pairs]
     inds1 = [x[1] for x in gene_index_pairs]
-    print('slicing adata.raw.X')
     gene_scores = adata.raw.X[:,inds1].toarray()
-    print('DONE slicing adata.raw.X')
     scoretable[:, inds0] = gene_scores
 
     if np.sum(is_tcr_feature): # get the tcr features
@@ -2298,7 +2296,6 @@ def filter_sorted_features_by_correlation(
         reps.append(rep)
         if len(members)>1:
             duplicates[f] = [features[x] for x in members[1:]]
-            print(f, len(members), duplicates[f])
 
     # preserve the sort by importance:
     reps.sort()
@@ -2411,12 +2408,12 @@ def plot_interesting_features_vs_clustermap(
 
     A_mn = np.mean(A, axis=1)
     A_std = np.maximum(np.std(A, axis=1), 1e-9) # no divide by 0
-    print('normalize A')
     A = (A-A_mn[:,None])/A_std[:,None]
 
     if compute_nbr_averages:
         num_neighbors = nbrs.shape[1]
-        print('nbr-avging A', num_neighbors, len(features))
+        if verbose:
+            print('nbr-avging A', num_neighbors, len(features))
         last_time = time.time()
         Asum = A.copy()
         for i,ii_nbrs in enumerate(nbrs):
@@ -2426,14 +2423,14 @@ def plot_interesting_features_vs_clustermap(
             for j in ii_nbrs:
                 Asum[:,i] += A[:,j]
         A = Asum / (num_neighbors+1)
-        print('DONE nbr-avging A')
 
         # lighten the colors of the features of the same type as the
         # landscape and nbrs, since they will be correlated across neighborhoods
         # and not comparable to the features of the other type (gex or tcr)
         is_dist_feature_type = np.array([x==dist_tag for x in feature_types])
-        print('rescale scores for:', np.sum(is_dist_feature_type), 'features',
-              'by', rescale_factor_for_self_features)
+        if verbose:
+            print('rescale scores for:', np.sum(is_dist_feature_type),
+                  'features by', rescale_factor_for_self_features)
         A[is_dist_feature_type,:] *= rescale_factor_for_self_features
 
 
@@ -2448,7 +2445,6 @@ def plot_interesting_features_vs_clustermap(
         if np.sum(ftype_mask) > max_type_features:
             # have to eliminate some
             A_ftype = A[ftype_mask,:].copy()
-            print('computing correlations:', A_ftype.shape)
             C_ftype = 1-distance.squareform(
                 distance.pdist(A_ftype, metric='correlation'), force='tomatrix')
             new_features, duplicates = filter_sorted_features_by_correlation(
@@ -2597,8 +2593,7 @@ def plot_interesting_features_vs_clustermap(
     fig_height = (ymargin_top + col_dendro_height + col_colors_height +
                   heatmap_height + ymargin_bottom)
 
-    print('making clustermap; num_features=', len(features),
-          'ymargin_top=', ymargin_top)
+    print('making clustermap; num_features=', len(features))
 
     x0 = xmargin/fig_width
     x1 = (xmargin+row_dendro_width)/fig_width
