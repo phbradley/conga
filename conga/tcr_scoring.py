@@ -26,16 +26,19 @@ assert exists(aa_props_file)
 aa_props_df = pd.read_csv(aa_props_file, sep='\t')
 aa_props_df.set_index('aa', inplace=True)
 
-# all_tcr_scorenames = ['alphadist', 'cd8', 'cdr3len', 'imhc', 'mait', 'inkt'] +\
-#                      [ '{}_{}'.format(x,y) for x in aa_props_df.columns for y in cdr3_score_modes ]
-
-#tmp hacking SIMPLIFY -- dont include info on which version of the loop is used for scoring
-all_tcr_scorenames = ['alphadist', 'cd8', 'cdr3len', 'imhc', 'mait', 'inkt', 'nndists_tcr'] + list(aa_props_df.columns)
-
 amino_acids = ['A', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'K', 'L', \
                'M', 'N', 'P', 'Q', 'R', 'S', 'T', 'V', 'W', 'Y']
 
+aa_counts_df = pd.DataFrame(
+    {x:{y:float(y==x) for y in amino_acids} for x in amino_acids})
+
+all_tcr_scorenames = ['alphadist', 'cd8', 'cdr3len', 'imhc', 'mait',
+                      'inkt', 'nndists_tcr'] + list(aa_props_df.columns)
+
+
 def read_cd8_score_params():
+    ''' This is the old cd8 score
+    '''
     # setup the scoring params
     # made by read_flunica_gene_usage_clustermaps*py
     infofile = Path.joinpath( Path(util.path_to_data), 'cd48_score_params_nomait.txt')
@@ -84,12 +87,14 @@ def read_cd8_score_params():
 all_scorevals = read_cd8_score_params()
 
 def cd8_score_tcr_chain( ab, v, j, cdr3 ):
+    ''' This is the old cd8 score
+    '''
     global all_scorevals
 
-    cdr3_len_ranges = { 'A': ( min( int(x) for x in all_scorevals['A']['cdr3_len'] ),
-                               max( int(x) for x in all_scorevals['A']['cdr3_len'] ) ),
-                        'B': ( min( int(x) for x in all_scorevals['B']['cdr3_len'] ),
-                               max( int(x) for x in all_scorevals['B']['cdr3_len'] ) ) }
+    cdr3_len_ranges= {'A':(min(int(x) for x in all_scorevals['A']['cdr3_len']),
+                           max(int(x) for x in all_scorevals['A']['cdr3_len'])),
+                      'B':(min(int(x) for x in all_scorevals['B']['cdr3_len']),
+                           max(int(x) for x in all_scorevals['B']['cdr3_len']))}
 
     assert ab in 'AB'
     if '*' in v:
@@ -229,7 +234,7 @@ def cdr3len_score_tcr(tcr):
 
 
 def property_score_cdr3(cdr3, score_name, score_mode):
-    ''' Currently averages the score over the number of aas scores
+    ''' Currently averages the score over the number of aas scored
     '''
     global aa_props_df
     global cdr3_score_CENTER
@@ -237,7 +242,11 @@ def property_score_cdr3(cdr3, score_name, score_mode):
     global fg_trim
     global center_len
 
-    col = aa_props_df[score_name]
+    if score_name[0] in amino_acids and score_name[1:] == '_frac':
+        aa = score_name[0]
+        col = aa_counts_df[aa]
+    else:
+        col = aa_props_df[score_name]
 
     if score_mode == cdr3_score_CENTER:
         cdr3 = cdr3[1:] # trim off the first 'C', makes structurally symmetric
@@ -245,26 +254,34 @@ def property_score_cdr3(cdr3, score_name, score_mode):
             return np.mean(col)
         else:
             ntrim = (len(cdr3)-center_len)//2
-            return sum(col[aa] for aa in cdr3[ntrim:ntrim+center_len])/center_len
+            return (sum(col[aa] for aa in cdr3[ntrim:ntrim+center_len])/
+                    center_len)
 
     elif score_mode == cdr3_score_FG:
         fgloop = cdr3[fg_trim:-fg_trim]
         if fgloop:
             return sum( col[aa] for aa in fgloop )/len(fgloop)
         else:
-            return np.mean(col) # was returning 0 here; prob should use aa-frequency-weighted average...
+            return np.mean(col) # prob should use aa-frequency-weighted average
     else:
         print( 'property_score_cdr3:: unrecognized score_mode:', score_mode)
         exit()
         return 0.0
 
-def property_score_tcr(tcr, score_name, score_mode, alpha_weight=1.0, beta_weight=1.0):
-    return ( alpha_weight * property_score_cdr3(tcr[0][2], score_name, score_mode ) +
-             beta_weight  * property_score_cdr3(tcr[1][2], score_name, score_mode ) )
+def property_score_tcr(
+        tcr,
+        score_name,
+        score_mode,
+        alpha_weight=1.0,
+        beta_weight=1.0,
+):
+    return (alpha_weight*property_score_cdr3(tcr[0][2], score_name, score_mode)+
+            beta_weight *property_score_cdr3(tcr[1][2], score_name, score_mode))
 
 
-def make_tcr_score_table(adata, scorenames):
-    ''' Returns an array of the tcr scores of shape: (adata.shape[0], len(scorenames))
+def make_tcr_score_table(adata, scorenames, verbose=False):
+    ''' Returns a numpy array of the tcr scores with shape:
+           (adata.shape[0], len(scorenames))
     '''
     global aa_props_df
     organism = adata.uns['organism']
@@ -278,6 +295,8 @@ def make_tcr_score_table(adata, scorenames):
 
     cols = []
     for name in scorenames:
+        if verbose:
+            print('make_tcr_score_table:', name)
         if name == 'cdr3len':
             cols.append( [ cdr3len_score_tcr(x) for x in tcrs ])
         elif name.startswith('tcr_cluster'):
@@ -315,7 +334,8 @@ def make_tcr_score_table(adata, scorenames):
             matched = False
             for i_ab,ab in enumerate('AB'):
                 for i_vj,vj in enumerate('VJ'):
-                    ii_genes = set([x for x,y in organism_genes.items() if y.chain==ab and y.region==vj ])
+                    ii_genes = set([x for x,y in organism_genes.items()
+                                    if y.chain==ab and y.region==vj ])
                     if name in ii_genes:
                         assert not matched
                         matched = True
@@ -326,11 +346,16 @@ def make_tcr_score_table(adata, scorenames):
             matched = False
             for i_ab,ab in enumerate('AB'):
                 for i_vj,vj in enumerate('VJ'):
-                    ii_count_reps = set([x.count_rep for x in organism_genes.values() if x.chain==ab and x.region==vj ])
+                    ii_count_reps = set(
+                        [x.count_rep
+                         for x in organism_genes.values()
+                         if x.chain==ab and x.region==vj ])
                     if name in ii_count_reps:
                         assert not matched
                         matched = True
-                        cols.append( [float(organism_genes[x[i_ab][i_vj]].count_rep==name) for x in tcrs])
+                        cols.append(
+                            [float(organism_genes[x[i_ab][i_vj]].count_rep==name)
+                             for x in tcrs])
             assert matched
 
         else:
@@ -339,9 +364,11 @@ def make_tcr_score_table(adata, scorenames):
             if score_mode not in cdr3_score_modes:
                 score_mode = default_cdr3_score_mode
                 score_name = name
-            cols.append( [ property_score_tcr(x, score_name, score_mode) for x in tcrs ] )
+            cols.append([property_score_tcr(x, score_name, score_mode)
+                         for x in tcrs])
+
     table = np.array(cols).transpose()#[:,np.newaxis]
-    #print( table.shape, (adata.shape[0], len(scorenames)) )
+
     assert table.shape == (adata.shape[0], len(scorenames))
 
     return table

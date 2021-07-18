@@ -12,7 +12,6 @@ import matplotlib.pyplot as plt
 from scipy import stats
 from sklearn.metrics import pairwise_distances
 from scipy.stats import hypergeom, mannwhitneyu, linregress, norm, ttest_ind
-#from scipy.sparse import issparse, csr_matrix
 import scipy.sparse as sps
 from statsmodels.stats.multitest import multipletests
 from collections import Counter, OrderedDict
@@ -29,6 +28,16 @@ from sys import exit
 import time #debugging
 
 
+## read a list of human tfs downloaded from
+## http://humantfs.ccbr.utoronto.ca/download.php
+## which are from Lambert et al (PMID:29425488)
+## thanks to Matt Weirauch and collaborators
+##
+try:
+    _tfs_listfile = path_to_data / 'Lambert_et_al_PMID_29425488_TF_names_v_1.01.txt'
+    human_tf_gene_names = [x.split()[0] for x in open(_tfs_listfile,'r')]
+except:
+    print('conga.devel:: failed to read human TFs list; prob not a big deal')
 
 def compute_distance_correlations( adata, verbose=False ):
     ''' return pvalues, rvalues  (each 1 1d numpy array of shape (num_clones,))
@@ -1539,3 +1548,280 @@ def filter_cells_by_ribo_norm(adata):
     assert np.sum(mask) == adata.shape[0]
     return adata
 
+
+def _get_pvalue_from_rvalue(r, n):
+    ''' hacky helper stolen from scipy.stats.linregress
+    alternative='two-sided'
+    '''
+    from scipy import stats
+    TINY = 1.0e-20
+    df = n - 2  # Number of degrees of freedom
+    # n-2 degrees of freedom because 2 has been used up
+    # to estimate the mean and standard deviation
+    t = r * np.sqrt(df / ((1.0 - r + TINY)*(1.0 + r + TINY)))
+    #t, prob = _ttest_finish(df, t, alternative)
+    prob = 2*stats.t.cdf(-abs(t), df)
+    return prob
+
+
+
+def run_genes_versus_features(
+        adata,
+        tcr_features = None,
+        verbose=True,
+):
+    if tcr_features is None:
+        tcr_features = (tcr_scoring.all_tcr_scorenames+
+                        [x+'_frac' for x in tcr_scoring.amino_acids])
+
+
+    print('making tcr scoretable:', adata.shape[0], len(tcr_features))
+    organism = adata.uns['organism']
+    num_clones = adata.shape[0]
+    num_features = len(tcr_features)
+
+    # rare genes seem to give spurious correlations
+    min_cells_per_gene = max(5, min(50, 0.001*num_clones))
+
+    tcr_scoretable = tcr_scoring.make_tcr_score_table(
+        adata, tcr_features, verbose=True)
+
+    # run with variable genes and with all genes
+    # pay a factor of 2 in pvalues for that
+    variable_genes = list(adata.var_names)
+    all_genes = list(adata.raw.var_names)
+
+    Y = tcr_scoretable.T.copy()
+    assert Y.shape == (len(tcr_features), num_clones)
+
+    Y_mean = Y.mean(axis=1)
+    Y_std = Y.std(axis=1)
+    Y = (Y - Y_mean[:,None])/Y_std[:,None]
+    low_var_mask = np.abs(Y_std)<1e-6
+    print('run_features_versus_features:: dropping tcr features with',
+          'low variance:', [x for x,y in zip(tcr_features, low_var_mask)
+                            if y])
+    Y[low_var_mask,:] = 0. # dont want nans
+    print('Y nans:', np.sum(np.isnan(Y)))
+
+    dfl = []
+    for is_variable in [True,False]:
+        if is_variable:
+            genes = variable_genes
+
+            X = adata.X.T.copy()
+            X = (X - X.mean(axis=1)[:,None])/X.std(axis=1)[:,None]
+
+            C = X@Y.T/X.shape[1]
+
+        else:
+            genes = all_genes
+
+            X = adata.raw.X.T
+            print('dotting... sparse X and Y', X.shape, Y.shape)
+            D = X.dot(Y.T)
+
+            print('mean/std of sparse X...', X.shape)
+            X_sq = X.multiply(X)
+
+            X_mean = X.mean(axis=1).A1
+            X_sq_mean = X_sq.mean(axis=1).A1
+            X_mean_sq = X_mean**2
+            X_var = X_sq_mean - X_mean_sq
+            X_std = X_var**0.5
+
+            X_low_var_mask = np.abs(X_std)<1e-6
+            print('run_genes_versus_features:: low variance genes:',
+                  [x for x,y in zip(genes, X_low_var_mask) if y])
+            X_std = np.maximum(X_std, 1e-6)
+
+            print('correlations...')
+            Y_sum = Y.sum(axis=1)
+            C = (D - np.outer(X_mean, Y_sum))/(num_clones * X_std[:,None])
+
+        print('C nans:', np.sum(np.isnan(C)))
+        assert np.sum(np.isnan(C))==0
+
+        num_genes = len(genes)
+        assert C.shape == (num_genes, num_features)
+        pval_rescale = 2*num_genes*(num_features-np.sum(low_var_mask))
+
+        inds = np.argsort(C.ravel())[::-1]
+
+        for r in range(2):
+            feature_counts = Counter()
+            rinds = inds if r==0 else inds[::-1]
+            for ind in rinds:
+                top = np.unravel_index(ind, C.shape)
+                rvalue = C[top]
+                gene = genes[top[0]]
+                if util.is_vdj_gene(gene, organism):
+                    continue
+                if not is_variable and gene in variable_genes:
+                    continue
+                feature = tcr_features[top[1]]
+                tfstar = 'TF' if (organism == 'human' and
+                                  gene in human_tf_gene_names) else '  '
+
+                if is_variable:
+                    gene_vals = X[top[0],:]
+                else:
+                    gene_vals = X[top[0],:].toarray()[0]
+                feature_vals = tcr_scoretable.T[top[1],:]
+                gene_nonzero = np.sum(np.abs(gene_vals)>1e-3)
+                feature_nonzero = np.sum(np.abs(feature_vals)>1e-3)
+                if gene_nonzero < min_cells_per_gene:
+                    continue
+                #pval = pval_rescale*res.pvalue
+                pval = pval_rescale*_get_pvalue_from_rvalue(rvalue, num_clones)
+
+                # res = linregress(gene_vals, feature_vals)
+                # print('equal?', res.pvalue*pval_rescale, pval, res.rvalue,
+                #       rvalue, gene_vals.shape, feature_vals.shape,
+                #       type(gene_vals), type(feature_vals),
+                #       num_clones, gene_nonzero,
+                #       feature_nonzero, gene, feature, r)
+
+                if pval>1:
+                    break
+                feature_counts[feature] += 1
+                dfl.append(dict(
+                    gene=gene,
+                    feature=feature,
+                    is_variable_gene=is_variable,
+                    pvalue_adj=pval,
+                    rvalue=rvalue,
+                    is_human_tf = (gene in human_tf_gene_names),
+                    num_nonzero_gene=gene_nonzero,
+                    num_nonzero_feature=feature_nonzero,
+                ))
+                vstar = 'V' if gene in variable_genes else ' '
+                if verbose and feature_counts[feature] < 3:
+                    print(f'{tfstar} {vstar} {C[top]:6.3f} {rvalue:6.3f}',
+                          f'{pval:9.2e} {gene_nonzero:5d} {feature_nonzero:5d}',
+                          f'{gene:10s} {feature:15s}')
+
+
+    results = pd.DataFrame(dfl)
+    results.sort_values('pvalue_adj', inplace=True)
+    return results
+
+def filter_sorted_gene_features(
+        adata,
+        features,
+        max_features,
+):
+    ''' return new_features, duplicates
+
+    where duplicates is a dict mapping from rep features to their cluster peers
+    '''
+
+    A = make_raw_feature_scores_table(
+        features, ['gex']*len(features), adata, verbose=True).T
+
+    assert A.shape == (len(features), adata.shape[0])
+
+    print('calc correlations:', A.shape)
+    start = time.time()
+    C = 1-distance.squareform(
+        distance.pdist(A, metric='correlation'), force='tomatrix')
+    print('took:', time.time() - start)
+
+    new_features, duplicates = filter_sorted_features_by_correlation(
+        features, C, max_features)
+
+    return new_features, duplicates
+
+def filter_sorted_gex_features_in_dataframe(
+        results,
+        adata,
+        max_features,
+):
+    ''' returns new dataframe, and duplicates dict
+
+    results should have the columns 'feature' and 'feature_type'
+
+    '''
+
+    gex_features = [x for x,y in zip(results.feature, results.feature_type)
+                    if y=='gex']
+
+    new_features, duplicates = filter_sorted_gene_features(
+        adata, gex_features, max_features)
+
+    new_features = set(new_features)
+
+    mask = [ (y=='tcr') or (x in new_features)
+             for x,y in zip(results.feature, results.feature_type)]
+
+    return results[mask].copy(), duplicates
+
+
+
+
+## TEMPORARY CODE GRAVEYARD
+
+# def _include_redundant_feature(count):
+#     ''' count = 1 for first feature exceeding threshold, then 2, etc
+
+#     idea:
+
+#     '''
+#     assert count>0
+#     count += 2 # so 3 is the first (skip), then 4 (keep), then 5-7 (skip), etc
+#     return abs(2**int(np.log2(count)) - count)<.1
+
+    # if max_redundant_features is not None:
+    #     feature_nbrs = {}
+
+    #     # filter features by correlation
+    #     # will subset: features, feature_types, feature_labels, A, nrows
+    #     if verbose: print('computing feature correlations:', A.shape)
+    #     C = 1-distance.squareform(distance.pdist(A, metric='correlation'),
+    #                               force='tomatrix')
+    #     if verbose: print('DONE computing feature correlations:', A.shape)
+    #     feature_nbr_counts = [0]*len(features)
+    #     feature_mask = np.full(len(features), True)
+    #     for ii,f1 in enumerate(features):
+    #         if verbose and ii%10==0: print('redundancy checking...', ii)
+    #         # am I too close to a previous feature?
+    #         for jj in range(ii-1):
+    #             if ( feature_mask[jj] and
+    #                  (feature_types is None or
+    #                   feature_types[ii] == feature_types[jj])):
+    #                 if C[ii,jj] > redundancy_threshold:
+    #                     feature_nbr_counts[jj] += 1
+    #                     if feature_nbr_counts[jj] > max_redundant_features:
+    #                         count= feature_nbr_counts[jj]-max_redundant_features
+    #                         if not _include_redundant_feature(count):
+    #                             print('skip:', ii, jj, count)
+    #                             feature_mask[ii] = False
+    #                             feature_nbrs.setdefault(
+    #                                 features[jj],[]).append(f1)
+    #                         else:
+    #                             print('keep:', ii, jj, count)
+    #                         break
+    # print('filling the score array for', len(features), 'features')
+    # A = np.zeros((len(features), adata.shape[0]))
+    # for ii,feature in enumerate(features):
+    #     if verbose and ii%10==0:
+    #         print('filling:', ii, len(features), feature)
+    #     scores = get_raw_feature_scores(
+    #         feature, adata,
+    #         feature_types if feature_types is None else feature_types[ii])
+
+    #     mn, std = np.mean(scores), np.std(scores)
+    #     scores = (scores-mn)
+    #     if std!=0:
+    #         scores /= std
+
+    #     if compute_nbr_averages:
+    #         num_neighbors = nbrs.shape[1]
+    #         scores = ( scores + scores[ nbrs ].sum(axis=1) )/(num_neighbors+1)
+
+    #     if feature_types is not None:
+    #         if feature_types[ii] == dist_tag:
+    #             # lighten these up a bit since they will be nbr correlated
+    #             scores *= rescale_factor_for_self_features
+
+    #     A[ii,:] = scores

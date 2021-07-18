@@ -819,7 +819,7 @@ if args.find_hotspot_features: ################################################
     conga.plotting.make_hotspot_plots(
         adata, all_nbrs, args.outfile_prefix,
         make_raw_feature_plots=args.make_hotspot_raw_feature_plots,
-        max_clones_for_clustermaps=args.max_clones_for_clustermaps,
+        max_clones_for_dendrograms=args.max_clones_for_clustermaps,
         )
 
 if args.find_hotspot_nbrhoods:

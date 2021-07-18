@@ -153,15 +153,21 @@ tcr_keys = 'va ja cdr3a cdr3a_nucseq vb jb cdr3b cdr3b_nucseq'.split() # ugly
 
 def store_tcrs_in_adata(adata, tcrs):
     ''' returns NOTHING, modifies adata
-    tcrs is a list of (atcr,btcr) tuples, where atcr = (va,ja,cdr3a,cdr3a_nucseq) ...
+    tcrs is a list of (atcr,btcr) tuples, where
+     atcr = (va,ja,cdr3a,cdr3a_nucseq) ...
     '''
     assert len(tcrs) == adata.shape[0]
 
     global tcr_keys
-    tcr_indices = ((x,y) for x in range(2) for y in range(4)) # some better itertools soln...
+    tcr_indices = ((x,y) for x in range(2) for y in range(4))
 
     for tag, (i,j) in zip( tcr_keys, tcr_indices):
         adata.obs[tag] = [x[i][j] for x in tcrs ]
+
+    # ensure lower case
+    adata.obs['cdr3a_nucseq'] = adata.obs.cdr3a_nucseq.str.lower()
+    adata.obs['cdr3b_nucseq'] = adata.obs.cdr3b_nucseq.str.lower()
+
     return
 
 
@@ -175,11 +181,13 @@ def retrieve_tcrs_from_adata(adata, include_subject_id_if_present=False):
         print(f'retrieve_tcrs_from_adata: include_subject_id_if_present is True and {util.SUBJECT_ID_OBS_KEY} present')
         arrays = [ adata.obs[x] for x in tcr_keys+[util.SUBJECT_ID_OBS_KEY] ]
         for va, ja, cdr3a, cdr3a_nucseq, vb, jb, cdr3b, cdr3b_nucseq, subject_id in zip( *arrays):
-            tcrs.append( ( ( va, ja, cdr3a, cdr3a_nucseq, subject_id), (vb, jb, cdr3b, cdr3b_nucseq, subject_id) ) )
+            tcrs.append(((va, ja, cdr3a, cdr3a_nucseq.lower(), subject_id),
+                         (vb, jb, cdr3b, cdr3b_nucseq.lower(), subject_id)))
     else:
         arrays = [ adata.obs[x] for x in tcr_keys ]
-        for va, ja, cdr3a, cdr3a_nucseq, vb, jb, cdr3b, cdr3b_nucseq in zip( *arrays):
-            tcrs.append( ( ( va, ja, cdr3a, cdr3a_nucseq), (vb, jb, cdr3b, cdr3b_nucseq) ) )
+        for va,ja,cdr3a,cdr3a_nucseq,vb,jb,cdr3b,cdr3b_nucseq in zip(*arrays):
+            tcrs.append(((va, ja, cdr3a, cdr3a_nucseq.lower()),
+                         (vb, jb, cdr3b, cdr3b_nucseq.lower()) ) )
 
     return tcrs
 
@@ -626,6 +634,7 @@ def cluster_and_tsne_and_umap(
         clustering_method=None,
         n_neighbors=10, # used for umap and clustering
         n_gex_pcs=40, # only used if we have to compute them
+        make_1d_umaps=True,
 ):
     '''calculates neighbors, tsne, louvain for both GEX and TCR
 
@@ -666,7 +675,8 @@ def cluster_and_tsne_and_umap(
             print('preprocess.cluster_and_tsne_and_umap:: X_pca_tcr is'
                   ' not present in adata.obsm; using exact tcrdist nbrs'
                   ' for umap and clustering')
-            calc_tcrdist_nbrs_umap_clusters_cpp(adata, n_neighbors)
+            calc_tcrdist_nbrs_umap_clusters_cpp(
+                adata, n_neighbors, make_1d_umaps=make_1d_umaps)
             continue
 
         adata.obsm['X_pca'] = adata.obsm['X_pca_'+tag]
@@ -678,6 +688,14 @@ def cluster_and_tsne_and_umap(
             adata.obsm['X_tsne_'+tag] = adata.obsm['X_tsne']
         sc.tl.umap(adata)
         adata.obsm['X_umap_'+tag] = adata.obsm['X_umap']
+        if make_1d_umaps:
+            try: # this used to fail in the adata obsm-stashing phase...
+                print('running 1D UMAP', tag)
+                sc.tl.umap(adata, n_components=1)
+                adata.obsm[f'X_{tag}_1d'] = adata.obsm['X_umap']
+            except:
+                print('ERROR cluster_and_tsne_and_umap: 1D UMAP failed')
+
         resolution = 1.0 if clustering_resolution is None else clustering_resolution
         if clustering_method=='louvain':
             cluster_key_added = 'louvain_'+tag
@@ -1674,6 +1692,8 @@ def calc_tcrdist_nbrs_umap_clusters_cpp(
         cluster_key_added = 'clusters_tcr', # change to default loc
         clustering_resolution = None,
         n_components_umap = 2,
+        make_1d_umaps = True,
+        umap_1d_key_added = 'X_tcr_1d',
 ):
     if tmpfile_prefix is None:
         tmpfile_prefix = f'tmp_tcrdists{random.randrange(1,10000)}'
@@ -1753,6 +1773,15 @@ def calc_tcrdist_nbrs_umap_clusters_cpp(
     sc.tl.umap(adata, n_components=n_components_umap)
     print('DONE running umap')
     adata.obsm[umap_key_added] = adata.obsm['X_umap']
+
+    if make_1d_umaps:
+        try: # this used to fail in the adata obsm-stashing phase...
+            print('running 1D UMAP')
+            sc.tl.umap(adata, n_components=1)
+            adata.obsm[umap_1d_key_added] = adata.obsm['X_umap']
+        except:
+            print('ERROR calc_tcrdist_nbrs_umap_clusters_cpp: 1D UMAP failed')
+
 
     print('running louvain', adata.shape)
     resolution = 1.0 if clustering_resolution is None else clustering_resolution

@@ -1,4 +1,4 @@
-# UNDER CONSTRUCTION (2021-07-10) CHECK BACK SOON
+# [2021-07-18] We are just finishing a big refactor. There may be a few glitches...*
 
 # Clonotype Neighbor Graph Analysis (CoNGA) -- pre-beta
 

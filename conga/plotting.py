@@ -29,7 +29,7 @@ import matplotlib.image as mpimg
 from matplotlib.collections import LineCollection
 from scipy.cluster import hierarchy
 from scipy.spatial import distance
-
+import time
 
 
 
@@ -1989,8 +1989,9 @@ def make_feature_panel_plots(
         pngfile,
         max_panels_per_bicluster=3,
         max_pvalue=0.05,
-        nrows=6,
-        ncols=4,
+        nrows=8, #6,
+        ncols=5, #4,
+        panel_width_inches=2.5,
         use_nbr_frac=None,
         title=None,
 ):
@@ -2059,7 +2060,7 @@ def make_feature_panel_plots(
             feature_to_raw_values[f] = feature_score_table[:,0]
 
 
-    plt.figure(figsize=(ncols*3,nrows*3))
+    plt.figure(figsize=(ncols*panel_width_inches, nrows*panel_width_inches))
     plotno=0
     for row in df.itertuples():
         plotno+=1
@@ -2120,7 +2121,74 @@ def get_raw_feature_scores( feature, adata, feature_type=None):
         assert feature_type in [ None, 'tcr']
         return tcr_scoring.make_tcr_score_table(adata,[feature])[:,0].astype(float)
 
+def make_raw_feature_scores_table(
+        features,
+        feature_types,
+        adata,
+        verbose=False,
+):
+    ''' Make the whole table at once, should be faster for lots of features
 
+    returns numpy array of shape (num_clones, len(features))
+
+    '''
+    assert all(x in ['gex','tcr'] for x in feature_types)
+
+    scoretable = np.zeros((adata.shape[0], len(features)))
+
+    # group the features: gene, tcr, other aka 'special'
+    is_special_feature = np.array(
+        [('_cluster' in x or x=='clone_sizes' or x=='nndists_gex_rank')
+         for x in features])
+    var_name2index = {x:i for i,x in enumerate(adata.raw.var_names)}
+    is_gene_feature = np.array([x in var_name2index for x in features])
+    is_tcr_feature = ~(is_special_feature | is_gene_feature)
+
+    # get the genes
+    # list of (index in features, index in adata.raw.var_names)
+    gene_index_pairs = [(i,var_name2index[x])
+                        for i,(x,y) in enumerate(zip(features, is_gene_feature))
+                        if y]
+    inds0 = [x[0] for x in gene_index_pairs]
+    inds1 = [x[1] for x in gene_index_pairs]
+    print('slicing adata.raw.X')
+    gene_scores = adata.raw.X[:,inds1].toarray()
+    print('DONE slicing adata.raw.X')
+    scoretable[:, inds0] = gene_scores
+
+    if np.sum(is_tcr_feature): # get the tcr features
+        ind_feature_pairs = [
+            (i,x) for i,(x,y) in enumerate(zip(features, is_tcr_feature)) if y]
+        inds = [x[0] for x in ind_feature_pairs]
+        tcr_features = [x[1] for x in ind_feature_pairs]
+        tcr_scores = tcr_scoring.make_tcr_score_table(
+            adata, tcr_features, verbose=verbose)
+        #tcr_scores = np.zeros((adata.shape[0], len(tcr_features)))
+        scoretable[:, inds] = tcr_scores
+
+    # fill in the 'special' features
+    for ind,(feature,is_special) in enumerate(zip(features,is_special_feature)):
+        if is_special:
+            if feature == 'nndists_gex_rank':
+                if 'nndists_gex' in adata.obs_keys():
+                    nndists_gex = np.array(adata.obs['nndists_gex'])
+                else:
+                    print('WARNING nndists_gex not in adata.obs!')
+                    nndists_gex = np.zeros(adata.shape[0])
+                scoretable[:,ind] = np.log1p(np.argsort(-1*nndists_gex))
+            elif feature.startswith('gex_cluster'):
+                num = int(feature[11:]) # cluster number
+                scoretable[:,ind] = (
+                    np.array(adata.obs['clusters_gex']==num)).astype(float)
+            elif feature.startswith('tcr_cluster'):
+                num = int(feature[11:]) # cluster number
+                scoretable[:,ind] = (
+                    np.array(adata.obs['clusters_tcr']==num)).astype(float)
+            else:
+                assert feature == 'clone_sizes'
+                scoretable[:,ind] = np.log1p(np.array(adata.obs['clone_sizes']))
+
+    return scoretable
 
 def plot_hotspot_umap(
         adata,
@@ -2129,8 +2197,9 @@ def plot_hotspot_umap(
         pngfile,
         nbrs = None,
         compute_nbr_averages=False,
-        nrows=6,
-        ncols=4,
+        nrows=8,
+        ncols=5,
+        panel_width_inches=2.5,
         title=None,
 ):
     """
@@ -2143,7 +2212,8 @@ def plot_hotspot_umap(
         print('no results to plot:', pngfile)
         return
 
-    df = results_df.sort_values('pvalue_adj') # ensure sorted
+    df = results_df.sort_values('Z', ascending=False)\
+                   .sort_values('pvalue_adj') # ensure sorted
     df = df.iloc[:nrows*ncols,:]
 
     xy = adata.obsm['X_{}_2d'.format(xy_tag)]
@@ -2153,19 +2223,13 @@ def plot_hotspot_umap(
         nrows = max(1, int(np.sqrt(df.shape[0])))
         ncols = (df.shape[0]-1)//nrows + 1
 
-    plt.figure(figsize=(ncols*3,nrows*3))
+    plt.figure(figsize=(ncols*panel_width_inches, nrows*panel_width_inches))
     plotno=0
     for row in df.itertuples():
         plotno+=1
         plt.subplot(nrows, ncols, plotno)
 
         scores = get_raw_feature_scores( row.feature, adata , row.feature_type )
-        # if row.feature_type == 'gex':
-        #     if row.startswith
-        #     assert row.feature in var_names
-        #     scores = adata.raw.X[:, var_names.index(row.feature)].toarray()[:,0]
-        # else:
-        #     scores = tcr_scoring.make_tcr_score_table(adata,[row.feature])[:,0]
         if compute_nbr_averages:
             assert nbrs.shape[0] == adata.shape[0]
             # this will not work for ragged nbr arrays
@@ -2195,27 +2259,82 @@ def plot_hotspot_umap(
 
 
 
+def filter_sorted_features_by_correlation(
+        features,
+        #score_matrix,
+        correlation_matrix,
+        max_clusters,
+):
+    ''' return the new features, and a dictionary mapping from each
+    representative feature to any other cluster members
+
+    assume that features are sorted in decreasing order of "interest"
+    will choose
+
+    '''
+
+    num_features = len(features)
+    assert correlation_matrix.shape == (num_features, num_features)
+    assert np.min(correlation_matrix)>=-1.01
+    assert np.max(correlation_matrix)<= 1.01
+
+    if num_features <= max_clusters:
+        return list(features), {}
+
+    Y = distance.squareform(1-correlation_matrix, force='tovector')
+    Z = hierarchy.linkage(Y, method='ward')
+    clusters = hierarchy.fcluster(Z, max_clusters, criterion = 'maxclust')
+    assert len(clusters) == num_features
+    if len(set(clusters)) > max_clusters:
+        print('WHOAH ERROR hierarchy.fcluster failed: desired=', max_clusters,
+              '< actual=', len(set(clusters)))
+
+    reps = []
+    duplicates = {}
+    for c in set(clusters):
+        members = sorted(np.nonzero(clusters==c)[0])
+        rep = members[0]
+        f = features[rep]
+        reps.append(rep)
+        if len(members)>1:
+            duplicates[f] = [features[x] for x in members[1:]]
+            print(f, len(members), duplicates[f])
+
+    # preserve the sort by importance:
+    reps.sort()
+    new_features = [features[x] for x in reps]
+    return new_features, duplicates
+
+
+
+
+
+
 def plot_interesting_features_vs_clustermap(
         adata,
-        features,
+        features, # assume that features are sorted by decreasing "interest"
+        feature_types, # listlike of either 'gex','tcr'
         pngfile,
         dist_tag, # gex or tcr
-        feature_types = None, # list of either 'gex','tcr'
         nbrs = None,
         compute_nbr_averages=False,
         feature_labels = None,
         feature_scores = None,
         feature_scores_cmap = 'viridis',
+        max_type_features = 100, # in the clustermap
         show_gex_cluster_colorbar = None,
         show_tcr_cluster_colorbar = None,
         show_VJ_gene_segment_colorbars = None,
         min_vmax = 0.45,
         max_vmax = 0.45,
-        max_redundant_features = None,
-        redundancy_threshold = 0.9, # correlation
+        # max_redundant_features = None,
+        # redundancy_threshold = 0.9, # correlation
         extra_feature_colors = None,
         rescale_factor_for_self_features = 0.33,
+        use_1d_landscape_for_cell_order = False,
         title=None,
+        verbose=False,
+        dpi=200, # of the final image, which is ~12 inches wide
 ):
     ''' Makes a seaborn clustermap: cols are cells, sorted by hierarchical clustering wrt X_pca_{dist_tag}
     rows are the genes, ordered by clustermap correlation
@@ -2231,6 +2350,12 @@ def plot_interesting_features_vs_clustermap(
     except:
         print('fastcluster is not available. Consider installing for faster performance.')
 
+    # convert to numpy arrays
+    features = np.array(features)
+    feature_types = np.array(feature_types)
+
+    # for re-indexing feature_types, feature_scores, etc after we filter
+    #original_features = list(features)
 
     assert dist_tag in ['gex','tcr']
 
@@ -2258,93 +2383,131 @@ def plot_interesting_features_vs_clustermap(
     nrows = len(features)
     ncols = adata.shape[0]
 
-    # compute linkage of cells based on tcr
-    X = adata.obsm['X_pca_'+dist_tag] # the kernal pca components
-    print(f'computing pairwise X_pca_{dist_tag} distances, {X.shape}')
-    Y = distance.pdist(X, metric='euclidean')
+    if use_1d_landscape_for_cell_order:
+        landscape_tag = f'X_{dist_tag}_1d'
+        if landscape_tag not in adata.obsm_keys():
+            print('ERROR plot_interesting_features_vs_clustermap:',
+                  'use_1d_landscape_for_cell_order=True but',landscape_tag,
+                  'missing from adata.obsm_keys()')
+            return
+        X_1d = adata.obsm[landscape_tag][:,0]
+        cells_order = np.argsort(X_1d)
+        cells_linkage = None
+        col_cluster = False
+    else:
+        # compute linkage of cells based on tcr
+        X = adata.obsm['X_pca_'+dist_tag] # the kernal pca components
+        print(f'computing pairwise X_pca_{dist_tag} distances, {X.shape}')
+        Y = distance.pdist(X, metric='euclidean')
 
-    print(f'computing linkage matrix from pairwise X_pca_{dist_tag} distances')
-    cells_linkage = hierarchy.linkage(Y, method='ward')
+        print(f'computing linkage matrix from pairwise X_pca_{dist_tag}',
+              'distances')
+        cells_order = None
+        cells_linkage = hierarchy.linkage(Y, method='ward')
+        col_cluster = True
 
-    A = np.zeros((nrows, ncols))
+    A = make_raw_feature_scores_table(
+        features, feature_types, adata, verbose=True).T
 
-    print('filling the score array for', len(features), 'features')
-    for ii,feature in enumerate(features):
-        scores = get_raw_feature_scores( feature, adata, feature_types if feature_types is None else feature_types[ii])
-        # is_gex_feature = feature in var_names and ( feature_types is None or feature_types[ii]=='gex')
-        # if is_gex_feature:
-        #     scores = adata.raw.X[:, var_names.index(feature)].toarray()[:,0]
-        # else:
-        #     # could end up here if for some reason it's a gex feature but not present in var_names (shouldnt happen!)
-        #     scores = tcr_scoring.make_tcr_score_table(adata, [feature])[:,0].astype(float)
+    A_mn = np.mean(A, axis=1)
+    A_std = np.maximum(np.std(A, axis=1), 1e-9) # no divide by 0
+    print('normalize A')
+    A = (A-A_mn[:,None])/A_std[:,None]
 
-        mn, std = np.mean(scores), np.std(scores)
-        scores = (scores-mn)
-        if std!=0:
-            scores /= std
+    if compute_nbr_averages:
+        num_neighbors = nbrs.shape[1]
+        print('nbr-avging A', num_neighbors, len(features))
+        last_time = time.time()
+        Asum = A.copy()
+        for i,ii_nbrs in enumerate(nbrs):
+            if verbose and i and i%5000==0:
+                print(i, time.time()-last_time)
+                last_time = time.time()
+            for j in ii_nbrs:
+                Asum[:,i] += A[:,j]
+        A = Asum / (num_neighbors+1)
+        print('DONE nbr-avging A')
 
-        if compute_nbr_averages:
-            num_neighbors = nbrs.shape[1] # this will not work for ragged nbr arrays (but we could change it to work)
-            scores = ( scores + scores[ nbrs ].sum(axis=1) )/(num_neighbors+1)
+        # lighten the colors of the features of the same type as the
+        # landscape and nbrs, since they will be correlated across neighborhoods
+        # and not comparable to the features of the other type (gex or tcr)
+        is_dist_feature_type = np.array([x==dist_tag for x in feature_types])
+        print('rescale scores for:', np.sum(is_dist_feature_type), 'features',
+              'by', rescale_factor_for_self_features)
+        A[is_dist_feature_type,:] *= rescale_factor_for_self_features
 
-        if feature_types is not None:
-            if feature_types[ii] == dist_tag:
-                scores *= rescale_factor_for_self_features # lighten these up a bit since they will be nbr correlated
 
-        A[ii,:] = scores
 
     tiny_lines = None
+    feature_mask = np.full((len(features),), True)
 
-    if max_redundant_features is not None:
-        feature_nbrs = {}
+    feature_nbrs = {}
+    for ftype in ['gex','tcr']:
+        # are there too many features of this type?
+        ftype_mask = feature_types==ftype
+        if np.sum(ftype_mask) > max_type_features:
+            # have to eliminate some
+            A_ftype = A[ftype_mask,:].copy()
+            print('computing correlations:', A_ftype.shape)
+            C_ftype = 1-distance.squareform(
+                distance.pdist(A_ftype, metric='correlation'), force='tomatrix')
+            new_features, duplicates = filter_sorted_features_by_correlation(
+                features[ftype_mask], C_ftype, max_type_features)
+            feature_nbrs.update(duplicates)
+            # update feature_nbrs based on duplicates
+            # for rep, dups in duplicates.items():
+            #     newdups = list(dups)
+            #     for dup in dups:
+            #         newdups += feature_nbrs.get(dup,[])
+            #     feature_nbrs[rep] = feature_nbrs.get(rep,[])+newdups
+            new_features = set(new_features) # fast membership checking
+            for i,(f,m) in enumerate(zip(features, ftype_mask)):
+                if m and (f not in new_features):
+                    feature_mask[i] = False # excluded
 
-        # filter features by correlation
-        # will subset: features, feature_types, feature_labels, A, nrows
-        C = 1-distance.squareform(distance.pdist(A, metric='correlation'), force='tomatrix')
-        feature_nbr_counts = [0]*len(features)
-        feature_mask = np.full(len(features), True)
-        for ii,f1 in enumerate(features):
-            # am I too close to a previous feature?
-            for jj in range(ii-1):
-                if feature_types is None or feature_types[ii] == feature_types[jj]:
-                    if C[ii,jj] > redundancy_threshold and feature_mask[jj]:
-                        feature_nbr_counts[jj] += 1
-                        if feature_nbr_counts[jj] > max_redundant_features:
-                            feature_mask[ii] = False
-                            feature_nbrs.setdefault(features[jj],[]).append(f1)
-                            break
-        if np.sum(feature_mask)<len(features): # have to exclude some
-            # write out the feature neighbors for inspection
-            dfl = []
-            for f, nbrs in feature_nbrs.items():
-                dfl.append(OrderedDict(feature=f, redundant_neighbors=','.join(nbrs), num_redundant_neighbors=len(nbrs)))
-            df = pd.DataFrame(dfl)
-            df.sort_values('num_redundant_neighbors', inplace=True, ascending=False)
-            df.to_csv(pngfile+'_filtered_feature_info.tsv', sep='\t', index=False)
-            tiny_lines = []
-            for l in df.itertuples():
-                tiny_lines.extend( [x+'\n' for x in [l.feature+':']+ l.redundant_neighbors.split(',')+[''] ] )
+    if np.sum(feature_mask)<len(features): # had to exclude some
+        # write out the feature neighbors for inspection
+        dfl = []
+        for f, nbrs in feature_nbrs.items():
+            dfl.append(OrderedDict(
+                feature=f,
+                redundant_neighbors=','.join(nbrs),
+                num_redundant_neighbors=len(nbrs)))
+        df = pd.DataFrame(dfl)
+        df.sort_values('num_redundant_neighbors', inplace=True,
+                       ascending=False)
+        df.to_csv(pngfile+'_filtered_feature_info.tsv', sep='\t',
+                  index=False)
+        tiny_lines = []
+        for l in df.itertuples():
+            tiny_lines.extend(
+                [x+'\n' for x in ([l.feature+':']+
+                                  l.redundant_neighbors.split(',')+
+                                  [''])])
 
-            #
-            A = A[feature_mask,:]
-            features = np.array(features)[feature_mask]
-            if feature_types is not None:
-                feature_types = np.array(feature_types)[feature_mask]
-            new_feature_labels = []
-            for old_label, nbr_count, m in zip(feature_labels, feature_nbr_counts, feature_mask):
-                if m:
-                    if nbr_count>max_redundant_features:
-                        new_feature_labels.append('{} [+{}]'.format(old_label, nbr_count-max_redundant_features))
-                    else:
-                        new_feature_labels.append(old_label)
-            feature_labels = new_feature_labels[:]
-            nrows = len(features)
-            if feature_scores is not None:
-                feature_scores = np.array(feature_scores)[feature_mask]
-            if extra_feature_colors is not None:
-                extra_feature_colors = np.array(extra_feature_colors)[feature_mask]
-
-
+        #
+        A = A[feature_mask,:]
+        old_features = list(features)
+        features = np.array(features)[feature_mask]
+        if feature_types is not None:
+            feature_types = np.array(feature_types)[feature_mask]
+        new_feature_labels = []
+        for feature, old_label, m in zip(old_features,
+                                         feature_labels,
+                                         feature_mask):
+            if m:
+                nbr_count = len(feature_nbrs.get(feature,[]))
+                if nbr_count>0:
+                    new_feature_labels.append(
+                        '{} [+{}]'.format(old_label, nbr_count))
+                else:
+                    new_feature_labels.append(old_label)
+        feature_labels = new_feature_labels[:]
+        nrows = len(features)
+        if feature_scores is not None:
+            feature_scores = np.array(feature_scores)[feature_mask]
+        if extra_feature_colors is not None:
+            extra_feature_colors = np.array(extra_feature_colors)[feature_mask]
 
     ## add some cell colors
     organism = adata.uns['organism']
@@ -2356,7 +2519,9 @@ def plot_interesting_features_vs_clustermap(
         cluster_color_dict = get_integers_color_dict(num_clusters_gex)
         colorbar_names.append( 'gex_cluster')
         colorbar_colors.append( [cluster_color_dict[x] for x in clusters_gex] )
-        colorbar_sorted_tuples.append( [ ('gexclus'+str(x), cluster_color_dict[x]) for x in range(num_clusters_gex)])
+        colorbar_sorted_tuples.append(
+            [ ('gexclus'+str(x), cluster_color_dict[x])
+              for x in range(num_clusters_gex)])
 
     if show_tcr_cluster_colorbar:
         clusters_tcr = np.array(adata.obs['clusters_tcr'])
@@ -2364,15 +2529,19 @@ def plot_interesting_features_vs_clustermap(
         cluster_color_dict = get_integers_color_dict(num_clusters_tcr)
         colorbar_names.append( 'tcr_cluster')
         colorbar_colors.append( [cluster_color_dict[x] for x in clusters_tcr] )
-        colorbar_sorted_tuples.append( [ ('tcrclus'+str(x), cluster_color_dict[x]) for x in range(num_clusters_tcr)])
+        colorbar_sorted_tuples.append(
+            [ ('tcrclus'+str(x), cluster_color_dict[x])
+              for x in range(num_clusters_tcr)])
 
     if show_VJ_gene_segment_colorbars:
         tcrs = preprocess.retrieve_tcrs_from_adata(adata)
-        gene_colors, sorted_gene_colors = assign_colors_to_conga_tcrs(tcrs, organism, return_sorted_color_tuples=True)
+        gene_colors, sorted_gene_colors = assign_colors_to_conga_tcrs(
+            tcrs, organism, return_sorted_color_tuples=True)
         colorbar_names.extend('VA JA VB JB'.split())
         colorbar_colors.extend(gene_colors)
         num_to_show = 10 # in the text written at the top
-        colorbar_sorted_tuples.extend( [ x[:num_to_show] for x in sorted_gene_colors ] )
+        colorbar_sorted_tuples.extend(
+            [ x[:num_to_show] for x in sorted_gene_colors ] )
 
     # add some row colors
     colorbar_row_colors = []
@@ -2385,7 +2554,8 @@ def plot_interesting_features_vs_clustermap(
 
     if feature_types is not None:
         type2color = {'tcr':'C0', 'gex':'C1'}
-        colorbar_row_colors.append( [ type2color.get(x,'black') for x in feature_types] )
+        colorbar_row_colors.append(
+            [type2color.get(x,'black') for x in feature_types] )
 
     if extra_feature_colors is not None:
         colorbar_row_colors.append(extra_feature_colors)
@@ -2405,48 +2575,49 @@ def plot_interesting_features_vs_clustermap(
 
     mx = min(max_vmax, max(min_vmax, mx))
 
-    print('making clustermap; num_features=', len(features))
+
+    # now reorder using cells_order
+    # will do nothing if use_1d_landscape_for_cell_order==False
+    #
+    if cells_order is not None:
+        A = A[:, cells_order]
+        colorbar_colors = [[x[i] for i in cells_order] for x in colorbar_colors]
+
     xmargin = 0.1
-    ymargin = 0.1
-    col_dendro_height = 2.5 #inches
+    ymargin_top = 0.8
+    ymargin_bottom = 0.1
+    col_dendro_height = 2.5 if col_cluster else 0.1 #inches
     col_colors_height = len(colorbar_colors)*0.2
     heatmap_height = len(features)*0.15
     row_dendro_width = 2.5 #inches
-    row_colors_width = 0.1 if colorbar_row_colors is None else len(colorbar_row_colors)*0.3
+    row_colors_width = (0.1 if colorbar_row_colors is None else
+                        len(colorbar_row_colors)*0.3)
     heatmap_width = 7.5
     fig_width = 2*xmargin + row_dendro_width + row_colors_width + heatmap_width
-    fig_height = 2*ymargin + col_dendro_height + col_colors_height + heatmap_height
+    fig_height = (ymargin_top + col_dendro_height + col_colors_height +
+                  heatmap_height + ymargin_bottom)
+
+    print('making clustermap; num_features=', len(features),
+          'ymargin_top=', ymargin_top)
 
     x0 = xmargin/fig_width
     x1 = (xmargin+row_dendro_width)/fig_width
     x2 = (xmargin+row_dendro_width+row_colors_width)/fig_width
     x3 = (fig_width-xmargin)/fig_width
 
-    y0 = ymargin/fig_height
-    y1 = (ymargin+heatmap_height)/fig_height
-    y2 = (ymargin+heatmap_height+col_colors_height)/fig_height
-    y3 = (fig_height-ymargin)/fig_height
+    y0 = ymargin_bottom/fig_height
+    y1 = (ymargin_bottom+heatmap_height)/fig_height
+    y2 = (ymargin_bottom+heatmap_height+col_colors_height)/fig_height
+    y3 = (fig_height-ymargin_top)/fig_height
 
     # not present in older version of seaborn:
     #dendrogram_inches = 2.
     #dendrogram_ratio = (dendrogram_inches/fig_height, dendrogram_inches/fig_width)
-    cm = sns.clustermap(A, col_linkage=cells_linkage, metric='correlation', cmap='coolwarm', vmin=-mx, vmax=mx,
-                        col_colors=colorbar_colors, row_colors=colorbar_row_colors,
-                        figsize=(fig_width,fig_height))#, dendrogram_ratio=dendrogram_ratio)
-
-    # print(dir(cm))
-    # def show_pos(ax, tag):
-    #     if ax is None:
-    #         return
-    #     pos = ax.get_position()
-    #     print(f'axis lower_left: {pos.x0:7.3f} {pos.y0:7.3f} upper right: {pos.x1:7.3f} {pos.y1:7.3f}  {tag}')
-
-    # show_pos(cm.ax_heatmap, 'heatmap')
-    # show_pos(cm.ax_col_dendrogram, 'col_dendro')
-    # show_pos(cm.ax_col_colors, 'col_colors')
-    # show_pos(cm.ax_row_dendrogram, 'row_dendro')
-    # show_pos(cm.ax_row_colors, 'row_colors')
-    # show_pos(cm.cax, 'cax')
+    cm = sns.clustermap(
+        A, col_linkage=cells_linkage, metric='correlation', cmap='coolwarm',
+        col_cluster=col_cluster, vmin=-mx, vmax=mx,
+        col_colors=colorbar_colors, row_colors=colorbar_row_colors,
+        figsize=(fig_width,fig_height))#, dendrogram_ratio=dendrogram_ratio)
 
     cm.ax_row_dendrogram.set_position([x0,y0,x1-x0,y1-y0])
     if cm.ax_row_colors is not None:
@@ -2454,8 +2625,11 @@ def plot_interesting_features_vs_clustermap(
     cm.ax_heatmap.set_position([x2,y0,x3-x2,y1-y0])
     if cm.ax_col_colors is not None:
         cm.ax_col_colors.set_position([x2,y1,x3-x2,y2-y1])
-    cm.ax_col_dendrogram.set_position([x2,y2,x3-x2,y3-y2])
-    cm.cax.set_position([x0,(fig_height-ymargin-1.5)/fig_height,0.3/fig_width,1.5/fig_height])
+    if col_cluster:
+        cm.ax_col_dendrogram.set_position([x2,y2,x3-x2,y3-y2])
+    cax_height = ymargin_top + col_dendro_height + col_colors_height - 0.5
+    cm.cax.set_position([x0,(fig_height-0.1-cax_height)/fig_height,
+                         0.3/fig_width,cax_height/fig_height])
 
     row_indices = cm.dendrogram_row.reordered_ind
     row_labels = [feature_labels[x] for x in row_indices]
@@ -2466,14 +2640,14 @@ def plot_interesting_features_vs_clustermap(
 
     # show the top couple genes and their colors
     ax = cm.ax_col_dendrogram
-    col_dendro_width = fig_width * (ax.get_position().x1 - ax.get_position().x0 )
-    col_dendro_height = fig_height * (ax.get_position().y1 - ax.get_position().y0 )
+    col_dendro_width= fig_width*(ax.get_position().x1 - ax.get_position().x0 )
+    col_dendro_height= fig_height*(ax.get_position().y1 - ax.get_position().y0)
     offset = 0.05 # inches
     if title is not None:
         ax.text(0.5, 1.0-offset/col_dendro_height, title,
                 va='top', ha='center', fontsize=9, color='k',
                 transform=ax.transAxes)
-        offset += 0.15
+        offset += 0.2
 
     line_height_inches = 0.09
     fontsize=7
@@ -2510,7 +2684,7 @@ def plot_interesting_features_vs_clustermap(
                 break
 
     print('making:', pngfile)
-    cm.savefig(pngfile, dpi=200)
+    cm.savefig(pngfile, dpi=dpi)
 
 
 def plot_cluster_gene_compositions(
@@ -3002,15 +3176,108 @@ def make_graph_vs_features_plots(
         adata,
         all_nbrs,
         outfile_prefix,
-        max_clones_for_clustermaps = 30000, # for memory
+        max_clones_for_dendrograms = 10000, # for memory
+        verbose=False,
+        clustermap_pvalue_threshold=0.05, # adjusted pvalues
+        clustermap_pvalue_threshold_big=1e-3, # for really big feature sets
+        clustermap_pvalue_threshold_big_size=500, # ie, more than 500 fts
+        min_nbrs_for_averaging=30,
 ):
     util.setup_uns_dicts(adata) # should already be done
 
 
     ## tcr graph vs gex features #####################3
     tcr_graph_results = adata.uns['conga_results'].get(
-        TCR_GRAPH_VS_GEX_FEATURES, None)
-    if tcr_graph_results is not None:
+        TCR_GRAPH_VS_GEX_FEATURES, pd.DataFrame([]))
+    tcr_genes_results = adata.uns['conga_results'].get(
+        TCR_GENES_VS_GEX_FEATURES, pd.DataFrame([]))
+    gex_graph_results = adata.uns['conga_results'].get(
+        GEX_GRAPH_VS_TCR_FEATURES, pd.DataFrame([]))
+
+    tcr_graph_results['feature_type'] = 'gex'
+    tcr_genes_results['feature_type'] = 'gex'
+    gex_graph_results['feature_type'] = 'tcr'
+
+    combo_results = pd.concat(
+        [tcr_graph_results, tcr_genes_results, gex_graph_results])
+
+    if combo_results.shape[0]>1: # make combo clustermap
+        # choose a smallish nbr_frac for nbr-averaging in the plots
+        nbr_fracs = sorted(all_nbrs.keys())
+        for nbr_frac in nbr_fracs:
+            if nbr_frac*adata.shape[0] >= min_nbrs_for_averaging:
+                plot_nbrs_gex, plot_nbrs_tcr = all_nbrs[nbr_frac]
+                break
+        else:
+            plot_nbrs_gex, plot_nbrs_tcr = all_nbrs[max(nbr_fracs)]
+
+        # sort, drop duplicates (due to multiple nbr_fracs)
+        combo_results = combo_results.sort_values('mwu_pvalue_adj')\
+                                     .drop_duplicates(['feature',
+                                                       'feature_type'])
+        # threshold on mwu_pvalue_adj
+        combo_results = combo_results[combo_results.mwu_pvalue_adj <=
+                                      clustermap_pvalue_threshold]
+
+        if combo_results.shape[0] > clustermap_pvalue_threshold_big_size:
+            print('using stringent pval threshold for big clustermap:',
+                  combo_results.shape[0], clustermap_pvalue_threshold_big)
+            combo_results = combo_results[combo_results.mwu_pvalue_adj <=
+                                          clustermap_pvalue_threshold_big]
+
+        for dist_tag in ['gex','tcr']:
+            # dist_tag is the similarity measure being used for column ordering
+
+            use_dendrogram_for_clustermap_cell_order = (
+                f'X_pca_{dist_tag}' in adata.obsm_keys() and
+                adata.shape[0] <= max_clones_for_dendrograms)
+
+            use_1d_landscape_for_clustermap_cell_order = (
+                f'X_{dist_tag}_1d' in adata.obsm_keys() and
+                not use_dendrogram_for_clustermap_cell_order)
+
+            if not (use_dendrogram_for_clustermap_cell_order or
+                    use_1d_landscape_for_clustermap_cell_order):
+                # cant make clustermap
+                continue
+
+
+            features = list(combo_results.feature)
+            feature_types = list(combo_results.feature_type)
+
+            min_pval = 1e-299 # dont want log10 of 0.0
+            feature_pvalues = np.maximum(
+                min_pval, np.array(combo_results.mwu_pvalue_adj))
+            feature_scores = np.sqrt(-1*np.log10(feature_pvalues))
+
+            feature_labels = [
+                '{:9.1e} {} {}'.format(x,y,z)
+                for x,y,z in zip(combo_results.mwu_pvalue_adj,
+                                 combo_results.feature_type,
+                                 combo_results.feature)]
+
+            figure_tag = (GRAPH_VS_FEATURES_GEX_CLUSTERMAP
+                          if dist_tag=='gex' else
+                          GRAPH_VS_FEATURES_TCR_CLUSTERMAP)
+
+            pngfile = f'{outfile_prefix}_{figure_tag}.png'
+            nbrs = plot_nbrs_gex if dist_tag == 'gex' else plot_nbrs_tcr
+
+            plot_interesting_features_vs_clustermap(
+                adata, features, feature_types, pngfile, dist_tag,
+                nbrs=nbrs,
+                compute_nbr_averages=True,
+                feature_labels=feature_labels,
+                feature_scores=feature_scores,
+                max_type_features=100,
+                use_1d_landscape_for_cell_order=
+                    use_1d_landscape_for_clustermap_cell_order,
+                title=figure_tag,
+                verbose=verbose,
+            )
+            adata.uns['conga_results'][figure_tag] = pngfile
+
+    if not tcr_graph_results.empty:
         # labeled umap
         figure_tag = TCR_GRAPH_VS_GEX_FEATURES_PLOT
         pngfile = f'{outfile_prefix}_{figure_tag}.png'
@@ -3028,37 +3295,12 @@ def make_graph_vs_features_plots(
             title=figure_tag)
         adata.uns['conga_results'][figure_tag] = pngfile
 
-        # clustermap
-        clustermap_pvalue_threshold = 0.05
-        gene_pvalues = {}
-        for l in tcr_graph_results.itertuples():
-            if l.mwu_pvalue_adj <= clustermap_pvalue_threshold:
-                gene_pvalues[l.feature] = min(
-                    l.mwu_pvalue_adj, gene_pvalues.get(l.feature, 1.0))
-        genes = list(gene_pvalues.keys())
-        if ( len(genes)>1 and 'X_pca_tcr' in adata.obsm_keys() and
-             adata.shape[0] <= max_clones_for_clustermaps):
-            gene_labels = ['{:9.1e} {}'.format(gene_pvalues[x], x)
-                           for x in genes]
-            figure_tag = TCR_GRAPH_VS_GEX_FEATURES_CLUSTERMAP
-            pngfile = f'{outfile_prefix}_{figure_tag}.png'
-            nbr_frac = max(all_nbrs.keys())
-            gex_nbrs, tcr_nbrs = all_nbrs[nbr_frac]
-            plot_interesting_features_vs_clustermap(
-                adata, genes, pngfile, 'tcr', nbrs=tcr_nbrs,
-                compute_nbr_averages=True, feature_labels=gene_labels,
-                title=figure_tag)
-            adata.uns['conga_results'][figure_tag] = pngfile
     else:
         print('conga.plotting.make_graph_vs_features_plots:: missing results',
               'dont forget to call conga.correlations.run_graph_vs_features')
 
-
-
     ## tcr genes vs gex features ##############3
-    tcr_genes_results = adata.uns['conga_results'].get(
-        TCR_GENES_VS_GEX_FEATURES, None)
-    if tcr_genes_results is not None:
+    if not tcr_genes_results.empty:
         # panels
         figure_tag = TCR_GENES_VS_GEX_FEATURES_PANELS
         pngfile = f'{outfile_prefix}_{figure_tag}.png'
@@ -3073,10 +3315,7 @@ def make_graph_vs_features_plots(
 
 
     ## gex graph vs tcr features #####################
-    gex_graph_results = adata.uns['conga_results'].get(
-        GEX_GRAPH_VS_TCR_FEATURES, None)
-
-    if gex_graph_results is not None:
+    if not gex_graph_results.empty:
         # labeled umap
         figure_tag = GEX_GRAPH_VS_TCR_FEATURES_PLOT
         pngfile = f'{outfile_prefix}_{figure_tag}.png'
@@ -3103,7 +3342,8 @@ def make_hotspot_plots(
         all_nbrs,
         outfile_prefix,
         make_raw_feature_plots=False,
-        max_clones_for_clustermaps=30000, # control memory
+        max_clones_for_dendrograms=20000, # control memory
+        min_nbrs_for_averaging=30,
 ):
     ''' Call conga.correlations.find_hotspots_wrapper first!
     '''
@@ -3114,10 +3354,17 @@ def make_hotspot_plots(
               'did you call conga.correlations.find_hotspots_wrapper first?')
         return
 
-
     all_results = adata.uns['conga_results'][HOTSPOT_FEATURES]
 
     nbr_fracs = sorted(all_nbrs.keys())
+
+    # choose a smallish nbr_frac for nbr-averaging in the plots
+    for nbr_frac in nbr_fracs:
+        if nbr_frac*adata.shape[0] >= min_nbrs_for_averaging:
+            plot_nbrs_gex, plot_nbrs_tcr = all_nbrs[nbr_frac]
+            break
+    else:
+        plot_nbrs_gex, plot_nbrs_tcr = all_nbrs[max(nbr_fracs)]
 
     for nbr_frac in nbr_fracs:
         # unpack the results for this nbr_frac:
@@ -3125,7 +3372,7 @@ def make_hotspot_plots(
         gex_results = combo_results[combo_results.feature_type=='gex']
         tcr_results = combo_results[combo_results.feature_type=='tcr']
 
-        nbrs_gex, nbrs_tcr = all_nbrs[nbr_frac]
+        #nbrs_gex, nbrs_tcr = all_nbrs[nbr_frac]
 
         for tag, results in [ ['gex', gex_results],
                               ['tcr', tcr_results],
@@ -3133,7 +3380,8 @@ def make_hotspot_plots(
             if results.shape[0]<1:
                 continue
 
-            for plot_tag, plot_nbrs in [['gex',nbrs_gex], ['tcr',nbrs_tcr]]:
+            for plot_tag, plot_nbrs in [['gex',plot_nbrs_gex],
+                                        ['tcr',plot_nbrs_tcr]]:
                 if tag == plot_tag:
                     continue
                 pngfile_prefix = '{}_hotspot_{}_features_{:.3f}_nbrs_{}_plot'\
@@ -3165,49 +3413,43 @@ def make_hotspot_plots(
                 if results.shape[0]<2:
                     continue # clustermap not interesting...
 
-                if 'X_pca_'+plot_tag not in adata.obsm_keys():
-                    print(f'skipping clustermap vs {plot_tag} since no',
-                          f'X_pca_{plot_tag} in adata.obsm_keys!')
-                    continue
+                use_dendrogram_for_clustermap_cell_order = (
+                    f'X_pca_{plot_tag}' in adata.obsm_keys() and
+                    adata.shape[0] <= max_clones_for_dendrograms)
 
-                if adata.shape[0] > max_clones_for_clustermaps:
-                    ############### TEMPORARY HACKING #################
-                    print('skipping hotspot clustermaps because adata',
-                          'is too big:', adata.shape)
+                use_1d_landscape_for_clustermap_cell_order = (
+                    f'X_{plot_tag}_1d' in adata.obsm_keys() and
+                    not use_dendrogram_for_clustermap_cell_order)
+
+                if not (use_1d_landscape_for_clustermap_cell_order or
+                        use_dendrogram_for_clustermap_cell_order):
+                    # can't make a clustermap: too big, or no data for dists
                     continue
 
                 ## clustermap of features versus cells
                 features = list(results.feature)
+                feature_types = list(results.feature_type)
                 feature_labels = ['{:9.1e} {} {}'.format(x,y,z)
                                   for x,y,z in zip(results.pvalue_adj,
                                                    results.feature_type,
                                                    results.feature)]
                 min_pval = 1e-299 # dont want log10 of 0.0
-                feature_scores = [
-                    np.sqrt(-1*np.log10(max(min_pval, x)))
-                    for x in results.pvalue_adj]
+                feature_pvalues = np.maximum(
+                    min_pval, np.array(results.pvalue_adj))
+                feature_scores = np.sqrt(-1*np.log10(feature_pvalues))
 
                 # nbr-averaged version
                 pngfile = f'{pngfile_prefix}_clustermap_nbr_avg.png'
-                # duplicates if linear correlation > 0.9
-                redundancy_threshold = 0.9
-                if len(features)>60:
-                    # ie anything 1 or higher ==> no duplicates
-                    max_redundant_features = 0
-                elif len(features)>30:
-                    # at most 1 duplicate
-                    max_redundant_features = 1
-                else:
-                    # at most 2 duplicates
-                    max_redundant_features = 2
 
                 plot_interesting_features_vs_clustermap(
-                    adata, features, pngfile, plot_tag, nbrs=plot_nbrs,
-                    compute_nbr_averages=True, feature_labels=feature_labels,
-                    feature_types = list(results.feature_type),
-                    max_redundant_features=max_redundant_features,
-                    redundancy_threshold=redundancy_threshold,
+                    adata, features, feature_types, pngfile, plot_tag,
+                    nbrs=plot_nbrs,
+                    compute_nbr_averages=True,
+                    feature_labels=feature_labels,
+                    max_type_features=100,
                     feature_scores=feature_scores,
+                    use_1d_landscape_for_cell_order=
+                        use_1d_landscape_for_clustermap_cell_order,
                     title=f'HotSpot {tag} features vs {plot_tag} landscape '
                     '(NBR-avged)')
 
@@ -3220,10 +3462,10 @@ def make_hotspot_plots(
                     # RAW scores (non-nbr-averaged) version
                     pngfile = f'{pngfile_prefix}_clustermap_raw.png'
                     plot_interesting_features_vs_clustermap(
-                        adata, features, pngfile, plot_tag, nbrs=plot_nbrs,
+                        adata, features, feature_types,
+                        pngfile, plot_tag,
                         compute_nbr_averages=False,
                         feature_labels=feature_labels,
-                        feature_types = list(results.feature_type),
                         max_redundant_features=max_redundant_features,
                         redundancy_threshold=redundancy_threshold,
                         feature_scores=feature_scores,

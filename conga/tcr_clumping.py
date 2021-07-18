@@ -503,8 +503,8 @@ clonotype_fdr_value= Benjamin-Hochberg FDR value for the per-TCR
 
 def tcrs_from_dataframe_helper(df, add_j_and_nucseq=False):
     if add_j_and_nucseq:
-        return [ ( (x.va, x.ja, x.cdr3a, x.cdr3a_nucseq),
-                   (x.vb, x.jb, x.cdr3b, x.cdr3b_nucseq) )
+        return [ ( (x.va, x.ja, x.cdr3a, x.cdr3a_nucseq.lower()),
+                   (x.vb, x.jb, x.cdr3b, x.cdr3b_nucseq.lower()) )
                  for x in df.itertuples() ]
     else:
         return [ ( (x.va, None, x.cdr3a), (x.vb, None, x.cdr3b) )

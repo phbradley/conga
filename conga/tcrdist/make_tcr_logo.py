@@ -467,9 +467,10 @@ def make_tcr_logo_svg_commands_for_tcrs(
     if tcrdist_calculator is None:
         tcrdist_calculator = tcr_distances.TcrDistCalculator(organism)
 
-    cmds = make_default_logo_svg_cmds( upper_left, width_height[0], width_height[1], organism, infos, chain,
-                                       tcrdist_calculator = tcrdist_calculator,
-                                       add_fake_alleles = add_fake_alleles, show_full_cdr3 = show_full_cdr3 )
+    cmds = make_default_logo_svg_cmds(
+        upper_left, width_height[0], width_height[1], organism, infos, chain,
+        tcrdist_calculator = tcrdist_calculator,
+        add_fake_alleles = add_fake_alleles, show_full_cdr3 = show_full_cdr3 )
 
 
     return cmds
@@ -511,9 +512,10 @@ def make_tcr_logo_for_tcrs(
     if tcrdist_calculator is None:
         tcrdist_calculator = tcr_distances.TcrDistCalculator(organism)
 
-    cmds = make_default_logo_svg_cmds( [xmargin,ymargin], default_width, default_height, organism, infos, chain,
-                                       tcrdist_calculator = tcrdist_calculator,
-                                       add_fake_alleles = add_fake_alleles, show_full_cdr3 = show_full_cdr3 )
+    cmds = make_default_logo_svg_cmds(
+        [xmargin,ymargin], default_width, default_height, organism, infos,
+        chain,tcrdist_calculator = tcrdist_calculator,
+        add_fake_alleles = add_fake_alleles, show_full_cdr3 = show_full_cdr3 )
 
 
     svg_width = 2*xmargin + default_width

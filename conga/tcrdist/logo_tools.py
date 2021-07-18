@@ -64,6 +64,10 @@ nucleotide_classes_lower_case = { 'a':'a',
                                   'm':'ac',
                                   'y':'ct',
                                   'r':'ag',
+                                  'b':'cgt',
+                                  'd':'agt',
+                                  'h':'act',
+                                  'v':'acg',
                                   'n':'acgt' }
 
 nuc_match_lower_case = {}
@@ -83,7 +87,30 @@ def nucleotide_symbols_match( a_in, b_in ):
     if a==b: return True
     return nuc_match_lower_case.get( (a,b), False )
 
+def degnucs_contain(a,b):
+    ''' Check if a contains b, allowing for degenerate nucleotide symbols
+    '''
+    #
+    if len(b)>len(a):
+        return False
+    for offset in range(len(a)-len(b)):
+        if all(nucleotide_symbols_match(x,y)
+               for x,y in zip(a[offset:], b)):
+            return True
+    return False
 
+def degnucs_index(a,b):
+    ''' Where does b match within a?
+    assert failure if not degnucs_contain(a,b)
+    '''
+    #
+    assert len(b)<=len(a), 'degnucs_index: b is not contained in a'
+    for offset in range(len(a)-len(b)):
+        if all(nucleotide_symbols_match(x,y)
+               for x,y in zip(a[offset:], b)):
+            return offset
+    assert False, 'degnucs_index: b is not contained in a'
+    return 0
 
 def reverse_complement( seq ):
     newseq = ''

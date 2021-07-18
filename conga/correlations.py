@@ -1759,6 +1759,7 @@ def find_hotspots_wrapper(
         all_results.append(results)
     results = pd.concat(all_results, ignore_index=True)
     if not results.empty:
+        results.sort_values('Z', ascending=False, inplace=True)
         results.sort_values('pvalue_adj', inplace=True)
     table_tag = HOTSPOT_FEATURES
     adata.uns.setdefault('conga_results',{})[table_tag] = results
@@ -1769,3 +1770,4 @@ def find_hotspots_wrapper(
         util.save_table_and_helpfile(table_tag, adata, outfile_prefix)
 
     return results
+
