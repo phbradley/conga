@@ -2100,7 +2100,7 @@ def make_feature_panel_plots(
     plt.savefig(pngfile)
 
 
-def get_raw_feature_scores( feature, adata, feature_type=None):
+def get_raw_feature_scores( feature, adata, feature_type):
     if feature.startswith('gex_cluster'):
         return (np.array(adata.obs['clusters_gex'])==int(feature[11:])).astype(float)
     elif feature.startswith('tcr_cluster'):
@@ -2141,7 +2141,9 @@ def make_raw_feature_scores_table(
         [('_cluster' in x or x=='clone_sizes' or x=='nndists_gex_rank')
          for x in features])
     var_name2index = {x:i for i,x in enumerate(adata.raw.var_names)}
-    is_gene_feature = np.array([x in var_name2index for x in features])
+    is_gene_feature = np.array(
+        [x in var_name2index and y=='gex'
+         for x,y in zip(features, feature_types)])
     is_tcr_feature = ~(is_special_feature | is_gene_feature)
 
     # get the genes
@@ -2227,7 +2229,7 @@ def plot_hotspot_umap(
         plotno+=1
         plt.subplot(nrows, ncols, plotno)
 
-        scores = get_raw_feature_scores( row.feature, adata , row.feature_type )
+        scores = get_raw_feature_scores(row.feature, adata, row.feature_type)
         if compute_nbr_averages:
             assert nbrs.shape[0] == adata.shape[0]
             # this will not work for ragged nbr arrays
@@ -2608,11 +2610,21 @@ def plot_interesting_features_vs_clustermap(
     # not present in older version of seaborn:
     #dendrogram_inches = 2.
     #dendrogram_ratio = (dendrogram_inches/fig_height, dendrogram_inches/fig_width)
-    cm = sns.clustermap(
-        A, col_linkage=cells_linkage, metric='correlation', cmap='coolwarm',
-        col_cluster=col_cluster, vmin=-mx, vmax=mx,
-        col_colors=colorbar_colors, row_colors=colorbar_row_colors,
-        figsize=(fig_width,fig_height))#, dendrogram_ratio=dendrogram_ratio)
+    try:
+        cm = sns.clustermap(
+            A, col_linkage=cells_linkage, metric='correlation', cmap='coolwarm',
+            col_cluster=col_cluster, vmin=-mx, vmax=mx,
+            col_colors=colorbar_colors, row_colors=colorbar_row_colors,
+            figsize=(fig_width,fig_height))#, dendrogram_ratio=dendrogram_ratio)
+    except:
+        tmpfile = pngfile+'_bad_matrix.txt'
+        print('ERROR plot_interesting_features_vs_clustermap',
+              'seaborn clustermap failed, writing matrix to file',
+              tmpfile)
+        for ii, f in enumerate(features):
+            print(ii, f, np.mean(A[ii,:]), np.std(A[ii,:]))
+        np.savetxt(tmpfile, A)
+        return
 
     cm.ax_row_dendrogram.set_position([x0,y0,x1-x0,y1-y0])
     if cm.ax_row_colors is not None:
@@ -3488,12 +3500,13 @@ default_content_order = [
     TCR_GRAPH_VS_GEX_FEATURES,
     TCR_GRAPH_VS_GEX_FEATURES_PLOT,
     TCR_GRAPH_VS_GEX_FEATURES_PANELS,
-    TCR_GRAPH_VS_GEX_FEATURES_CLUSTERMAP,
     TCR_GENES_VS_GEX_FEATURES,
     TCR_GENES_VS_GEX_FEATURES_PANELS,
     GEX_GRAPH_VS_TCR_FEATURES,
     GEX_GRAPH_VS_TCR_FEATURES_PLOT,
     GEX_GRAPH_VS_TCR_FEATURES_PANELS,
+    GRAPH_VS_FEATURES_GEX_CLUSTERMAP,
+    GRAPH_VS_FEATURES_TCR_CLUSTERMAP,
     GRAPH_VS_SUMMARY,
     GEX_CLUSTERS_TCRDIST_TREES,
     CONGA_THRESHOLD_TCRDIST_TREE,

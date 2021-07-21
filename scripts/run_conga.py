@@ -316,6 +316,17 @@ if args.restart is None: ################################## load GEX/TCR data
             print(f'read batch info for key {k} with {expected_choices}'
                   f' possible and {observed_choices} observed choices')
             adata.obs[k] = vals
+    elif 'batch_keys' in adata.uns:
+        old_batch_keys = list(adata.uns['batch_keys'])
+        if not all(x in adata.obs_keys() for x in old_batch_keys):
+            print('warning: dropping some of the batch_keys not present',
+                  'in adata.obs, old_batch_keys=', old_batch_keys,
+                  'obs_keys=', adata.obs_keys())
+        new_batch_keys = [x for x in old_batch_keys if x in adata.obs_keys()]
+        if new_batch_keys:
+            adata.uns['batch_keys'] = new_batch_keys
+        else:
+            del adata.uns['batch_keys']
 
     if args.exclude_vgene_strings:
         tcrs = conga.preprocess.retrieve_tcrs_from_adata(adata)
@@ -553,11 +564,11 @@ if args.subset_to_CD4 or args.subset_to_CD8:
 # UMAP/clusters based on exact tcrdists...
 need_to_compute_tcrdist_umap = (
     'X_tcr_2d' not in adata.obsm_keys() or # missing
-    (args.use_tcrdist_umap and 'X_pca_tcr' in adata.obs_keys())) #recompute
+    (args.use_tcrdist_umap and 'X_pca_tcr' in adata.obsm_keys())) #recompute
 
 need_to_compute_tcrdist_clusters = (
     'clusters_tcr' not in adata.obs_keys() or # missing
-    (args.use_tcrdist_clusters and 'X_pca_tcr' in adata.obs_keys())) #recompute
+    (args.use_tcrdist_clusters and 'X_pca_tcr' in adata.obsm_keys())) #recompute
 
 if need_to_compute_tcrdist_umap or need_to_compute_tcrdist_clusters:
     umap_key_added = 'X_tcr_2d' if need_to_compute_tcrdist_umap else \
