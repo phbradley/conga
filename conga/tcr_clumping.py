@@ -813,6 +813,7 @@ db_XXX: where XXX is a field in the literature database
 
 def strict_single_chain_match_adata_tcrs_to_db_tcrs(
         adata,
+        outfile_prefix=None,
         db_tcrs_tsvfile=None,
 ):
     ''' Find CDR3a and CDR3b matches between adata tcrs and tcrs in db_tcrs_tsvfile
@@ -874,5 +875,9 @@ def strict_single_chain_match_adata_tcrs_to_db_tcrs(
             matched_dfs[i][f'{chain}_match_UMI'] = clones
             matched_dfs[i][f'{chain}_match_gex_clusters'] = gex_clusters
             matched_dfs[i][f'{chain}_match_tcr_clusters'] = tcr_clusters
+
+        if outfile_prefix is not None:
+            csv_file = outfile_prefix + f'_single_chain_db_matches_{chain}.csv'
+            matched_dfs[i].to_csv(csv_file, index=False)
 
     return matched_dfs
