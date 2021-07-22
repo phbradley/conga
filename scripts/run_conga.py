@@ -3,7 +3,6 @@ import argparse
 from os.path import exists
 import sys
 import os
-import yaml
 
 parser = argparse.ArgumentParser(
     description="Run the CoNGA clonotype neighbor-graph analysis pipeline")
@@ -161,6 +160,7 @@ args = parser.parse_args()
 
 # update args specified in yml file
 if args.config is not None:
+    import yaml
     assert exists(args.config)
     yml_args = yaml.load(open(args.config), Loader=yaml.FullLoader)
     for k, v in yml_args.items():

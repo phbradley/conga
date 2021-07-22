@@ -2,7 +2,6 @@ import argparse
 from os.path import exists
 import sys
 import os
-import yaml
 
 parser = argparse.ArgumentParser()
 
@@ -27,6 +26,7 @@ args = parser.parse_args()
 
 # update args specified in yml file
 if args.config is not None:
+    import yaml
     assert exists(args.config)
     yml_args = yaml.load(open(args.config), Loader=yaml.FullLoader)
     for k, v in yml_args.items():
@@ -38,7 +38,7 @@ if args.config is not None:
 if args.organism is None:
     print('Organism not specified. Add to --config file or specify with --organism')
     quit()
-    
+
 if args.input_clones_file is not None:
     assert exists(args.input_clones_file)
     assert exists(args.filtered_contig_annotations_csvfile is None) # doesn't make sense

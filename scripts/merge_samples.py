@@ -3,14 +3,13 @@ from os.path import exists
 import sys
 import os
 import numpy as np
-import yaml
 
 
 parser = argparse.ArgumentParser(description="Merge multiple datasets and generate a single clones_file and gex_data file for subsequent CoNGA analysis. Each individual dataset should be previously setup to run through conga. Use the --samples argument to provide a tsv file with three rows that give, for each dataset, the location of the clones file and gex datafile and the format of the gex data" )
 
 parser.add_argument('--config', help="configuration file *.yml", type=str)
-parser.add_argument('--samples', 
-    help='tsvfile with 3 columns, "clones_file" "gex_data" "gex_data_type" corresponding to the arguments for run_conga.py', 
+parser.add_argument('--samples',
+    help='tsvfile with 3 columns, "clones_file" "gex_data" "gex_data_type" corresponding to the arguments for run_conga.py',
     default = None)
 parser.add_argument('--output_clones_file', default = None)
 parser.add_argument('--output_gex_data', help='The format of this output file will be "h5ad" ie scanpy h5', default = None)
@@ -27,6 +26,7 @@ args = parser.parse_args()
 
 # update args specified in yml file
 if args.config is not None:
+    import yaml
     assert exists(args.config)
     yml_args = yaml.load(open(args.config), Loader=yaml.FullLoader)
     for k, v in yml_args.items():
@@ -106,7 +106,7 @@ else:
     for x in all_data:
         x[2].var_names_make_unique()
     new_adata = all_data[0][2].concatenate(*[x[2] for x in all_data[1:]])
-    
+
 # this all assumes that when scanpy concatenates it adds '-N' to the Nth datasets barcodes
 if args.condense_clonotypes_by_tcrdist:
     tmpfile = args.output_clones_file+'.uncondensed.tsv'
