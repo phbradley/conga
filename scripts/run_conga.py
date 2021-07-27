@@ -915,7 +915,7 @@ if args.find_batch_biases: #####################################################
 ## also make umaps colored by batch assignment of rep cell
 if 'batch_keys' in adata.uns_keys():
     conga.plotting.make_batch_colored_umaps(
-        adata, args.outfile_prefix+'_batch_umaps.png')
+        adata, args.outfile_prefix)
 
     conga_scores, tcr_clumping_pvalues = None, None
     if args.graph_vs_graph:

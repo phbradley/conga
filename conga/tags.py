@@ -39,7 +39,7 @@ HOTSPOT_TCR_CLUSTERMAP  = 'hotspot_tcr_clustermap'
 GEX_CLUSTERS_TCRDIST_TREES = 'gex_clusters_tcrdist_trees'
 TCR_CLUSTERS_TCRDIST_TREES = 'tcr_clusters_tcrdist_trees'
 CONGA_THRESHOLD_TCRDIST_TREE = 'conga_threshold_tcrdist_tree'
-
+BATCH_UMAPS = 'batch_umaps'
 
 # this gets added to table_tag or figure_tag to maek the key for storing help
 #   messages in adata.uns['conga_results']

@@ -30,7 +30,7 @@ from matplotlib.collections import LineCollection
 from scipy.cluster import hierarchy
 from scipy.spatial import distance
 import time
-
+import random
 
 
 default_logo_genes = {
@@ -1484,6 +1484,11 @@ def plot_ranked_strings_on_cells(
         ax=None,
         title=None,
 ):
+    ''' Visualize the location of neighborhoods with skewed feature scores
+    on a UMAP plot, labeled by the feature name
+
+    returns a help message
+    '''
     assert ax or pngfile
 
     if results_df.shape[0] == 0: # no results to plot
@@ -1626,7 +1631,29 @@ def plot_ranked_strings_on_cells(
         print('making:', pngfile)
         plt.savefig(pngfile)
 
+    help_message = f"""This plot summarizes the results of a graph
+versus features analysis by labeling the clonotypes at the center of
+each biased neighborhood with the name of the feature biased in that
+neighborhood. The feature names are drawn in colored boxes whose
+color is determined by the strength and direction of the feature score bias
+(from bright red for features that are strongly elevated to bright blue
+for features that are strongly decreased in the corresponding neighborhoods,
+relative to the rest of the dataset).
 
+At most one feature (the top scoring) is shown for each clonotype
+(ie, neighborhood). The UMAP xy coordinates for this plot are
+stored in adata.obsm['{xy_tag}']. The score used for ranking correlations
+is '{ranking_column}'. The threshold score for displaying a feature is
+{ranking_threshold}. The feature column is '{string_column}'. Since
+we also run graph-vs-features using "neighbor" graphs that are defined
+by clusters, ie where each clonotype is connected to all the other
+clonotypes in the same cluster, some biased features may be associated with
+a cluster rather than a specific clonotype. Those features are labeled with
+a '*' at the end and shown near the centroid of the clonotypes belonging
+to that cluster.
+"""
+
+    return help_message
 
 def make_summary_figure(
         adata,
@@ -1987,6 +2014,7 @@ def make_feature_panel_plots(
         all_nbrs,
         results_df,
         pngfile,
+        feature_type,
         max_panels_per_bicluster=3,
         max_pvalue=0.05,
         nrows=8, #6,
@@ -1994,9 +2022,16 @@ def make_feature_panel_plots(
         panel_width_inches=2.5,
         use_nbr_frac=None,
         title=None,
+        cmap='viridis',
+        sort_order=True, # plot points sorted by feature value
+        point_size=10,
 ):
     ''' Assumes results_df has column mwu_pvalue_adj for sorting
+
+    returns a help message string.
     '''
+    assert feature_type in ['gex','tcr']
+
     if results_df.empty:
         return
 
@@ -2042,7 +2077,9 @@ def make_feature_panel_plots(
     var_names = list(adata.raw.var_names)
     features = set(df['feature'])
     for f in features:
-        if f in var_names:
+        if feature_type=='gex' and f in var_names:
+            # careful since TR/IG gene names are present in var_names but its
+            # better to use the VDJ information
             feature_to_raw_values[f] = adata.raw.X[:, var_names.index(f)].toarray()[:,0]
         elif f in adata.obs:
             feature_to_raw_values[f] = np.array(adata.obs[f])
@@ -2056,11 +2093,13 @@ def make_feature_panel_plots(
                 nndists_gex = np.zeros(num_clones)
             feature_to_raw_values[f] = np.log1p(np.argsort(-1*nndists_gex))
         else:
+            assert feature_type=='tcr'
             feature_score_table = tcr_scoring.make_tcr_score_table(adata, [f])
             feature_to_raw_values[f] = feature_score_table[:,0]
 
 
-    plt.figure(figsize=(ncols*panel_width_inches, nrows*panel_width_inches))
+    figsize= (ncols*panel_width_inches, nrows*panel_width_inches)
+    plt.figure(figsize=figsize)
     plotno=0
     for row in df.itertuples():
         plotno+=1
@@ -2068,7 +2107,12 @@ def make_feature_panel_plots(
 
         feature = row.feature
 
-        scores = feature_to_raw_values[feature]
+        scores = np.array(feature_to_raw_values[feature])
+
+        if sort_order:
+            reorder = np.argsort(scores)
+        else:
+            reorder = np.arange(len(scores))
 
         row_nbr_frac = use_nbr_frac if use_nbr_frac is not None else \
                        nbr_frac_for_cluster_results if row.nbr_frac==0.0 else \
@@ -2076,28 +2120,62 @@ def make_feature_panel_plots(
         nbrs = all_nbrs[row_nbr_frac][0] if xy_tag=='gex' else \
                all_nbrs[row_nbr_frac][1]
         assert nbrs.shape[0] == adata.shape[0]
-        num_neighbors = nbrs.shape[1] # this will not work for ragged nbr arrays (but we could change it to work)
+         # this will not work for ragged nbr arrays right now
+        num_neighbors = nbrs.shape[1]
 
-        nbr_averaged_scores = ( scores + scores[ nbrs ].sum(axis=1) )/(num_neighbors+1)
+        nbr_averaged_scores = (
+            scores + scores[nbrs].sum(axis=1))/(num_neighbors+1)
 
-        plt.scatter(xy[:,0], xy[:,1], c=nbr_averaged_scores, cmap='coolwarm', s=15)
-        plt.title('{} ({:d},{:d}) {:.1e}'.format(feature, int(row.gex_cluster+.1), int(row.tcr_cluster+.1),
+        plt.scatter(xy[reorder,0], xy[reorder,1],
+                    c=nbr_averaged_scores[reorder], cmap=cmap,
+                    s=point_size)
+        # plt.scatter(xy[:,0], xy[:,1], c=nbr_averaged_scores, cmap='coolwarm',
+        #             s=15)
+        plt.title('{} ({:d},{:d}) {:.1e}'.format(feature,
+                                                 int(row.gex_cluster+.1),
+                                                 int(row.tcr_cluster+.1),
                                                  row.mwu_pvalue_adj))
         plt.xticks([],[])
         plt.yticks([],[])
-        plt.text(1.0, 0.0, f'{row_nbr_frac} {xy_tag.upper()} nbr-avged',
+        plt.text(0.99, 0.01, f'K={num_neighbors} {xy_tag.upper()} nbr-avged',
                  va='bottom', ha='right', fontsize=9,
+                 transform=plt.gca().transAxes)
+        plt.text(0.01, 0.99, f'{np.min(nbr_averaged_scores):.2f}',
+                 va='top', ha='left', fontsize=8,
+                 transform=plt.gca().transAxes)
+        plt.text(0.99, 0.99, f'{np.max(nbr_averaged_scores):.2f}',
+                 va='top', ha='right', fontsize=8,
                  transform=plt.gca().transAxes)
         if (plotno-1)//ncols == nrows-1:
             plt.xlabel('{} UMAP1'.format(xy_tag.upper()))
         if plotno%ncols == 1:
             plt.ylabel('{} UMAP2'.format(xy_tag.upper()))
 
+    tl_rect = [0,0,1,1]
     if title is not None:
+        title_height_inches = 0.25
         plt.suptitle(title)
-    plt.tight_layout()
+        tl_rect = [0, 0, 1, 1.0-title_height_inches/figsize[1]]
+    plt.tight_layout(rect=tl_rect)
     print('making:', pngfile)
     plt.savefig(pngfile)
+
+    help_message = f"""Graph-versus-feature analysis was used to identify
+a set of {feature_type.upper()} features that showed biased distributions
+in {xy_tag.upper()} neighborhoods. This plot shows the distribution of the
+top-scoring {feature_type.upper()} features on the {xy_tag.upper()}
+UMAP 2D landscape. The features are ranked by 'mwu_pvalue_adj' ie
+Mann-Whitney-Wilcoxon adjusted P value (raw P value * number of comparisons).
+At most {max_panels_per_bicluster} features from clonotype neighbhorhoods
+in each (GEX,TCR) cluster pair are shown. The raw scores for each feature
+are averaged over the K nearest neighbors (K is indicated in the lower
+right corner of each panel) for each clonotype. The min and max
+nbr-averaged scores are shown in the upper corners of each panel.
+"""
+    if sort_order:
+        help_message += "Points are plotted in order of increasing feature score.\n"
+
+    return help_message
 
 
 def get_raw_feature_scores( feature, adata, feature_type):
@@ -2114,12 +2192,15 @@ def get_raw_feature_scores( feature, adata, feature_type):
         return np.log1p(np.argsort(-1*nndists_gex))
     elif feature == 'clone_sizes': # note that we are taking log1p for compatibility with the code in correlations.py
         return np.log1p(np.array(adata.obs['clone_sizes']))
-    elif feature_type == 'gex' or (feature_type==None and feature in adata.raw.var_names):
-        # will this be slow? creating list every time... probably OK for plotting routines
+    elif (feature_type == 'gex' or
+          (feature_type==None and feature in adata.raw.var_names)):
+        # will this be slow? creating list every time...
+        #  probably OK for plotting routines
         return adata.raw.X[:, list(adata.raw.var_names).index(feature)].toarray()[:,0]
     else:
-        assert feature_type in [ None, 'tcr']
-        return tcr_scoring.make_tcr_score_table(adata,[feature])[:,0].astype(float)
+        assert feature_type in [None, 'tcr']
+        return tcr_scoring.make_tcr_score_table(
+            adata,[feature])[:,0].astype(float)
 
 def make_raw_feature_scores_table(
         features,
@@ -2196,17 +2277,22 @@ def plot_hotspot_umap(
         results_df,
         pngfile,
         nbrs = None,
-        compute_nbr_averages=False,
+        compute_nbr_averages=True,
         nrows=8,
         ncols=5,
         panel_width_inches=2.5,
         title=None,
+        cmap='viridis',
+        sort_order=True, #plot points ordered by feature score
+        point_size=10,
 ):
     """
     xy_tag: use 'gex' or 'tcr' to set umap space used for plotting the hotspot features
     results_df : pandas df of hotspot features to plot. Expected columns are pvalue_adj feature feature_type
     where feature_type is either 'gex' or 'tcr'. We need that since some feature strings can be both. Output
     from correlations.find_hotspots can be fed in directly
+
+    returns a help_message string
     """
     if results_df.shape[0]==0:
         print('no results to plot:', pngfile)
@@ -2223,7 +2309,8 @@ def plot_hotspot_umap(
         nrows = max(1, int(np.sqrt(df.shape[0])))
         ncols = (df.shape[0]-1)//nrows + 1
 
-    plt.figure(figsize=(ncols*panel_width_inches, nrows*panel_width_inches))
+    figsize=(ncols*panel_width_inches, nrows*panel_width_inches)
+    plt.figure(figsize=figsize)
     plotno=0
     for row in df.itertuples():
         plotno+=1
@@ -2236,27 +2323,54 @@ def plot_hotspot_umap(
             #  (but we could change it to work)
             num_neighbors = nbrs.shape[1]
             scores = ( scores + scores[ nbrs ].sum(axis=1) )/(num_neighbors+1)
-
-        reorder = np.argsort(scores)
-        plt.scatter(xy[reorder,0], xy[reorder,1], c=scores[reorder], cmap='viridis', s=15)
+        if sort_order:
+            reorder = np.argsort(scores)
+        else:
+            reorder = np.arange(len(scores))
+        plt.scatter(xy[reorder,0], xy[reorder,1], c=scores[reorder],
+                    cmap=cmap, s=point_size)
         plt.title('{} {:.1e}'.format(row.feature, row.pvalue_adj))
         plt.xticks([],[])
         plt.yticks([],[])
         if compute_nbr_averages:
-            plt.text(1.0, 0.0, f'K={num_neighbors} {xy_tag.upper()} nbr-avged',
+            plt.text(0.99, 0.01,
+                     f'K={num_neighbors} {xy_tag.upper()} nbr-avged',
                      va='bottom', ha='right', fontsize=9,
                      transform=plt.gca().transAxes)
+        plt.text(0.01, 0.99, f'{np.min(scores):.2f}',
+                 va='top', ha='left', fontsize=8,
+                 transform=plt.gca().transAxes)
+        plt.text(0.99, 0.99, f'{np.max(scores):.2f}',
+                 va='top', ha='right', fontsize=8,
+                 transform=plt.gca().transAxes)
         if (plotno-1)//ncols == nrows-1:
             plt.xlabel('{} UMAP1'.format(xy_tag.upper()))
         if plotno%ncols == 1:
             plt.ylabel('{} UMAP2'.format(xy_tag.upper()))
 
+    tl_rect = [0,0,1,1]
     if title is not None:
+        title_height_inches = 0.25
         plt.suptitle(title)
-    plt.tight_layout()
+        tl_rect = [0, 0, 1, 1.0-title_height_inches/figsize[1]]
+
+    plt.tight_layout(rect=tl_rect)
     print('making:', pngfile)
     plt.savefig(pngfile)
 
+    help_message = f"""HotSpot analysis (Nir Yosef lab, PMID: 33951459)
+was used to identify a set of GEX (TCR) features that showed biased
+distributions in TCR (GEX) space. This plot shows the distribution of the
+top-scoring HotSpot features on the {xy_tag.upper()}
+UMAP 2D landscape. The features are ranked by adjusted P value
+(raw P value * number of comparisons). The raw scores for each feature
+are averaged over the K nearest neighbors (K is indicated in the lower
+right corner of each panel) for each clonotype. The min and max
+nbr-averaged scores are shown in the upper corners of each panel.
+"""
+    if sort_order:
+        help_message += "Points are plotted in order of increasing feature score\n"
+    return help_message
 
 
 def filter_sorted_features_by_correlation(
@@ -2357,6 +2471,7 @@ def plot_interesting_features_vs_clustermap(
     #original_features = list(features)
 
     assert dist_tag in ['gex','tcr']
+    assert all(x in ['gex','tcr'] for x in feature_types)
 
     if show_gex_cluster_colorbar is None:
         show_gex_cluster_colorbar = dist_tag=='gex'
@@ -2466,11 +2581,11 @@ def plot_interesting_features_vs_clustermap(
     if np.sum(feature_mask)<len(features): # had to exclude some
         # write out the feature neighbors for inspection
         dfl = []
-        for f, nbrs in feature_nbrs.items():
+        for f, fnbrs in feature_nbrs.items():
             dfl.append(OrderedDict(
                 feature=f,
-                redundant_neighbors=','.join(nbrs),
-                num_redundant_neighbors=len(nbrs)))
+                redundant_neighbors=','.join(fnbrs),
+                num_redundant_neighbors=len(fnbrs)))
         df = pd.DataFrame(dfl)
         df.sort_values('num_redundant_neighbors', inplace=True,
                        ascending=False)
@@ -2487,8 +2602,7 @@ def plot_interesting_features_vs_clustermap(
         A = A[feature_mask,:]
         old_features = list(features)
         features = np.array(features)[feature_mask]
-        if feature_types is not None:
-            feature_types = np.array(feature_types)[feature_mask]
+        feature_types = np.array(feature_types)[feature_mask]
         new_feature_labels = []
         for feature, old_label, m in zip(old_features,
                                          feature_labels,
@@ -2543,6 +2657,9 @@ def plot_interesting_features_vs_clustermap(
 
     # add some row colors
     colorbar_row_colors = []
+    if extra_feature_colors is not None:
+        colorbar_row_colors.append(extra_feature_colors)
+
     if feature_scores is not None:
         cm = plt.get_cmap(feature_scores_cmap)
         vmin, vmax = min(feature_scores), max(feature_scores)
@@ -2550,26 +2667,16 @@ def plot_interesting_features_vs_clustermap(
         normed_scores = [ (x-vmin)/(vmax-vmin) for x in feature_scores]
         colorbar_row_colors.append( [ cm(x) for x in normed_scores])
 
-    if feature_types is not None:
-        type2color = {'tcr':'C0', 'gex':'C1'}
-        colorbar_row_colors.append(
-            [type2color.get(x,'black') for x in feature_types] )
+    type2color = {'tcr':'C0', 'gex':'C1'}
+    colorbar_row_colors.append(
+        [type2color.get(x,'black') for x in feature_types] )
 
-    if extra_feature_colors is not None:
-        colorbar_row_colors.append(extra_feature_colors)
-
-    if not colorbar_row_colors:
-        colorbar_row_colors = None
-
-    if feature_types is None:
-        mx = np.max(np.abs(A))
+    # try to only use other-type features for setting max
+    mask = [ x!=dist_tag for x in feature_types]
+    if np.sum(mask):
+        mx = np.max(np.abs(A[mask,:]))
     else:
-        # try to only use other-type features for setting max
-        mask = [ x=='gex' for x in feature_types]
-        if np.sum(mask):
-            mx = np.max(np.abs(A[mask,:]))
-        else:
-            mx = np.max(np.abs(A))
+        mx = np.max(np.abs(A))
 
     mx = min(max_vmax, max(min_vmax, mx))
 
@@ -2672,27 +2779,72 @@ def plot_interesting_features_vs_clustermap(
     # show the tiny_lines
     if tiny_lines is not None:
         ax = cm.ax_row_dendrogram
-        row_dendro_width = fig_width * (ax.get_position().x1 - ax.get_position().x0 )
-        row_dendro_height = fig_height * (ax.get_position().y1 - ax.get_position().y0 )
+        row_dendro_width = fig_width*(ax.get_position().x1-ax.get_position().x0)
+        row_dendro_height=fig_height*(ax.get_position().y1-ax.get_position().y0)
 
         max_lines = int(row_dendro_height / 0.08)
         col_width_frac = 0.33 / row_dendro_width
         x_offset = 0
         tiny_fontsize=5
-        ax.text(0.0, 1.0, 'Correlated\nfeatures\nomitted:', va='bottom', ha='left', fontsize=tiny_fontsize,
+        ax.text(0.0, 1.0, 'Correlated\nfeatures\nomitted:', va='bottom',
+                ha='left', fontsize=tiny_fontsize,
                 transform=ax.transAxes, zorder=-1, color='black')
         while tiny_lines:
-            ax.text(x_offset, 1.0, ''.join(tiny_lines[:max_lines]), va='top', ha='left', fontsize=tiny_fontsize,
+            ax.text(x_offset, 1.0, ''.join(tiny_lines[:max_lines]), va='top',
+                    ha='left', fontsize=tiny_fontsize,
                     transform=ax.transAxes, zorder=-1, color='blue')
             x_offset += col_width_frac
             tiny_lines = tiny_lines[max_lines:]
             if tiny_lines and x_offset+col_width_frac/2>1.0:
-                ax.text(x_offset, 1.0, '...', va='top', ha='left', fontsize=tiny_fontsize,transform=ax.transAxes)
+                ax.text(x_offset, 1.0, '...', va='top', ha='left',
+                        fontsize=tiny_fontsize,transform=ax.transAxes)
                 break
 
     print('making:', pngfile)
     cm.savefig(pngfile, dpi=dpi)
 
+    num_neighbors = nbrs.shape[1] if compute_nbr_averages else 0
+
+    help_message = f"""This plot shows the distribution of significant
+    features from graph-vs-features or HotSpot analysis plotted across the
+    {dist_tag.upper()} landscape. Rows are features and columns are
+    individual clonotypes. Columns are ordered by hierarchical clustering
+    (if a dendrogram is present above the heatmap) or by a 1D UMAP projection
+    (used for very large datasets or if 'X_pca_{dist_tag}' is not present in
+    adata.obsm_keys()). Rows are ordered by hierarchical clustering with
+    a correlation metric.
+
+    The row colors to the left of the heatmap show the feature type
+    (blue=TCR, orange=GEX). The row colors to the left of those
+    indicate the strength of the graph-vs-feature correlation
+    (also included in the feature labels to the right of the heatmap;
+    keep in mind that highly significant P values for some features may shift
+    the colorscale so everything else looks dark blue).
+
+    The column colors above the heatmap are {dist_tag.upper()} clusters
+    and TCR V genes (if plotting against the TCR landscape). The text
+    above the column colors provides more info.
+
+    Feature scores are Z-score normalized and then averaged over the
+    K={num_neighbors} nearest neighbors (0 means no nbr-averaging).
+
+    The 'coolwarm' colormap is centered at Z=0.
+
+    Since features of the same type (GEX or TCR) as the landscape and
+    neighbor graph (ie {dist_tag.upper()} features) are more highly
+    correlated over graph neighborhoods, their neighbor-averaged scores
+    will show more extreme variation. For this reason, the nbr-averaged
+    scores for these features from the same modality as the landscape
+    itself are downscaled by a factor of
+    rescale_factor_for_self_features={rescale_factor_for_self_features:.2f}.
+
+    The colormap in the top left is for the Z-score normalized,
+    neighbor-averaged scores (multiply by {1.0/rescale_factor_for_self_features:.2f}
+    to get the color scores for the {dist_tag.upper()} features).
+
+    """
+
+    return help_message
 
 def plot_cluster_gene_compositions(
         adata,
@@ -2920,12 +3072,13 @@ def make_tcrdist_trees(
         adata,
         output_prefix,
         group_by = None,
+        max_tcrs_per_cluster_for_tcrdists=5000, # if more, will subsample
 ):
     """
     generate TCRdist trees by gene expression cluster
-    group_by: use 'clusters_gex' or 'clusters_tcr' to generate by trees by respective cluster assignments.
+    group_by: use 'clusters_gex' or 'clusters_tcr' to generate trees
+       by respective cluster assignments.
     """
-
     if group_by is None or group_by == 'clusters_gex':
         group_by = 'clusters_gex'
         tag = 'GEX'
@@ -2963,7 +3116,16 @@ def make_tcrdist_trees(
     for clust in range(num_clusters):
         cmask = (clusters==clust)
         csize = np.sum(cmask)
-        #cinds = np.nonzero(cmask)[0]
+
+        if csize>max_tcrs_per_cluster_for_tcrdists:
+            print('make_tcrdist_trees: too many TCRs in cluster, subsampling',
+                  csize, '>', max_tcrs_per_cluster_for_tcrdists)
+            cinds = list(np.nonzero(cmask)[0])
+            random.shuffle(cinds)
+            cmask = np.full((num_clones,), False)
+            cmask[cinds[:max_tcrs_per_cluster_for_tcrdists]] = True
+            csize = np.sum(cmask)
+            assert csize == max_tcrs_per_cluster_for_tcrdists
 
         ctcrs   = [x for x,y in zip(  tcrs, cmask) if y]
         cscores = [x for x,y in zip(scores, cmask) if y]
@@ -2991,8 +3153,20 @@ def make_tcrdist_trees(
     svg_basic.create_file(all_cmds, x_offset-xpad, height, pngfile[:-3]+'svg',
                           create_png= True )
 
+    def conga_score_from_color_score(x):
+        return 10**(-1*(x**2)) * num_clones / 100.
+    loscore = conga_score_from_color_score(color_score_range[0])
+    hiscore = conga_score_from_color_score(color_score_range[1])
+
+    help_message = f"""These are TCRdist hierarchical clustering trees
+for the {tag} clusters (cluster assignments stored in
+adata.obs['{group_by}']). The trees are colored by CoNGA score
+with a color score range of {loscore:.2e} (blue) to {hiscore:.2e} (red).
+For coloring, CoNGA scores are log-transformed, negated, and square-rooted
+(with an offset in there, too, roughly speaking).
+"""
+
     adata.uns.setdefault('conga_results',{})[figure_tag] = pngfile
-    help_message = """Help message for """+figure_tag # TEMPORARY
     adata.uns['conga_results'][figure_tag+HELP_SUFFIX] = help_message
     util.make_figure_helpfile(figure_tag, adata)
 
@@ -3003,6 +3177,7 @@ def make_tcrdist_tree_for_conga_score_threshold(
         threshold,
         outfile_prefix,
         min_clonotypes=10,
+        max_tcrs_for_tcrdists=5000, # if more, will subsample
 ):
     ''' Make a tcrdist tree for clonotypes with conga_scores below a threshold
     '''
@@ -3027,6 +3202,15 @@ def make_tcrdist_tree_for_conga_score_threshold(
         print('make_tcrdist_tree_for_conga_hits: too few hits:', csize,
               'min_clonotypes=', min_clonotypes)
         return
+    elif csize>max_tcrs_for_tcrdists:
+        print('make_tcrdist_tree_for_conga_hits: too many TCRs for tcrdists,'
+              'subsampling:', csize, '>', max_tcrs_for_tcrdists)
+        cinds = list(np.nonzero(cmask)[0])
+        random.shuffle(cinds)
+        cmask = np.full((adata.shape[0],), False)
+        cmask[cinds[:max_tcrs_for_tcrdists]] = True
+        csize = np.sum(cmask)
+        assert csize == max_tcrs_for_tcrdists
 
     ctcrs   = [x for x,y in zip(  tcrs, cmask) if y]
     cscores = [x for x,y in zip(scores, cmask) if y]
@@ -3053,9 +3237,19 @@ def make_tcrdist_tree_for_conga_score_threshold(
     svg_basic.create_file(cmds, width, height, pngfile[:-3]+'svg',
                           create_png=True )
 
-    adata.uns.setdefault('conga_results',{})[figure_tag] = pngfile
+    def conga_score_from_color_score(x):
+        return 10**(-1*(x**2)) * threshold
+    loscore = conga_score_from_color_score(color_score_range[0])
+    hiscore = conga_score_from_color_score(color_score_range[1])
 
-    help_message = """Help message for CONGA_THRESHOLD_TCRDIST_TREE""" # TEMP
+    help_message = f"""This is a TCRdist hierarchical clustering tree
+for the clonotypes with CoNGA score less than {threshold}.
+The tree is colored by CoNGA score
+with a color score range of {loscore:.2e} (blue) to {hiscore:.2e} (red).
+For coloring, CoNGA scores are log-transformed, negated, and square-rooted
+(with an offset in there, too, roughly speaking).
+"""
+    adata.uns.setdefault('conga_results',{})[figure_tag] = pngfile
     adata.uns['conga_results'][figure_tag+HELP_SUFFIX] = help_message
     util.make_figure_helpfile(figure_tag, adata)
 
@@ -3063,12 +3257,20 @@ def make_tcrdist_tree_for_conga_score_threshold(
 
 def make_batch_colored_umaps(
         adata,
-        pngfile
+        outfile_prefix,
 ):
     ''' Note that this just plots the batch assignment of the center
     (representative) clone for each clonotype.
     '''
+    if 'batch_keys' not in adata.uns:
+        print("WARNING: make_batch_colored_umaps called,",
+              "but no 'batch_keys' entry in adata.uns")
+        return
+
     batch_keys = adata.uns['batch_keys']
+
+    figure_tag = BATCH_UMAPS
+    pngfile = f'{outfile_prefix}_{figure_tag}.png'
 
     nrows, ncols, plotno = 2, len(batch_keys), 0
     plt.figure(figsize=(ncols*4, nrows*4))
@@ -3099,6 +3301,14 @@ def make_batch_colored_umaps(
     plt.tight_layout()
     print('making:', pngfile)
     plt.savefig(pngfile)
+    help_message = """This figure shows the TCR and GEX 2D UMAP landscapes
+    colored by the batch assignment of the representative cell for each
+    clonotype. The batches are the ones present in adata.uns['batch_keys']
+    and are given in the titles of the individual panels.
+    """
+    adata.uns['conga_results'][figure_tag] = pngfile
+    adata.uns['conga_results'][figure_tag+HELP_SUFFIX] = help_message
+    util.make_figure_helpfile(figure_tag, adata)
 
 
 ## this function is really similar to make_cluster_logo_plots_figure
@@ -3270,7 +3480,7 @@ def make_graph_vs_features_plots(
             pngfile = f'{outfile_prefix}_{figure_tag}.png'
             nbrs = plot_nbrs_gex if dist_tag == 'gex' else plot_nbrs_tcr
 
-            plot_interesting_features_vs_clustermap(
+            help_message = plot_interesting_features_vs_clustermap(
                 adata, features, feature_types, pngfile, dist_tag,
                 nbrs=nbrs,
                 compute_nbr_averages=True,
@@ -3283,24 +3493,31 @@ def make_graph_vs_features_plots(
                 verbose=verbose,
             )
             adata.uns['conga_results'][figure_tag] = pngfile
+            adata.uns['conga_results'][figure_tag+HELP_SUFFIX] = help_message
+            util.make_figure_helpfile(figure_tag, adata)
 
     if not tcr_graph_results.empty:
         # labeled umap
         figure_tag = TCR_GRAPH_VS_GEX_FEATURES_PLOT
         pngfile = f'{outfile_prefix}_{figure_tag}.png'
-        plot_ranked_strings_on_cells(
+        help_message = plot_ranked_strings_on_cells(
             adata, tcr_graph_results, 'X_tcr_2d', 'clone_index',
             'mwu_pvalue_adj', 1.0, 'feature', pngfile,
             title=figure_tag)
         adata.uns['conga_results'][figure_tag] = pngfile
+        adata.uns['conga_results'][figure_tag+HELP_SUFFIX] = help_message
+        util.make_figure_helpfile(figure_tag, adata)
 
         # panels
         figure_tag = TCR_GRAPH_VS_GEX_FEATURES_PANELS
         pngfile = f'{outfile_prefix}_{figure_tag}.png'
-        make_feature_panel_plots(
-            adata, 'tcr', all_nbrs, tcr_graph_results, pngfile,
+        xy_tag, feature_type = 'tcr','gex'
+        help_message = make_feature_panel_plots(
+            adata, xy_tag, all_nbrs, tcr_graph_results, pngfile, feature_type,
             title=figure_tag)
         adata.uns['conga_results'][figure_tag] = pngfile
+        adata.uns['conga_results'][figure_tag+HELP_SUFFIX] = help_message
+        util.make_figure_helpfile(figure_tag, adata)
 
     else:
         print('conga.plotting.make_graph_vs_features_plots:: missing results',
@@ -3311,11 +3528,14 @@ def make_graph_vs_features_plots(
         # panels
         figure_tag = TCR_GENES_VS_GEX_FEATURES_PANELS
         pngfile = f'{outfile_prefix}_{figure_tag}.png'
-        make_feature_panel_plots(
-            adata, 'tcr', all_nbrs, tcr_genes_results, pngfile,
+        xy_tag, feature_type = 'tcr','gex'
+        help_message = make_feature_panel_plots(
+            adata, xy_tag, all_nbrs, tcr_genes_results, pngfile, feature_type,
             use_nbr_frac = max(all_nbrs.keys()),
             title=figure_tag)
         adata.uns['conga_results'][figure_tag] = pngfile
+        adata.uns['conga_results'][figure_tag+HELP_SUFFIX] = help_message
+        util.make_figure_helpfile(figure_tag, adata)
     else:
         print('conga.plotting.make_graph_vs_features_plots:: missing results',
               'dont forget to call conga.correlations.run_graph_vs_features')
@@ -3326,19 +3546,25 @@ def make_graph_vs_features_plots(
         # labeled umap
         figure_tag = GEX_GRAPH_VS_TCR_FEATURES_PLOT
         pngfile = f'{outfile_prefix}_{figure_tag}.png'
-        plot_ranked_strings_on_cells(
+        help_message = plot_ranked_strings_on_cells(
             adata, gex_graph_results, 'X_gex_2d', 'clone_index',
             'mwu_pvalue_adj', 1.0, 'feature', pngfile,
             direction_column='ttest_stat',
             title=figure_tag)
         adata.uns['conga_results'][figure_tag] = pngfile
+        adata.uns['conga_results'][figure_tag+HELP_SUFFIX] = help_message
+        util.make_figure_helpfile(figure_tag, adata)
+
         # panels
         figure_tag = GEX_GRAPH_VS_TCR_FEATURES_PANELS
         pngfile = f'{outfile_prefix}_{figure_tag}.png'
-        make_feature_panel_plots(
-            adata, 'gex', all_nbrs, gex_graph_results, pngfile,
+        xy_tag, feature_type = 'gex', 'tcr'
+        help_message = make_feature_panel_plots(
+            adata, xy_tag, all_nbrs, gex_graph_results, pngfile, feature_type,
             title=figure_tag)
         adata.uns['conga_results'][figure_tag] = pngfile
+        adata.uns['conga_results'][figure_tag+HELP_SUFFIX] = help_message
+        util.make_figure_helpfile(figure_tag, adata)
     else:
         print('conga.plotting.make_graph_vs_features_plots:: missing results',
               'dont forget to call conga.correlations.run_graph_vs_features')
@@ -3397,7 +3623,7 @@ def make_hotspot_plots(
                 # 2D UMAPs colored by nbr-averaged feature values
                 pngfile = f'{pngfile_prefix}_umap_nbr_avg.png'
                 print('making:', pngfile)
-                plot_hotspot_umap(
+                help_message = plot_hotspot_umap(
                     adata, plot_tag, results, pngfile, nbrs=plot_nbrs,
                     compute_nbr_averages=True,
                     title=f'HotSpot {tag} features vs {plot_tag} landscape '
@@ -3407,6 +3633,10 @@ def make_hotspot_plots(
                     figure_tag = (HOTSPOT_GEX_UMAP if plot_tag=='gex' else
                                   HOTSPOT_TCR_UMAP)
                     adata.uns['conga_results'][figure_tag] = pngfile
+                    adata.uns['conga_results'][figure_tag+HELP_SUFFIX] = (
+                        help_message)
+                    util.make_figure_helpfile(figure_tag, adata)
+
 
                 if make_raw_feature_plots:
                     pngfile = f'{pngfile_prefix}_umap_raw.png'
@@ -3448,7 +3678,7 @@ def make_hotspot_plots(
                 # nbr-averaged version
                 pngfile = f'{pngfile_prefix}_clustermap_nbr_avg.png'
 
-                plot_interesting_features_vs_clustermap(
+                help_message = plot_interesting_features_vs_clustermap(
                     adata, features, feature_types, pngfile, plot_tag,
                     nbrs=plot_nbrs,
                     compute_nbr_averages=True,
@@ -3464,11 +3694,14 @@ def make_hotspot_plots(
                     figure_tag = (HOTSPOT_GEX_CLUSTERMAP if plot_tag=='gex' else
                                   HOTSPOT_TCR_CLUSTERMAP)
                     adata.uns['conga_results'][figure_tag] = pngfile
+                    adata.uns['conga_results'][figure_tag+HELP_SUFFIX] = (
+                        help_message)
+                    util.make_figure_helpfile(figure_tag, adata)
 
                 if make_raw_feature_plots:
                     # RAW scores (non-nbr-averaged) version
                     pngfile = f'{pngfile_prefix}_clustermap_raw.png'
-                    plot_interesting_features_vs_clustermap(
+                    help_message = plot_interesting_features_vs_clustermap(
                         adata, features, feature_types,
                         pngfile, plot_tag,
                         compute_nbr_averages=False,
@@ -3515,6 +3748,7 @@ default_content_order = [
     HOTSPOT_GEX_CLUSTERMAP,
     HOTSPOT_TCR_UMAP,
     HOTSPOT_TCR_CLUSTERMAP,
+    BATCH_UMAPS,
 ]
 
 # figure tags:

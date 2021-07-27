@@ -118,7 +118,7 @@ def read_tcr_data(
         clonotype = str(clone_id_prefix) + str(l.raw_clonotype_id)
         # annoying: pandas sometimes converts to True/False booleans
         #  and sometimes not.
-        assert l.productive in [ 'None', 'False', 'True']
+        assert l.productive in ['None', 'False', 'True','TRUE','FALSE']
         if clonotype =='None':
             if verbose:
                 print('skip: clonotype==None', l)
@@ -131,7 +131,7 @@ def read_tcr_data(
             clonotype2barcodes[clonotype].append( bc )
 
         ## experimenting here ########################################3
-        if l.productive != 'True':
+        if l.productive.lower() != 'true':
             if verbose:
                 print('skip: productive!=True', l)
             continue
@@ -282,21 +282,21 @@ def read_tcr_data_batch(
     # read in contig files and update suffix to match GEX matrix
     contig_list = []
     for x in md.itertuples():
-    
+
         dfx = pd.read_csv( x.file )
         suffix = str(x.suffix)
-    
+
         # strip the suffix off the barcode
         barcodes = dfx['barcode'].str.split('-').str.get(0)
-    
+
         # add correct suffix
         dfx['barcode'] = barcodes + '-' + suffix
-    
+
         #update contig_id
         dfx['contig_id'] = barcodes + '-' + suffix + '_contig_' + dfx['contig_id'].str.split('_').str.get(2) # currently unused, but can't hurt
-    
+
         dfx['raw_clonotype_id'] = clone_id_prefix + dfx['raw_clonotype_id'] + '_' + suffix
-        dfx['raw_consensus_id'] = clone_id_prefix + dfx['raw_consensus_id'] + '_' + suffix 
+        dfx['raw_consensus_id'] = clone_id_prefix + dfx['raw_consensus_id'] + '_' + suffix
 
         contig_list.append(dfx)
 

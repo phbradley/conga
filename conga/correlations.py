@@ -1757,13 +1757,40 @@ def find_hotspots_wrapper(
         results = find_hotspots(adata, all_nbrs[nbr_frac], pval_threshold)
         results['nbr_frac'] = nbr_frac
         all_results.append(results)
-    results = pd.concat(all_results, ignore_index=True)
+    results = pd.concat(all_results)
     if not results.empty:
-        results.sort_values('Z', ascending=False, inplace=True)
-        results.sort_values('pvalue_adj', inplace=True)
+        results['negZ'] = -1*results.Z
+        results.sort_values(['pvalue_adj','negZ'], inplace=True)
+        results.drop(columns=['negZ'], inplace=True)
+        results.reset_index(inplace=True, drop=True)
+
     table_tag = HOTSPOT_FEATURES
+    help_message = """ Find GEX (TCR) features that show a biased
+    distribution across the TCR (GEX) neighbor graph,
+    using a simplified version of the Hotspot method
+    from the Yosef lab.
+
+    DeTomaso, D., & Yosef, N. (2021).
+    "Hotspot identifies informative gene modules across modalities
+    of single-cell genomics."
+    Cell Systems, 12(5), 446–456.e9.
+
+    PMID:33951459
+
+    Columns:
+
+    Z: HotSpot Z statistic
+
+    pvalue_adj: Raw P value times the number of tests (crude Bonferroni
+    correction)
+
+    nbr_frac: The K NN nbr fraction used for the neighbor graph construction
+    (nbr_frac = 0.1 means K=0.1*num_clonotypes neighbors)
+
+
+    """
+
     adata.uns.setdefault('conga_results',{})[table_tag] = results
-    help_message = 'Need a better help message here'
     adata.uns['conga_results'][table_tag+HELP_SUFFIX] = help_message
 
     if outfile_prefix is not None:
