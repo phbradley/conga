@@ -2285,6 +2285,7 @@ def plot_hotspot_umap(
         cmap='viridis',
         sort_order=True, #plot points ordered by feature score
         point_size=10,
+        max_feature_correlation=0.9, # for filtering redundancy
 ):
     """
     xy_tag: use 'gex' or 'tcr' to set umap space used for plotting the hotspot features
@@ -2300,7 +2301,7 @@ def plot_hotspot_umap(
 
     df = results_df.sort_values('Z', ascending=False)\
                    .sort_values('pvalue_adj') # ensure sorted
-    df = df.iloc[:nrows*ncols,:]
+    #df = df.iloc[:nrows*ncols,:]
 
     xy = adata.obsm['X_{}_2d'.format(xy_tag)]
     var_names = list(adata.raw.var_names)
@@ -2312,9 +2313,8 @@ def plot_hotspot_umap(
     figsize=(ncols*panel_width_inches, nrows*panel_width_inches)
     plt.figure(figsize=figsize)
     plotno=0
+    other_scores = []
     for row in df.itertuples():
-        plotno+=1
-        plt.subplot(nrows, ncols, plotno)
 
         scores = get_raw_feature_scores(row.feature, adata, row.feature_type)
         if compute_nbr_averages:
@@ -2323,6 +2323,27 @@ def plot_hotspot_umap(
             #  (but we could change it to work)
             num_neighbors = nbrs.shape[1]
             scores = ( scores + scores[ nbrs ].sum(axis=1) )/(num_neighbors+1)
+
+        # check if we are too close to a feature we already plotted
+        too_close = False
+        for ii, oscores in enumerate(other_scores):
+            corr = 1-distance.correlation(scores,oscores)
+            if corr > max_feature_correlation:
+                #print(corr, row.feature, df.iloc[ii].feature)
+                too_close = True
+                break
+        if too_close:
+            #print('skipping, too close')
+            continue
+
+        #
+        plotno+=1
+        if plotno>nrows*ncols:
+            break
+        plt.subplot(nrows, ncols, plotno)
+
+        other_scores.append(scores)
+
         if sort_order:
             reorder = np.argsort(scores)
         else:
@@ -2367,6 +2388,11 @@ UMAP 2D landscape. The features are ranked by adjusted P value
 are averaged over the K nearest neighbors (K is indicated in the lower
 right corner of each panel) for each clonotype. The min and max
 nbr-averaged scores are shown in the upper corners of each panel.
+
+Features are filtered based on correlation coefficient to reduce
+redundancy: if a feature has a correlation of >= {max_feature_correlation}
+(the max_feature_correlation argument to conga.plotting.plot_hotspot_umap)
+to a previously plotted feature, that feature is skipped.
 """
     if sort_order:
         help_message += "Points are plotted in order of increasing feature score\n"
