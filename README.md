@@ -119,6 +119,7 @@ conda install -c conda-forge python-igraph leidenalg louvain notebook
 conda install -c intel tbb # optional
 pip install scanpy
 pip install fastcluster # optional
+conda install pyyaml #optional for using yaml-formatted configuration files for scripts
 ```
 
 If you do not have the command line tool `convert` from Imagemagick, or Inkscape, installed, you
