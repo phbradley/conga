@@ -2848,7 +2848,7 @@ def plot_interesting_features_vs_clustermap(
     the colorscale so everything else looks dark blue).
 
     The column colors above the heatmap are {dist_tag.upper()} clusters
-    and TCR V genes (if plotting against the TCR landscape). The text
+    (and TCR V/J genes if plotting against the TCR landscape). The text
     above the column colors provides more info.
 
     Feature scores are Z-score normalized and then averaged over the

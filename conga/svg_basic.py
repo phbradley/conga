@@ -167,7 +167,7 @@ def embed_file( oldfile, x_shift, y_shift ):
 ##
 def embed_pngfile( pngfile, width, height, x0, y0, aspect=None ):
     assert exists( pngfile )
-    encoded = base64.b64encode(open(pngfile, "rb").read())
+    encoded = base64.b64encode(open(pngfile, "rb").read()).decode('ascii')
 
     asp = '' if aspect==None else 'preserveAspectRatio="{}"'.format(aspect)
 
