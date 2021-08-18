@@ -31,7 +31,7 @@ parser.add_argument('--nbr_fracs', type=float, nargs='*', default=[0.01,0.1],
                     ' nearest neighbor graphs, expressed as a fraction'
                     ' of the total dataset size in clonotypes')
 parser.add_argument('--min_nbrhood_size', type=int)
-parser.add_argument('--outfile_prefix', required=True,
+parser.add_argument('--outfile_prefix',
                     help='string that will be prepended to all output files'
                     ' and images')
 parser.add_argument('--restart',
