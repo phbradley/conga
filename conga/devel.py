@@ -38,6 +38,7 @@ try:
     human_tf_gene_names = [x.split()[0] for x in open(_tfs_listfile,'r')]
 except:
     print('conga.devel:: failed to read human TFs list; prob not a big deal')
+    human_tf_gene_names = []
 
 def compute_distance_correlations( adata, verbose=False ):
     ''' return pvalues, rvalues  (each 1 1d numpy array of shape (num_clones,))

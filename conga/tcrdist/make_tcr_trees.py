@@ -9,6 +9,7 @@ from . import tcrdist_svg_basic # hacky code duplication
 from . import score_trees_devel
 from . import tcr_distances
 from . import make_tcr_logo
+import random
 #from . import util
 #from . import tcr_sampler ## for analyze_junction
 
@@ -24,6 +25,7 @@ def make_tcr_tree_svg_commands(
         max_tcrs_for_trees=300, # otherwise the actual svg tree gets too tall/dense
         color_scores=None,
         color_score_range=None,
+        random_seed=None,
         title=''
 ):
     ''' tcrs is a list of tuples: tcrs = [ (atcr1,btcr1), (atcr2,btcr2), ....
@@ -115,7 +117,8 @@ def make_tcr_tree_svg_commands(
     ## possibly subsample
     tree_indices = list(range(len(tcrs)))
     if len(tree_indices) > max_tcrs_for_trees:
-        tree_indices = random.sample( tree_indices, max_tcrs_for_trees )
+        rng = random.Random(random_seed) # for reproducibility
+        tree_indices = rng.sample( tree_indices, max_tcrs_for_trees )
 
     ## now get some info together for plotting
     all_center_dists = {}

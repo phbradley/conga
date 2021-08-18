@@ -1695,22 +1695,29 @@ def calc_tcrdist_nbrs_umap_clusters_cpp(
         make_1d_umaps = True,
         umap_1d_key_added = 'X_tcr_1d',
 ):
+
     if tmpfile_prefix is None:
         tmpfile_prefix = f'tmp_tcrdists{random.randrange(1,10000)}'
 
+    # save tcr info to file for tcrdist_cpp executable
     tcrs_filename = tmpfile_prefix+'_tcrs.tsv'
-    adata.obs['va cdr3a vb cdr3b'.split()].to_csv(tcrs_filename, sep='\t', index=False)
+    adata.obs['va cdr3a vb cdr3b'.split()].to_csv(
+        tcrs_filename, sep='\t', index=False)
 
     if os.name == 'posix':
-        exe = Path.joinpath( Path(util.path_to_tcrdist_cpp_bin) , 'find_neighbors')
+        exe = Path.joinpath(Path(util.path_to_tcrdist_cpp_bin),
+                            'find_neighbors')
     else:
-        exe = Path.joinpath( Path(util.path_to_tcrdist_cpp_bin) , 'find_neighbors.exe')
+        exe = Path.joinpath(Path(util.path_to_tcrdist_cpp_bin),
+                            'find_neighbors.exe')
 
     if not exists(exe):
         print('need to compile c++ exe:', exe)
         exit(1)
 
-    db_filename = Path.joinpath( Path(util.path_to_tcrdist_cpp_db), 'tcrdist_info_{}.txt'.format(adata.uns['organism']) )
+    db_filename = Path.joinpath(
+        Path(util.path_to_tcrdist_cpp_db),
+        'tcrdist_info_{}.txt'.format(adata.uns['organism']))
 
     if not exists(db_filename):
         print('need to create database file:', db_filename)
@@ -1718,43 +1725,62 @@ def calc_tcrdist_nbrs_umap_clusters_cpp(
 
     outprefix = tmpfile_prefix+'_calc_tcrdist'
 
-    cmd = '{} -f {} -n {} -d {} -o {}'.format(exe, tcrs_filename, num_nbrs, db_filename, outprefix)
+    while True:
+        # umap runs into trouble if there are too many connected components
+        #  in the neighbor graph
+        # So we increase num_nbrs inside here if components>2*n_components_umap
+        #  based on looking at umap/spectral.py and trying to avoid the call
+        #  to component_layout
+        #
+        # compute the tcrdist neighbors
+        cmd = '{} -f {} -n {} -d {} -o {}'.format(
+            exe, tcrs_filename, num_nbrs, db_filename, outprefix)
 
-    util.run_command(cmd, verbose=True)
+        util.run_command(cmd, verbose=True)
 
-    knn_indices_filename = outprefix+'_knn_indices.txt'
-    knn_distances_filename = outprefix+'_knn_distances.txt'
+        knn_indices_filename = outprefix+'_knn_indices.txt'
+        knn_distances_filename = outprefix+'_knn_distances.txt'
 
-    if not exists(knn_indices_filename) or not exists(knn_distances_filename):
-        print('find_neighbors failed:', exists(knn_indices_filename), exists(knn_distances_filename))
-        exit(1)
+        if (not exists(knn_indices_filename) or
+            not exists(knn_distances_filename)):
+            print('find_neighbors failed:', exists(knn_indices_filename),
+                  exists(knn_distances_filename))
+            exit(1)
 
-    knn_indices = np.loadtxt(knn_indices_filename, dtype=int)
-    knn_distances = np.loadtxt(knn_distances_filename, dtype=float)
+        knn_indices = np.loadtxt(knn_indices_filename, dtype=int)
+        knn_distances = np.loadtxt(knn_distances_filename, dtype=float)
 
-    # distances = sc.neighbors.get_sparse_matrix_from_indices_distances_numpy(
-    #     knn_indices, knn_distances, adata.shape[0], num_nbrs)
+        #distances=sc.neighbors.get_sparse_matrix_from_indices_distances_numpy(
+        #     knn_indices, knn_distances, adata.shape[0], num_nbrs)
 
-    try: # HACK: the naming of this function changes across scanpy versions...
-        distances, connectivities = sc.neighbors.compute_connectivities_umap(
-            knn_indices, knn_distances, adata.shape[0], num_nbrs)
-    except:
-        print('try new name for compute_connectivities_umap')
-        distances, connectivities = sc.neighbors._compute_connectivities_umap(
-            knn_indices, knn_distances, adata.shape[0], num_nbrs)
+        try: # HACK: the naming of this function changes across scanpy versions
+            distances,connectivities= sc.neighbors.compute_connectivities_umap(
+                knn_indices, knn_distances, adata.shape[0], num_nbrs)
+        except:
+            print('try new name for compute_connectivities_umap')
+            distances,connectivities= sc.neighbors._compute_connectivities_umap(
+                knn_indices, knn_distances, adata.shape[0], num_nbrs)
 
-    if issparse(connectivities):
-        from scipy.sparse.csgraph import connected_components
-        connected_components = connected_components(connectivities)
-        number_connected_components = connected_components[0]
-        print('number_connected_components:', number_connected_components)
+        if issparse(connectivities): # I think this is always true
+            from scipy.sparse.csgraph import connected_components
+            connected_components = connected_components(connectivities)
+            number_connected_components = connected_components[0]
+            print('number_connected_components:', number_connected_components)
+            if number_connected_components > 2*n_components_umap:
+                print('tcrdist umap, too many connected components in the',
+                      'neighbor graph:', number_connected_components,
+                      '--> increasing num_nbrs from', num_nbrs,'to',
+                      2*num_nbrs)
+                num_nbrs *= 2
+                continue
+        break # break out of the infinite loop
 
     ################
     # stash the stuff in adata, stolen from scanpy/neighbors/__init__.py
     #
     adata.uns['neighbors'] = {}
-    adata.uns['neighbors']['params'] = {'n_neighbors': num_nbrs, 'method': 'umap'}
-    adata.uns['neighbors']['params']['metric'] = 'tcrdist'#metric
+    adata.uns['neighbors']['params']={'n_neighbors': num_nbrs, 'method': 'umap'}
+    adata.uns['neighbors']['params']['metric'] = 'tcrdist'# fake metric
     # if metric_kwds:
     #     adata.uns['neighbors']['params']['metric_kwds'] = metric_kwds
     # if use_rep is not None:
@@ -1764,7 +1790,8 @@ def calc_tcrdist_nbrs_umap_clusters_cpp(
     adata.uns['neighbors']['distances'] = distances
     adata.uns['neighbors']['connectivities'] = connectivities
 
-    # as far as I can tell, these are used if there are multiple components in the graph...
+    # as far as I can tell, these are only used if there are too many connected
+    # components in the nbr graph... see the infinite while loop up above.
     print('temporarily putting random pca vectors into adata...')
     fake_pca = np.random.randn(adata.shape[0], 10)
     adata.obsm['X_pca'] = fake_pca
