@@ -15,6 +15,11 @@ int main(int argc, char** argv)
 			"maximum tcrdist distance over which to compute background paired distance distributions", true,
 			0, "integer", cmd);
 
+		TCLAP::SwitchArg save_unpaired_counts_arg("u","save_unpaired_counts",
+			"Also save files with the single-chain counts. "
+			"Files will be called <outfile>_A.txt (and _B.txt).", cmd, false);
+
+
 		// path to database files
  		TCLAP::ValueArg<std::string> db_filename_arg("d","db_filename",
 			"Database file with info for tcrdist calculation", true,
@@ -44,6 +49,7 @@ int main(int argc, char** argv)
 		string const achains_file( achains_file_arg.getValue() );
 		string const bchains_file( bchains_file_arg.getValue() );
 		string const outfile( outfile_arg.getValue());
+		bool const save_unpaired_counts( save_unpaired_counts_arg.getValue());
 
 		TCRdistCalculator const atcrdist('A', db_filename), btcrdist('B', db_filename);
 
@@ -58,7 +64,11 @@ int main(int argc, char** argv)
 		Size const num_tcrs(tcrs.size());
 
 		Sizes acounts(max_dist+1), bcounts(max_dist+1);
-		ofstream out(outfile);
+		ofstream out(outfile), out_A, out_B;
+		if ( save_unpaired_counts ) {
+			out_A.open(outfile+"_A.txt");
+			out_B.open(outfile+"_B.txt");
+		}
 
 		cout << "making " << outfile << endl;
 
@@ -89,12 +99,28 @@ int main(int argc, char** argv)
 				}
 				if (d) out << ' ';
 				out << count;
+				if (save_unpaired_counts) {
+					if (d) {
+						out_A << ' ';
+						out_B << ' ';
+					}
+					out_A << acounts[d];
+					out_B << bcounts[d];
+				}
 			}
 			out << '\n';
+			if (save_unpaired_counts) {
+				out_A << '\n';
+				out_B << '\n';
+			}
 		}
 
 		cerr << endl;
 		out.close();
+		if (save_unpaired_counts) {
+			out_A.close();
+			out_B.close();
+		}
 
 	} catch (TCLAP::ArgException &e)  // catch any exceptions
 		{ std::cerr << "error: " << e.error() << " for arg " << e.argId() << std::endl; }

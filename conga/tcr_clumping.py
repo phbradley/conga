@@ -1,3 +1,4 @@
+######################################################################################88
 # import scanpy as sc
 # import random
 import pandas as pd
@@ -35,7 +36,16 @@ def estimate_background_tcrdist_distributions(
         background_alpha_chains = None, # default is to get these by shuffling tcrs_for_background_generation
         background_beta_chains = None, #  -- ditto --
         tcrs_for_background_generation = None, # default is to use 'tcrs'
+        preserve_vj_pairings = False,
+        save_unpaired_dists = False, # tell C++ code to save to files (dev feature)
+        nocleanup = False,
 ):
+    ''' Returns a numpy float matrix P of shape (len(tcrs), max_dist+1)
+
+    the (i,j) entry in P is an estimate of the probability of seeing a paired tcrdist
+    score <= j for tcr #i.
+
+    '''
     if not util.tcrdist_cpp_available():
         print('conga.tcr_clumping.estimate_background_tcrdist_distributions:: need to compile the C++ tcrdist executables')
         exit(1)
@@ -63,10 +73,12 @@ def estimate_background_tcrdist_distributions(
         # resample shuffled single-chain tcrs
         if background_alpha_chains is None:
             background_alpha_chains = tcr_sampler.resample_shuffled_tcr_chains(
-                organism, num_random_samples, 'A', junctions_df)
+                organism, num_random_samples, 'A', junctions_df,
+                preserve_vj_pairings = preserve_vj_pairings)
         if background_beta_chains is None:
             background_beta_chains  = tcr_sampler.resample_shuffled_tcr_chains(
-                organism, num_random_samples, 'B', junctions_df)
+                organism, num_random_samples, 'B', junctions_df,
+                preserve_vj_pairings = preserve_vj_pairings)
 
     # save all tcrs to files
     achains_file = str(tmpfile_prefix) + '_bg_achains.tsv'
@@ -94,7 +106,7 @@ def estimate_background_tcrdist_distributions(
         exe = Path.joinpath( Path(util.path_to_tcrdist_cpp_bin) ,
                              'calc_distributions.exe')
 
-    outfile = str(tmpfile_prefix) + '_dists.tsv'
+    outfile = str(tmpfile_prefix) + '_dists.txt'
 
     db_filename = Path.joinpath( Path(util.path_to_tcrdist_cpp_db) ,
                                  'tcrdist_info_{}.txt'.format( organism))
@@ -102,6 +114,9 @@ def estimate_background_tcrdist_distributions(
     cmd = '{} -f {} -m {} -d {} -a {} -b {} -o {}'\
           .format(exe, tcrs_file, max_dist, db_filename,
                   achains_file, bchains_file, outfile)
+
+    if save_unpaired_dists:
+        cmd += ' -u'
 
     util.run_command(cmd, verbose=True)
 
@@ -115,8 +130,9 @@ def estimate_background_tcrdist_distributions(
     n_bg_pairs = len(background_alpha_chains) * len(background_beta_chains)
     tcrdist_freqs = np.maximum(pseudocount, counts.astype(float))/n_bg_pairs
 
-    for filename in [achains_file, bchains_file, tcrs_file, outfile]:
-        os.remove(filename)
+    if not nocleanup:
+        for filename in [achains_file, bchains_file, tcrs_file, outfile]:
+            os.remove(filename)
 
     return tcrdist_freqs
 
@@ -131,6 +147,7 @@ def find_tcr_clumping(
         pvalue_threshold = 1.0,
         verbose=True,
         clusters_gex=None, # if passed, will look for clumps within clusters
+        preserve_vj_pairings = False,
 ):
     ''' Returns a pandas dataframe with the following columns:
     - clone_index
@@ -160,7 +177,10 @@ def find_tcr_clumping(
     # in case 10x didn't give us the alleles
     bg_freqs = estimate_background_tcrdist_distributions(
         organism, tcrs, max(radii),
-        num_random_samples=num_random_samples, tmpfile_prefix=outprefix)
+        num_random_samples=num_random_samples,
+        tmpfile_prefix=outprefix,
+        preserve_vj_pairings=preserve_vj_pairings,
+    )
 
     tcrs_file = outprefix +'_tcrs.tsv'
     pd.DataFrame({
@@ -502,6 +522,12 @@ clonotype_fdr_value= Benjamin-Hochberg FDR value for the per-TCR
     return results
 
 def tcrs_from_dataframe_helper(df, add_j_and_nucseq=False):
+    ''' Helper function that creates a tcrs list from a dataframe
+    the dataframe should have columns va, cdr3a, vb, cdr3b
+
+    if add_j_and_nucseq is True, then the dataframe should also have the
+    columns ja, cdr3a_nucseq, jb, cdr3b_nucseq
+    '''
     if add_j_and_nucseq:
         return [ ( (x.va, x.ja, x.cdr3a, x.cdr3a_nucseq.lower()),
                    (x.vb, x.jb, x.cdr3b, x.cdr3b_nucseq.lower()) )

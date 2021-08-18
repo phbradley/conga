@@ -207,7 +207,8 @@ def find_alternate_alleles_for_tcrs(
 
     For ones that occur sufficiently often, swap them into the tcrs where they match better
     '''
-
+    if verbose:
+        print('find_alternate_alleles_for_tcrs: num_tcrs:', len(tcrs))
     all_counts = {}
     all_new_genes = []
     for atcr, btcr in tcrs:
@@ -480,7 +481,10 @@ def parse_tcr_junctions( organism, tcrs ):
 
 def vj_compatible(v_gene, j_gene, organism):
     if organism == 'human_ig': # enforce kappa or lambda
-        assert v_gene.startswith('IG') and j_gene.startswith('IG') and v_gene[2] in 'HKL' and j_gene[2] in 'HKL'
+        assert (v_gene.startswith('IG') and
+                j_gene.startswith('IG') and
+                v_gene[2] in 'HKL' and
+                j_gene[2] in 'HKL')
         return v_gene[2] == j_gene[2]
     else:
         return True
@@ -490,8 +494,13 @@ def resample_shuffled_tcr_chains(
         num_samples,
         chain, # 'A' or 'B'
         junctions_df, # dataframe made by the above function
+        preserve_vj_pairings = False,
 ):
     ''' returns list of (v_gene, j_gene, cdr3, cdr3_nucseq) for inputting into tcrdist calcs (e.g.)
+
+    Does not impose a TRBJ1 --> TRBD1 restriction, but that could
+    be added...
+
     '''
     assert chain in ['A', 'B']
     # need list of (v_gene, j_gene, cdr3_nucseq, breakpoints_pre_d, breakpoints_post_d)
@@ -530,6 +539,28 @@ def resample_shuffled_tcr_chains(
             junctions.append( (l.vb, l.jb, l.cdr3b_nucseq,
                                breakpoints_pre_d, breakpoints_post_d))
 
+    if preserve_vj_pairings:
+        # setup a mapping from v/j genes to junctions
+        print('create gene --> junctions mapping')
+        v_gene2junctions, j_gene2junctions = {}, {}
+        def trim_allele(g):
+            return g[:g.index('*')]
+
+        for j in junctions:
+            vg = trim_allele(j[0])
+            jg = trim_allele(j[1])
+            v_gene2junctions.setdefault(vg,[]).append(j)
+            j_gene2junctions.setdefault(jg,[]).append(j)
+        #debugging
+        v_counts = Counter({x:len(y) for x,y in v_gene2junctions.items()})
+        j_counts = Counter({x:len(y) for x,y in j_gene2junctions.items()})
+        for v,count in v_counts.most_common():
+            print(f'v_count: {count:5d} {count/len(junctions):.3f} {v}')
+        for j,count in j_counts.most_common():
+            print(f'j_count: {count:5d} {count/len(junctions):.3f} {j}')
+        sys.stdout.flush()
+
+
     # repeat:
     # choose 2 random tcrs; are their breakpoints compatible?
     # if so, choose random compatible breakpoint, make frankentcr
@@ -540,9 +571,13 @@ def resample_shuffled_tcr_chains(
     successes = 0
     while len(new_tcrs) < num_samples:
         #print(len(new_tcrs))
-
-        t1 = random.choice(junctions)
-        t2 = random.choice(junctions)
+        if preserve_vj_pairings:
+            j = random.choice(junctions) # determines v and j genes
+            t1 = random.choice(v_gene2junctions[trim_allele(j[0])])
+            t2 = random.choice(j_gene2junctions[trim_allele(j[1])])
+        else:
+            t1 = random.choice(junctions)
+            t2 = random.choice(junctions)
         nucseq1 = t1[2]
         nucseq2 = t2[2]
         if nucseq1 == nucseq2:
@@ -556,6 +591,8 @@ def resample_shuffled_tcr_chains(
 
         success = False
         for ind in inds:
+            # ind=3: t1[ind] = breakpoints_pre_d
+            # ind=4: t1[ind] = breakpoints_post_d
             shared = t1[ind] & t2[ind]
             if shared:
                 bp = random.choice(list(shared))
@@ -584,6 +621,7 @@ def resample_shuffled_tcr_chains(
             break
     print(f'success_rate: {100.0*successes/attempts:.2f}')
     return new_tcrs
+
 
 
 

@@ -114,6 +114,13 @@ def make_tcr_tree_svg_commands(
         assert len(members) == best_nbr_count
         all_members.append( frozenset(members) )
 
+    if len(centers)<=1:
+        # nothing to draw, gives an error below
+        print('conga.tcrdist.make_tcr_trees.make_tcr_tree_svg_commands::',
+              'WARNING: all tcrs merged into single cluster',
+              'no tree to plot', len(tcrs), len(centers))
+        return [] # empty list of svg cmds
+
     ## possibly subsample
     tree_indices = list(range(len(tcrs)))
     if len(tree_indices) > max_tcrs_for_trees:

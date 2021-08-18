@@ -1,4 +1,4 @@
-##############################################################################80
+######################################################################################88
 import scanpy as sc
 import random
 import pandas as pd
@@ -1829,6 +1829,7 @@ def calc_tcrdist_matrix_cpp(
         tcrs,
         organism,
         tmpfile_prefix = None,
+        verbose=False,
 ):
     if tmpfile_prefix is None:
         tmpfile_prefix = Path('./tmp_tcrdists{}'.format(random.randrange(1,10000)))
@@ -1856,7 +1857,7 @@ def calc_tcrdist_matrix_cpp(
 
     cmd = '{} -f {} --only_tcrdists -d {} -o {}'.format(exe, tcrs_filename, db_filename, tmpfile_prefix)
 
-    util.run_command(cmd, verbose=True)
+    util.run_command(cmd, verbose=verbose)
 
     tcrdist_matrix_filename = str(tmpfile_prefix) +'_tcrdists.txt'
 

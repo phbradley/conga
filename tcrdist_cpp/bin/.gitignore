@@ -1,6 +1,8 @@
 find_neighbors
+find_neighbors_single_chain
 find_paired_matches
 calc_distributions
 count_matches_paired
 count_matches_single_chain
 compute_single_chain_distance_matrix
+find_cdr3_motifs

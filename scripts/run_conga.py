@@ -474,6 +474,8 @@ else: ### restarting from a previous conga run
         assert args.organism
         adata.uns['organism'] = args.organism
 
+    util.setup_uns_dicts(adata)
+
     if args.exclude_mait_and_inkt_cells and not args.exclude_gex_clusters:
         # should move this code into a helper function in conga!
         organism = adata.uns['organism']

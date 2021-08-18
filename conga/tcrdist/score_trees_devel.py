@@ -401,10 +401,10 @@ def Canvas_tree(tree, names, sizes, upper_left, lower_right, branch_width_fracti
     min_score = min(scores)
     max_score = max(scores)
     #print('min_score:',min_score,'max_score:',max_score,score_range_for_coloring)
-    if max_score == min_score:
-        max_score = max_score + 1
     if score_range_for_coloring:
         min_score,max_score = score_range_for_coloring
+    if max_score == min_score:
+        max_score = max_score + 1
 
     ## write the edges
     for e in edges:
