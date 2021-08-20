@@ -111,9 +111,10 @@ and type (after activating the relevant virtual environment):
 ```
 pip install -e .
 ```
+This should install the python dependencies and make it so you can just
+`import conga` without fiddling with `sys.path`.
 You will still need to have an svg--->png conversion tool like `convert` or `inkscape`
-installed (more details on that below). If that works, you won't need to add the
-`conga` directory to your `PATH`.
+installed (more details on that below).
 
 
 ## Details
