@@ -1,7 +1,8 @@
-################################################################################
+######################################################################################88
 import numpy as np
 from scipy import stats
 from sklearn.metrics import pairwise_distances
+import scipy
 from scipy.stats import hypergeom, mannwhitneyu, linregress, norm, ttest_ind
 #from scipy.sparse import issparse, csr_matrix
 import scipy.sparse as sps
@@ -940,7 +941,8 @@ def gex_nbrhood_rank_tcr_scores(
 
             _,mwu_pval = mannwhitneyu(score_table[:,ind][nbrhood_mask],
                                       score_table[:,ind][~nbrhood_mask],
-                                      alternative='two-sided')
+                                      alternative='two-sided',
+                                      **util.mannwhitneyu_kwargs)
             mwu_pval_adj = mwu_pval * pval_rescale
 
             # make more stringent
@@ -1198,11 +1200,13 @@ def tcr_nbrhood_rank_genes_fast(
                 col = X_csc[:,ind][nbrhood_mask]
                 noncol = X_csc[:,ind][~nbrhood_mask]
                 _, mwu_pval = mannwhitneyu( col.toarray()[:,0], noncol.toarray()[:,0],
-                                            alternative='greater' )
+                                            alternative='greater',
+                                            **util.mannwhitneyu_kwargs )
             else:
                 col = X2[:,ind-num_real_genes][nbrhood_mask]
                 noncol = X2[:,ind-num_real_genes][~nbrhood_mask]
-                _, mwu_pval = mannwhitneyu(col, noncol, alternative='greater')
+                _, mwu_pval = mannwhitneyu(col, noncol, alternative='greater',
+                                           **util.mannwhitneyu_kwargs)
             mwu_pval_adj = mwu_pval * pval_rescale
 
             # 2021-06-28 make this more stringent: it used to be either/or

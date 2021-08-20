@@ -203,3 +203,15 @@ def make_figure_helpfile(
     else:
         print('WARNING: no help message for figure_tag:', figure_tag)
 
+## this is a silly hack: the new scipy.stats.mannwhitneyu can exceed max recursion
+## depth (e.g. on a mac) when the 'exact' method is used (e.g. if one of the two
+## arrays is very large)
+##
+mannwhitneyu_kwargs = {'method':'asymptotic'}
+try:
+    mannwhitneyu([1,2,3], [4,5,6], **mannwhitneyu_kwargs)
+except:
+    print('detected older scipy.stats.mannwhitneyu version')
+    mannwhitneyu_kwargs = {}
+## END SILLY HACK ################
+

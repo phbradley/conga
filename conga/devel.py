@@ -264,8 +264,10 @@ def find_batch_biases(
                         nbrs_mask[nbrs[ii]] = True
                         nbrs_mask[ii] = True
                         non_nbr_scores = bfreqs[:,ib][~nbrs_mask]
-                        _,mwu_pval1 = mannwhitneyu( nbr_scores, non_nbr_scores, alternative='greater')
-                        #_,mwu_pval2 = mannwhitneyu( nbr_scores, non_nbr_scores, alternative='less')
+                        _,mwu_pval1 = mannwhitneyu(
+                            nbr_scores, non_nbr_scores, alternative='greater',
+                            **util.mannwhitneyu_kwargs)
+
                         mwu_pval1 *= num_clones
                         if mwu_pval1 < pval_threshold:
                             is_significant[ii] = True
@@ -475,7 +477,8 @@ def find_distinctive_tcr_features_for_subset(
             # MWW
             _, mwu_pval = mannwhitneyu(score_table[:,idx][subset_mask],
                                        score_table[:,idx][~subset_mask],
-                                       alternative='two-sided')
+                                       alternative='two-sided',
+                                       **util.mannwhitneyu_kwargs)
 
             # correct for the number of tcr scores
             pvalue_adj = mwu_pval * len(tcr_scorenames)
@@ -561,7 +564,8 @@ def analyze_interesting_genes(
                 # MWW
                 _, mwu_pval = mannwhitneyu(score_table[:,idx][mask],
                                            score_table[:,idx][~mask],
-                                           alternative='two-sided')
+                                           alternative='two-sided',
+                                           **util.mannwhitneyu_kwargs)
 
                 # correct for the number of tcr scores
                 pvalue_adj = mwu_pval * len(tcr_scorenames)
@@ -1369,7 +1373,8 @@ def analyze_special_genes(
         yvals = all_nbr_avg_colors['min_special']
         slope, intercept, r, p, err = linregress(xvals, yvals)
         mask = np.array(adata.obs['vb'].str.startswith(trbv))
-        _,mwu_p = mannwhitneyu(yvals[mask], yvals[~mask])
+        _,mwu_p = mannwhitneyu(yvals[mask], yvals[~mask],
+                               **util.mannwhitneyu_kwargs)
         print(f'trbv_vs_special: {trbv} {r:.2f} {p:.2e} {mwu_p:.2e}')
         plotno+= 1
         plt.subplot(nrows, ncols, plotno)
