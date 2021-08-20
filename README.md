@@ -1,7 +1,5 @@
 # Clonotype Neighbor Graph Analysis (CoNGA) -- pre-beta
 
-## [2021-07-18] We are just finishing a big refactor. There may still be a few glitches...
-
 This repository contains the `conga` python package and associated scripts
 and workflows. `conga` was developed to detect correlation between
 T cell gene expression profile and TCR sequence in single-cell datasets. We've just
@@ -105,6 +103,18 @@ you don't already have one).
 location to your python path (e.g., `sys.path.append('/path/to/github-repos/conga/')`.
 Running the scripts in the `conga/scripts/` folder from the command line does not
 require this. We hope to smooth this out in the near future.
+
+**UPDATE** Thanks to Neal Smith for helping us get set up with a very simple
+`setup.py` script, so now (in theory) one can `cd` to the top-most `conga` directory
+and type (after activating the relevant virtual environment):
+
+```
+pip install -e .
+```
+You will still need to have an svg--->png conversion tool like `convert` or `inkscape`
+installed (more details on that below). If that works, you won't need to add the
+`conga` directory to your `PATH`.
+
 
 ## Details
 
