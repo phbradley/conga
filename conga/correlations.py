@@ -1197,7 +1197,7 @@ def tcr_nbrhood_rank_genes_fast(
             if is_real_gene:
                 col = X_csc[:,ind][nbrhood_mask]
                 noncol = X_csc[:,ind][~nbrhood_mask]
-                _, mwu_pval = mannwhitneyu( col.todense(), noncol.todense(),
+                _, mwu_pval = mannwhitneyu( col.toarray()[:,0], noncol.toarray()[:,0],
                                             alternative='greater' )
             else:
                 col = X2[:,ind-num_real_genes][nbrhood_mask]
