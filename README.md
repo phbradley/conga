@@ -1,4 +1,4 @@
-# Clonotype Neighbor Graph Analysis (CoNGA) -- pre-beta
+# Clonotype Neighbor Graph Analysis (CoNGA) -- version 0.1.0
 
 This repository contains the `conga` python package and associated scripts
 and workflows. `conga` was developed to detect correlation between
