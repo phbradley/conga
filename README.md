@@ -694,18 +694,20 @@ in the `adata.var` array whose name starts with
 1. My CoNGA docker process mysteriously stopped with the cryptic error message
 'killed'
    * You may need to increase the resources allocated to docker processes, in
-	particular the memory. You could do this on the Resources tab of settings in
-	the Docker desktop app. Or try a quick google search.
+	 particular the memory. You could do this on the Resources tab of settings in
+	 the Docker desktop app. Or try a quick google search.
 1. I get an error when I type `import conga`
-   * This won't work automatically unless you tried the `pip install -e .`
-	  installation method.
-	 * Try adding the `conga` github repository directory to your path. For
-	  example:
-
+   * Note that this won't work automatically unless you used the `pip install -e .`
+	 installation method.
+	 * If you didn't, or that's now working for some reason, you can just manually
+	 add `conga` github repository directory to your path before importing conga.
+	 For example:
 ```
 import sys
-path_to_conga = '/path/to/gitrepos/conga/'
+path_to_conga = '/path/to/gitrepos/conga/' # contains README.md, scripts, conga
 sys.path.append(path_to_conga)
 import conga
 ```
-
+1. I have a question that isn't addressed here. What should I do?
+   * You could open an issue on github, or email Phil and Stefan (emails at the
+	 top of this README) and we will try to help.
