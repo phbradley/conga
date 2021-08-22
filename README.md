@@ -699,15 +699,15 @@ in the `adata.var` array whose name starts with
 1. I get an error when I type `import conga`
    * Note that this won't work automatically unless you used the `pip install -e .`
 	 installation method.
-	 * If you didn't, or that's now working for some reason, you can just manually
-	 add `conga` github repository directory to your path before importing conga.
+	 * If you didn't, or that's not working for some reason, you can just manually
+	 add the `conga` github repository directory to your path before importing conga.
 	 For example:
-```
-import sys
-path_to_conga = '/path/to/gitrepos/conga/' # contains README.md, scripts, conga
-sys.path.append(path_to_conga)
-import conga
-```
+   ```
+   import sys
+   path_to_conga = '/path/to/gitrepos/conga/' # contains README.md, scripts, conga
+   sys.path.append(path_to_conga)
+   import conga
+   ```
 1. I have a question that isn't addressed here. What should I do?
    * You could open an issue on github, or email Phil and Stefan (emails at the
 	 top of this README) and we will try to help.
