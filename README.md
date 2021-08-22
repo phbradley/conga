@@ -687,3 +687,25 @@ The expected value for gene expression features in this
 array is the string `'Gene Expression'`. CoNGA will look for and use any column
 in the `adata.var` array whose name starts with
 `feature_types` (since sometimes they get renamed during concatenation).
+
+# Frequently asked questions
+
+1. My CoNGA docker process mysteriously stopped with the cryptic error message
+'killed'
+  * You may need to increase the resources allocated to docker processes, in
+	particular the memory. You could do this on the Resources tab of settings in
+	the Docker desktop app. Or try a quick google search.
+
+1. I get an error when I type `import conga`
+  * This won't work automatically unless you tried the `pip install -e .`
+	  installation method.
+	* Try adding the `conga` github repository directory to your path. For
+	  example:
+
+```
+import sys
+path_to_conga = '/path/to/gitrepos/conga/'
+sys.path.append(path_to_conga)
+import conga
+```
+
