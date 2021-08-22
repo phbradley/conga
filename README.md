@@ -26,6 +26,7 @@ Paul G. Thomas, and Philip Bradley, accessible on the bioRxiv server
     - [Google colab](https://github.com/phbradley/conga#google-colab)
 * [Examples](https://github.com/phbradley/conga#examples)
 * [The CoNGA data model: where stuff is stored](https://github.com/phbradley/conga#conga-data-model-where-stuff-is-stored)
+* [Frequently Asked Questions](https://github.com/phbradley/conga#frequently-asked-questions)
 
 # Running
 
@@ -692,14 +693,13 @@ in the `adata.var` array whose name starts with
 
 1. My CoNGA docker process mysteriously stopped with the cryptic error message
 'killed'
-  * You may need to increase the resources allocated to docker processes, in
+   * You may need to increase the resources allocated to docker processes, in
 	particular the memory. You could do this on the Resources tab of settings in
 	the Docker desktop app. Or try a quick google search.
-
 1. I get an error when I type `import conga`
-  * This won't work automatically unless you tried the `pip install -e .`
+   * This won't work automatically unless you tried the `pip install -e .`
 	  installation method.
-	* Try adding the `conga` github repository directory to your path. For
+	 * Try adding the `conga` github repository directory to your path. For
 	  example:
 
 ```
