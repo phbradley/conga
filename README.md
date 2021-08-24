@@ -8,11 +8,13 @@ recently added support for gamma delta TCRs and for B cells, too.
 the next few months. Questions and requests can be directed to `pbradley` at `fredhutch` dot `org` or
 `stefan.schattgen` at `stjude` dot `org`.
 
-Further details on `conga` can be found in the preprint entitled
-**"Linking T cell receptor sequence to transcriptional profiles with clonotype neighbor graph analysis (CoNGA)"**
+Further details on `conga` can be found in the Nature Biotechnology manuscript
+**"Integrating T cell receptor sequences and transcriptional profiles by clonotype neighbor graph analysis (CoNGA)"**
 by Stefan A. Schattgen, Kate Guion, Jeremy Chase Crawford, Aisha Souquette, Alvaro Martinez Barrio, Michael J.T. Stubbington,
-Paul G. Thomas, and Philip Bradley, accessible on the bioRxiv server
-[here](https://www.biorxiv.org/content/10.1101/2020.06.04.134536v1).
+Paul G. Thomas, and Philip Bradley, accessible here:
+https://www.nature.com/articles/s41587-021-00989-2
+(original BioRxiv preprint
+[here](https://www.biorxiv.org/content/10.1101/2020.06.04.134536v1)).
 
 # Table of Contents
 
