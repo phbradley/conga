@@ -5,6 +5,7 @@ import os.path
 from pathlib import Path
 import os
 from scipy.sparse import issparse
+from scipy.stats import mannwhitneyu
 from collections import Counter, OrderedDict
 import subprocess
 from . import tags

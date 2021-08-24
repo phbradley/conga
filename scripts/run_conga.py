@@ -221,7 +221,10 @@ parser.add_argument('--kpca_gaussian_kernel_sdev', default=100.0, type=float,
 parser.add_argument('--kpca_default_kernel_Dmax', type=float,
                     help='only used if rerun_kpca and kpca_kernel==None')
 
-
+# option to save a checkpoint file for looking at umaps, clusters during analysis
+parser.add_argument('--checkpoint', action='store_true',
+                    help='Save a scanpy h5ad checkpoint file after'
+                    ' preprocessing')
 
 args = parser.parse_args()
 
@@ -665,6 +668,9 @@ if need_to_compute_tcrdist_umap or need_to_compute_tcrdist_clusters:
         umap_key_added=umap_key_added,
         cluster_key_added=cluster_key_added)
 
+# optionally save a checkpoint h5-formatted AnnData object
+if args.checkpoint:
+    adata.write_h5ad(args.outfile_prefix+'_checkpoint.h5ad')
 
 ###############################################################################
 ###
