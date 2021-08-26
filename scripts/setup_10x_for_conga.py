@@ -1,3 +1,4 @@
+######################################################################################88
 import argparse
 from os.path import exists
 import sys
@@ -13,6 +14,10 @@ parser.add_argument('--organism', choices=['mouse', 'human', 'mouse_gd', 'human_
 parser.add_argument('--filtered_contig_annotations_csvfile', help='Required unless --input_clones_file is present')
 parser.add_argument('--consensus_annotations_csvfile', help='Not needed')
 parser.add_argument('--no_tcrdists', action='store_true')
+parser.add_argument('--no_kpca', action='store_true', help='Make the clones file '
+                    'but dont compute the tcrdist distance matrix or run kernel PCA. '
+                    'Useful for really large datasets; used in conjunction with '
+                    'run_conga.py --no_kpca option')
 parser.add_argument('--save_tcrdist_matrices', action='store_true')
 parser.add_argument('--kpca_kernel')
 parser.add_argument('--kpca_gaussian_kernel_sdev', default=100.0, type=float,
@@ -23,6 +28,10 @@ parser.add_argument('--tcrdist_threshold_for_condensing', type=float, default=50
 parser.add_argument('--verbose', action='store_true')
 
 args = parser.parse_args()
+
+if len(sys.argv)==1:
+    parser.print_help()
+    sys.exit()
 
 # update args specified in yml file
 if args.config is not None:
@@ -61,7 +70,7 @@ from conga.tcrdist.make_10x_clones_file import make_10x_clones_file
 input_distfile = None
 
 if args.input_clones_file is None:
-    #### first make the clones file ###########################################################################
+    #### first make the clones file ####################################################
     stringent=True
     output_clones_file = args.filtered_contig_annotations_csvfile[:-4]+'_tcrdist_clones.tsv' \
                          if args.output_clones_file is None else args.output_clones_file
@@ -92,10 +101,10 @@ else:
 
 assert exists(output_clones_file)
 
-#### Now compute the kernel PCs #############################################################3
+#### Now compute the kernel PCs #######################################################
 
-if args.no_tcrdists:
-    print(f'Skipping TCRdist calculations')
+if args.no_tcrdists or args.no_kpca:
+    print(f'Skipping TCRdist calculations and kernel PCA')
 else:
     if args.save_tcrdist_matrices:
         output_distfile = output_clones_file[:-4]+'_AB.dist'
