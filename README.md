@@ -192,8 +192,33 @@ converting Seurat objects into 10x format for importing into CoNGA/scanpy.
 require(Seurat)
 require(DropletUtils)
 hs1 <- readRDS('~/vdj_v1_hs_V1_sc_5gex.rds')
-# write out for conga
+```
+If the object contains only gene expression:
+```
 write10xCounts(x = hs1@assays$RNA@counts, path = './hs1_mtx/')
+# import the hs1_mtx directory into CoNGA using the '10x_mtx' option
+```
+If the object contains both gene expression and antibody labeling:
+```
+# Concatenate the GEX and antibody labeling count matrices
+# Here, ADT is the antibody labeling assay slot.
+
+count_matrix <- rbind(hs1@assays$RNA@counts, hs1@assays$ADT@counts)
+
+# create vector of feature type labels
+features <- c(
+  rep("Gene Expression", nrow(hs1@assays$RNA@counts)), 
+  rep("Antibody Capture", nrow(hs1@assays$ADT@counts))
+  )
+              
+# write out              
+write10xCounts( count_matrix, 
+                path = './hs1_mtx/',
+                gene.id = rownames(count_matrix),
+                gene.symbol = rownames(count_matrix),
+                barcodes = colnames(count_matrix),
+                gene.type = features,
+                version = "3")
 # import the hs1_mtx directory into CoNGA using the '10x_mtx' option
 ```
 
