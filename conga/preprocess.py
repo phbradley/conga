@@ -594,8 +594,10 @@ def calc_X_pca_gex_including_protein_features(
     for p in exclude_protein_prefixes:
         prot_mask &= ~adata.raw.var_names.str.startswith(p)
     assert np.sum(prot_mask)>0, "no protein features found!"
-    assert np.sum(prot_mask)>=n_components_prot, \
-        f"{n_components_prot} protein PC components requested, only {np.sum(prot_mask)} features found"
+    if np.sum(prot_mask)<n_components_prot:
+        print( f"{n_components_prot} protein PC components requested, only {np.sum(prot_mask)} features found" )
+        n_components_prot = np.sum(prot_mask)
+        print( f"Number of protein PC components used: {n_components_prot}" )
     print('used_protein_features:', list(adata.raw.var_names[prot_mask]))
     X = adata.raw.X.tocsc()[:,prot_mask].toarray()
     # normalize to mean=0, sd=1 for each feature (ie, column)
