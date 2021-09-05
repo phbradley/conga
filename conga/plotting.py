@@ -634,7 +634,7 @@ or arguments to the conga.plotting.make_logo_plots function.
     frac_scale = 130
     margin = 0.2 # left and right margins actually
     top_margin = 0.2
-    bottom_margin = 1.3*margin
+    bottom_margin = 0.75 if make_batch_bars else 2.0*margin # was 1.3*margin
     yspacer_above_logos = 0.1
     yspacer_below_header = 0.15 if pretty else 0.0
     xspacer_within_header = 0.15 if pretty else 0.0
@@ -673,8 +673,15 @@ or arguments to the conga.plotting.make_logo_plots function.
     else:
         header2_height = 0.
 
-    fig_height = ( top_margin + bottom_margin + header_height + num_header2_rows * header2_height +
-                   yspacer_below_header + (len(clps)>0)*yspacer_above_logos + len(clps)*logo_height )
+    fig_height = (
+        top_margin +
+        bottom_margin +
+        header_height +
+        num_header2_rows * header2_height +
+        yspacer_below_header +
+        (len(clps)>0)*yspacer_above_logos +
+        len(clps)*logo_height
+    )
 
     # frac_scale is in units of pts^2, and sqrt(frac_scale) is the MAX width in points of the marker
     # there are 72 points per inch
@@ -1133,8 +1140,11 @@ or arguments to the conga.plotting.make_logo_plots function.
 
         plt.xlim((1.03,0.0))
         plt.axis('off')
-        plt.text(0.0,0.0, 'Clusters (size>{:d})'.format(int(min_cluster_size)-1),
-                 ha='left', va='top', transform=plt.gca().transAxes)
+        plt.text(0.5, 0.25/len(clps),
+                 'Clusters\n(size>{:d})'.format(int(min_cluster_size)-1),
+                 ha='center', va='top', transform=plt.gca().transAxes)
+        # plt.text(0.0,0.0, 'Clusters\n(size>{:d})'.format(int(min_cluster_size)-1),
+        #          ha='left', va='top', transform=plt.gca().transAxes)
         leaves = R['leaves'][:] #list( hierarchy.leaves_list( Z ) )
         leaves.reverse() # since we are drawing them downward, but the leaf-order increases upward
     elif clps:
@@ -1187,6 +1197,10 @@ or arguments to the conga.plotting.make_logo_plots function.
                         bottom=-0.9+1.8*(np.cumsum(fractions)-fractions),
                         color=colors, zorder=2,
                         align='edge') # w/ neg width --> right alignment
+                # label explaining that these bars show GEX clusters
+                if last_row:
+                    plt.text(-0.25, -0.95, 'GEX clust', rotation=45,
+                             va='top', ha='right', fontsize=7)
 
             else:
                 plt.plot([0.0], [0.0], marker='o', linestyle='None',
@@ -1269,6 +1283,12 @@ or arguments to the conga.plotting.make_logo_plots function.
                         bottom=np.cumsum(fractions)-fractions, color=colors, align='center')
                 plt.axis('off')
                 plt.ylim((0,1.05))
+
+                # label with the batch_key
+                if last_row:
+                    plt.text(0.6, -0.05, k, rotation=45, va='top', ha='right',
+                             fontsize=7)
+
 
 
         # make the rank genes logo

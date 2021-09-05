@@ -212,7 +212,7 @@ mannwhitneyu_kwargs = {'method':'asymptotic'}
 try:
     mannwhitneyu([1,2,3], [4,5,6], **mannwhitneyu_kwargs)
 except:
-    print('detected older scipy.stats.mannwhitneyu version')
+    #print('detected older scipy.stats.mannwhitneyu version')
     mannwhitneyu_kwargs = {}
 ## END SILLY HACK ################
 

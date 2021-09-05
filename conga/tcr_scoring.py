@@ -1,4 +1,5 @@
 #from phil import *
+import sys
 from sys import exit
 import math
 from os.path import exists
@@ -287,7 +288,7 @@ def make_tcr_score_table(adata, scorenames, verbose=False):
     organism = adata.uns['organism']
 
     tcrs = preprocess.retrieve_tcrs_from_adata(adata)
-    clusters_tcr = np.array(adata.obs['clusters_tcr'])
+    clusters_tcr = None # might not exist
 
     organism_genes = all_genes[organism]
     genes = frozenset( organism_genes.keys())
@@ -296,10 +297,12 @@ def make_tcr_score_table(adata, scorenames, verbose=False):
     cols = []
     for name in scorenames:
         if verbose:
-            print('make_tcr_score_table:', name)
+            print('make_tcr_score_table:', name) ; sys.stdout.flush()
         if name == 'cdr3len':
             cols.append( [ cdr3len_score_tcr(x) for x in tcrs ])
         elif name.startswith('tcr_cluster'):
+            if clusters_tcr is None:
+                clusters_tcr = np.array(adata.obs['clusters_tcr'])
             num = int(name[11:])
             cols.append( [ float(x==num) for x in clusters_tcr])
         elif name == 'alphadist':

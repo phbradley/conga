@@ -113,6 +113,8 @@ parser.add_argument('--exclude_gex_clusters', type=int, nargs='*')
 parser.add_argument('--exclude_mait_and_inkt_cells', action='store_true')
 parser.add_argument('--subset_to_CD4', action='store_true')
 parser.add_argument('--subset_to_CD8', action='store_true')
+parser.add_argument('--subset_to_CD4_cells', action='store_true') # tmp testing
+parser.add_argument('--subset_to_CD8_cells', action='store_true') # tmp testing
 parser.add_argument('--bad_barcodes_file')
 parser.add_argument('--exclude_vgene_strings', type=str, nargs='*')
 
@@ -292,7 +294,7 @@ if args.all:
         setattr(args, mode, True)
 
 if args.no_kpca:
-    print('--no_kpca implies --use_exact_tcrdist_nbrs and --use_tcrdist_umap'
+    print('--no_kpca implies --use_exact_tcrdist_nbrs and --use_tcrdist_umap '
           'and --use_tcrdist_clusters')
     print('setting those flags now')
     args.use_exact_tcrdist_nbrs = True
@@ -314,6 +316,8 @@ if args.restart: # these are incompatible with restarting
                  args.bad_barcodes_file or
                  args.filter_ribo_norm_low_cells or
                  args.exclude_vgene_strings or
+                 args.subset_to_CD4_cells or
+                 args.subset_to_CD8_cells or
                  #args.shuffle_tcr_kpcs or
                  args.rerun_kpca )
 
@@ -505,6 +509,14 @@ if args.restart is None: ################################## load GEX/TCR data
             adata, skip_tcr=True)
 
         conga.plotting.make_clone_gex_umap_plots(adata, args.outfile_prefix)
+
+    if args.subset_to_CD4_cells or args.subset_to_CD8_cells:
+        adata_cd4, adata_cd8 = conga.devel.split_into_cd4_and_cd8_subsets(
+            adata, verbose= True)
+        if args.subset_to_CD4_cells:
+            adata = adata_cd4
+        else:
+            adata = adata_cd8
 
 
     print('run reduce_to_single_cell_per_clone'); sys.stdout.flush()

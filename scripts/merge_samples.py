@@ -17,12 +17,23 @@ parser.add_argument('--output_distfile', help='(optional) Save the tcrdist dista
 parser.add_argument('--organism', choices=['mouse', 'human', 'mouse_gd', 'human_gd', 'human_ig'], default = None)
 parser.add_argument('--condense_clonotypes_by_tcrdist', action='store_true', help='Merge clonotypes with TCRdist distances less than the threshold specified by --tcrdist_threshold_for_condensing. This can be useful for BCR data to merge families of clonally-related cells')
 parser.add_argument('--tcrdist_threshold_for_condensing', type=float, default=50.)
-parser.add_argument('--no_tcrdists', action='store_true', help='Don\'t compute tcrdists or kernel PCs; instead generate a random matrix of kernel PCs. This might be useful for preprocessing very big GEX datasets to isolate subsets of interest')
-parser.add_argument('--no_kpcs', action='store_true')
+parser.add_argument('--no_tcrdists', action='store_true',
+                    help='(DEPRECATED; use --no_kpca instead). Don\'t compute tcrdists or kernel PCs; instead generate a random matrix of kernel PCs. This might be useful for preprocessing very big GEX datasets to isolate subsets of interest')
+parser.add_argument('--no_kpca', action='store_true',
+                    help = 'Do not run kernel PCA or compute the TCRdist matrix. '
+                    'Useful for large datasets. Use with --no_kpca argument to '
+                    'run_conga.py')
+parser.add_argument('--no_kpcs', action='store_true',
+                    help='replaced with the --no_kpca argument for consistency with '
+                    'other scripts. Will eventually be removed')
 parser.add_argument('--force_tcrdist_cpp', action='store_true')
 parser.add_argument('--batch_keys', type=str, nargs='*')
 
 args = parser.parse_args()
+
+if len(sys.argv)==1:
+    parser.print_help()
+    sys.exit()
 
 # update args specified in yml file
 if args.config is not None:

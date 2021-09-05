@@ -2078,6 +2078,209 @@ def make_single_chain_clumping_logos(
 
 
 
+def assign_cd4_and_cd8_by_clusters(
+        adata,
+        key_added = 'cd4_or_cd8',
+        clustering_resolution = 2.0,
+        n_gex_pcs = 40,
+        n_neighbors = 10,
+        verbose = False,
+):
+    ''' adds new string column with name=key_added to adata.obs, values are
+    'cd4' or 'cd8'
+
+    Does not respect clone definitions (expanded clones may span both cd4 and cd8)
+
+    assumes:
+    * data have been preprocessed/scaled
+    * data have not been reduced to a single cell per clone
+    * pca may or may not have been called
+
+    '''
+
+
+    assert adata.uns['organism'] == 'human' # tmp hack
+
+    # run pca if necessary
+    if 'X_pca_gex' not in adata.obsm_keys():
+        n_gex_pcs = min(adata.shape[0]-1, n_gex_pcs)
+        sc.tl.pca(adata, svd_solver='arpack', n_comps=n_gex_pcs)
+        adata.obsm['X_pca_gex'] = adata.obsm['X_pca']
+
+    # run clustering with higher resolution
+    adata.obsm['X_pca'] = adata.obsm['X_pca_gex']
+    n_pcs = adata.obsm['X_pca'].shape[1]
+
+    sc.pp.neighbors(adata, n_neighbors=n_neighbors, n_pcs=n_pcs)
+
+    cluster_key_added = 'leiden_gex_for_cd4_vs_cd8'
+
+    sc.tl.leiden(adata, resolution=clustering_resolution, key_added=cluster_key_added)
+
+
+    clusters_gex = np.array(adata.obs[cluster_key_added].astype(int))
+
+    num_clones = adata.shape[0]
+    all_gex = {}
+
+    cd4_genes = ['CD4']
+    cd8_genes = ['CD8A', 'CD8B']
+
+    for gene in cd4_genes+cd8_genes:
+        if gene not in adata.raw.var_names:
+            print('WARNING assign_cd4_and_cd8_by_clusters: missing', gene)
+            all_gex[gene] = np.zeros((num_clones,))
+        else:
+            index = adata.raw.var_names.get_loc(gene)
+            all_gex[gene] = adata.raw.X[:,index].toarray()[:,0]
+
+    cd8_gex = np.copy(all_gex[cd8_genes[0]])
+    for g in cd8_genes[1:]:
+        cd8_gex += all_gex[g]
+    cd8_gex /= len(cd8_genes)
+
+    cd4_gex = np.copy(all_gex[cd4_genes[0]])
+    for g in cd4_genes[1:]:
+        cd4_gex += all_gex[g]
+    cd4_gex /= len(cd4_genes)
+
+    num_clusters = np.max(clusters_gex)+1
+    cd4_rescale = 1/0.6
+    cd8_rescale = 1/2.0
+    good_mask = np.full((num_clones,), False)
+    dfl = []
+    cd48s = np.full((num_clones,), 'UNK')
+    for c in range(num_clusters):
+        mask = clusters_gex==c
+        cd4 = cd4_rescale * np.sum(cd4_gex[mask])/np.sum(mask)
+        cd8 = cd8_rescale * np.sum(cd8_gex[mask])/np.sum(mask)
+        tag = 'cd4' if cd4>cd8 else 'cd8'
+        cd48s[mask] = tag
+        if verbose:
+            print(f'split_by_CD4_CD8: cluster {c:2d} {np.sum(mask):4d} {tag}',
+                  f'cd4: {cd4:9.3f} cd8: {cd8:9.3f}')
+        dfl.append(dict(
+            cluster=c,
+            size=np.sum(mask),
+            cd4=cd4,
+            cd8=cd8,
+            ))
+    adata.obs[key_added] = cd48s
+    return pd.DataFrame(dfl)
+
+
+
+def split_into_cd4_and_cd8_subsets(
+        adata,
+        allow_split_clones = True, # allow clones that span subsets
+        max_iterations = 5,
+        verbose = False,
+        min_cells_for_iteration = 25,
+):
+    ''' returns adata_cd4, adata_cd8
+
+    assumes:
+    * data have been preprocessed/scaled
+    * data have not been reduced to a single cell per clone
+    * pca may or may not have been called
+
+    takes the consensus for expanded clones, but ties contribute cells to both
+
+    '''
+
+    assign_cd4_and_cd8_by_clusters(adata, verbose=verbose)
+
+    ad4 = adata[adata.obs.cd4_or_cd8 == 'cd4'].copy()
+    ad8 = adata[adata.obs.cd4_or_cd8 == 'cd8'].copy()
+
+    for r in range(max_iterations):
+        print('start sizes:', r, ad4.shape[0], ad8.shape[0])
+        if (ad4.shape[0] < min_cells_for_iteration or
+            ad8.shape[0] < min_cells_for_iteration):
+            break
+
+        # look at clone overlap
+        # tcrs_4 = preprocess.retrieve_tcrs_from_adata(ad4)
+        # tcrs_8 = preprocess.retrieve_tcrs_from_adata(ad8)
+        # counts_4 = Counter(tcrs_4)
+        # counts_8 = Counter(tcrs_8)
+
+        # for tcr,c4 in counts_4.items():
+        #     c8 = counts_8[tcr]
+        #     if c8:
+        #         print(f'split_clone: {r} {c4:3d} {c8:3d} {tcr[0][2]} {tcr[1][2]}')
+
+        # make new adatas
+        dfl = []
+        for ad in [ad4,ad8]:
+            ad.uns['organism'] = 'human'
+            assign_cd4_and_cd8_by_clusters(ad, verbose=verbose)
+
+        ad4_new = ad4[ad4.obs.cd4_or_cd8 == 'cd4'].concatenate(
+            ad8[ad8.obs.cd4_or_cd8 == 'cd4'], index_unique=None)
+        ad8_new = ad8[ad8.obs.cd4_or_cd8 == 'cd8'].concatenate(
+            ad4[ad4.obs.cd4_or_cd8 == 'cd8'], index_unique=None)
+
+        # convergence?
+        old_cd8_barcodes = set(ad8.obs.index)
+        new_cd8_barcodes = set(ad8_new.obs.index)
+        print(f'old_cd8_barcodes: {len(old_cd8_barcodes)} new_cd8_barcodes: '
+              f'{len(new_cd8_barcodes)}')
+        if (len(old_cd8_barcodes) == len(new_cd8_barcodes) ==
+            len(old_cd8_barcodes&new_cd8_barcodes)):
+            print('converged')
+            break
+
+        ad4 = ad4_new
+        ad8 = ad8_new
+
+    # now map from barcodes to cd4/cd8
+    cd4_barcodes = set(ad4.obs.index)
+    cd8_barcodes = set(ad8.obs.index)
+    assert len(cd4_barcodes & cd8_barcodes) == 0
+
+    # barcode_map is dict from barcode to integer (4 or 8)
+    barcode_map = {x:4 for x in cd4_barcodes}
+    barcode_map.update({x:8 for x in cd8_barcodes})
+
+
+    # now assign clone by clone
+    tcrs = preprocess.retrieve_tcrs_from_adata(adata) # has duplicates
+    tcrs_sorted = sorted(set(tcrs)) # no duplicates
+    tcr_to_clone_id = {x:i for i,x in enumerate(tcrs_sorted)}
+    clone_ids = np.array([tcr_to_clone_id[x] for x in tcrs])
+
+    all_barcodes = np.array(adata.obs.index)
+
+    new_barcode_map = {}
+    for clone_id, tcr in enumerate(tcrs_sorted):
+        barcodes = list(all_barcodes[clone_ids==clone_id])
+        counts = Counter([barcode_map[x] for x in barcodes]).most_common()
+        if len(counts)>1 and verbose:
+            print('split clone:', counts)
+
+        if len(counts)>1 and counts[0][1] == counts[1][1] and allow_split_clones:
+            # clone is split between cd4 and cd8, split by cell assignments
+            for barcode in barcodes:
+                new_barcode_map[barcode] = barcode_map[barcode]
+        else:
+            for barcode in barcodes:
+                new_barcode_map[barcode] = counts[0][0]
+
+    cd4_mask = np.array([new_barcode_map[x] == 4 for x in all_barcodes])
+    cd8_mask = np.array([new_barcode_map[x] == 8 for x in all_barcodes])
+
+    assert all(cd4_mask | cd8_mask)
+    assert not any(cd4_mask & cd8_mask)
+
+    adata_cd4 = adata[cd4_mask].copy()
+    adata_cd8 = adata[cd8_mask].copy()
+
+    return adata_cd4, adata_cd8
+
+
+
+
 
 
 
