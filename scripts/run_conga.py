@@ -49,7 +49,7 @@ Examples:
     )
 
 # core args
-parser.add_argument('--version', action='version', version='CoNGA version 0.1.0')
+parser.add_argument('--version', action='version', version='CoNGA version 0.1.1')
 parser.add_argument('--config', help="configuration file *.yml", type=str)
 parser.add_argument('--gex_data',
                     help='Input file with the single-cell gene expression data')
