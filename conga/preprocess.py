@@ -898,6 +898,11 @@ def reduce_to_single_cell_per_clone(
     adata.uns['conga_stats']['max_clonotype_size'] = np.max(clone_sizes)
     adata.uns['conga_stats']['num_singleton_clonotypes'] = clone_sizes.count(1)
 
+    ## rescale now that we have reduced to 1 cell per clone (NEW 2021-09-10)
+    ## if we don't do this, in rare cases we get really wonky umaps/clusters
+    ## (seemingly due to PCA components that are dominated by individual genes)
+    sc.pp.scale(adata, max_value=10)
+
     if average_clone_gex:
         print('vstacking new_X_rows...'); sys.stdout.flush()
         new_X = scipy.sparse.vstack(new_X_rows, format="csr")

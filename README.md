@@ -1,4 +1,4 @@
-# Clonotype Neighbor Graph Analysis (CoNGA) -- version 0.1.0
+# Clonotype Neighbor Graph Analysis (CoNGA) -- version 0.1.1
 
 This repository contains the `conga` python package and associated scripts
 and workflows. `conga` was developed to detect correlation between
@@ -223,6 +223,9 @@ write10xCounts( count_matrix,
 ```
 
 # Updates
+* 2021-09-10: Rescale the adata.X gene expression matrix after reducing to a
+single clone. In very rare cases, not doing this was leading to wonky GEX UMAPs and
+clusters, seemingly due to GEX PC components dominated by individual genes.
 
 * 2021-01-21: (EXPERIMENTAL) New mode of analysis in which the paired TCR
 sequences in the analyzed dataset are matched to paired sequences in a literature-derived
