@@ -3339,12 +3339,19 @@ def make_batch_colored_umaps(
                                for x in batches])
             plt.scatter(xy[reorder,0], xy[reorder,1], c=colors[reorder],
                         s=5)
+            unique_batches = sorted(set(batches))
+            add_categorical_legend(
+                plt.gca(), [str(x) for x in unique_batches],
+                [cmap_colors[x%len(cmap_colors)] for x in unique_batches],
+                #legend_fontsize=6,
+            )
+
             plt.title(f'{batch_key}')
             plt.xlabel(f'{xy_tag.upper()} UMAP1')
             plt.ylabel(f'{xy_tag.upper()} UMAP2')
             plt.xticks([],[])
             plt.yticks([],[])
-    plt.tight_layout()
+    #plt.tight_layout()
     print('making:', pngfile)
     plt.savefig(pngfile)
     help_message = """This figure shows the TCR and GEX 2D UMAP landscapes
