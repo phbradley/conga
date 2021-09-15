@@ -59,7 +59,8 @@ if args.organism is None:
     print('Organism not specified. Add to --config file or specify with --organism')
     quit()
 
-if args.no_tcrdists:
+if args.no_tcrdists or args.no_kpca:
+    print(f'Skipping TCRdist calculations and kernel PCA')
     assert not args.condense_clonotypes_by_tcrdist
     assert not args.output_distfile
 
@@ -140,7 +141,7 @@ print('writing anndata object of shape:', new_adata.shape, 'to file:', args.outp
 new_adata.write_h5ad(args.output_gex_data)
 
 # now we have to compute the merged tcrdist distances and kpcs
-if args.no_tcrdists:
+if args.no_tcrdists or args.no_kpca:
     # the filename and output code is stolen from
     #  conga.preprocess.make_tcrdist_kernel_pcs_file_from_clones_file
     num_clones = new_clones_df.shape[0]
