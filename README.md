@@ -21,6 +21,7 @@ https://www.nature.com/articles/s41587-021-00989-2
 * [Running](https://github.com/phbradley/conga#running)
 * [Installation](https://github.com/phbradley/conga#installation)
 * [Migrating Seurat data to CoNGA](https://github.com/phbradley/conga#migrating-seurat-data-to-conga)
+* [Merging multiple datasets for CoNGA analysis](https://github.com/phbradley/conga#merging-multiple-datasets-into-a-single-object-for-conga-analysis)
 * [Updates](https://github.com/phbradley/conga#updates)
 * [SVG to PNG](https://github.com/phbradley/conga#svg-to-png)
 * [Testing CoNGA without going through the pain of installing it](https://github.com/phbradley/conga#testing-conga-without-going-through-the-pain-of-installing-it)
