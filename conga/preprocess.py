@@ -637,6 +637,8 @@ def cluster_and_tsne_and_umap(
         n_neighbors=10, # used for umap and clustering
         n_gex_pcs=40, # only used if we have to compute them
         make_1d_umaps=True,
+        use_bbknn=False,
+        bbknn_batch_key=None 
 ):
     '''calculates neighbors, tsne, louvain for both GEX and TCR
 
@@ -684,7 +686,16 @@ def cluster_and_tsne_and_umap(
         adata.obsm['X_pca'] = adata.obsm['X_pca_'+tag]
         n_pcs = adata.obsm['X_pca'].shape[1]
         #n_pcs = n_gex_pcs_for_neighbors if tag=='gex' else n_tcr_pcs_for_neighbors
-        sc.pp.neighbors(adata, n_neighbors=n_neighbors, n_pcs=n_pcs)
+        if use_bbknn and tag == 'gex':
+            try:
+                import bbknn
+            except:
+                print('BBKNN is not available. Please install.')
+            assert bbknn_batch_key is not None,'Specify obs column for BBKNN'
+            print(f"Using BBKNN for GEX neighbors with batch_key = {bbknn_batch_key}")
+            bbknn.bbknn(adata, batch_key=bbknn_batch_key, n_pcs=n_pcs)
+        else:
+            sc.pp.neighbors(adata, n_neighbors=n_neighbors, n_pcs=n_pcs)
         if not skip_tsne:
             sc.tl.tsne(adata, n_pcs=n_pcs)
             adata.obsm['X_tsne_'+tag] = adata.obsm['X_tsne']
