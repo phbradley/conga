@@ -11,6 +11,7 @@ import matplotlib
 import matplotlib.pyplot as plt
 from scipy import stats
 from sklearn.metrics import pairwise_distances
+from sklearn.decomposition import PCA
 from scipy.stats import hypergeom, mannwhitneyu, linregress, norm, ttest_ind, poisson
 import scipy.sparse as sps
 from statsmodels.stats.multitest import multipletests
