@@ -829,7 +829,7 @@ features assigned to individual cells?
 
 	 df = adata.obs.join(batch_info) # funny behavior if I try to reassign adata.obs
 	 for col in batch_info:
-	 		 adata.obs[col] = df[col]
+	 	   adata.obs[col] = df[col]
 	 adata.uns['batch_keys'] = list(batch_info.columns)
 
    adata.write_h5ad(new_gex_filename)
