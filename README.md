@@ -21,6 +21,7 @@ https://www.nature.com/articles/s41587-021-00989-2
 * [Running](https://github.com/phbradley/conga#running)
 * [Installation](https://github.com/phbradley/conga#installation)
 * [Migrating Seurat data to CoNGA](https://github.com/phbradley/conga#migrating-seurat-data-to-conga)
+* [Merging multiple datasets for CoNGA analysis](https://github.com/phbradley/conga#merging-multiple-datasets-into-a-single-object-for-conga-analysis)
 * [Updates](https://github.com/phbradley/conga#updates)
 * [SVG to PNG](https://github.com/phbradley/conga#svg-to-png)
 * [Testing CoNGA without going through the pain of installing it](https://github.com/phbradley/conga#testing-conga-without-going-through-the-pain-of-installing-it)
@@ -220,6 +221,62 @@ write10xCounts( count_matrix,
                 gene.type = features,
                 version = "3")
 # import the hs1_mtx directory into CoNGA using the '10x_mtx' option
+```
+
+# Merging multiple datasets into a single object for CoNGA analysis
+
+This can be done in two easy steps using the `setup_10x_clones.py` and `merge_samples.py` scripts in `conga`. 
+
+1. **SETUP**: The TCR data for each sample being merge must be converted to a form that can be read by `conga`. 
+This can be done using the python script `scripts/setup_10x_for_conga.py` for 10x datasets. 
+By default the matrix of `TCRdist` distances calculated and reduced in dimensionality by KernelPCA, however, 
+since these will need to be recalculated after merging we can skip this step with the `--no_kpca` flag.
+
+```
+python ~/conga/scripts/setup_10x_for_conga.py \
+--filtered_contig_annotations_csvfile vdj_v1_hs_pbmc3_t_filtered_contig_annotations.csv \
+--output_clones_file vdj_v1_hs_pbmc3_clones.tsv \
+--organism human \
+--no_kpca 
+
+python ~/conga/scripts/setup_10x_for_conga.py \
+--filtered_contig_annotations_csvfile sc5p_v2_hs_PBMC_10k_t_filtered_contig_annotations.csv \
+--output_clones_file sc5p_v2_hs_PBMC_10k_clones.tsv \
+--organism human \
+--no_kpca
+
+```
+
+2. **MERGE SAMPLES**: The `scripts/merge_samples.py` script uses a tab-delimted file 
+with three columns: "clones_file", "gex_data", "gex_data_type" specifying the paths 
+to the clones file from step 1, it’s companion gex data, and the gex data type (e.g 10x_h5)
+for each sample:
+
+| clones_file | gex_data | gex_data_type |
+| --- | --- | --- |
+| vdj_v1_hs_pbmc3_clones.tsv | vdj_v1_hs_pbmc_5gex_filtered_gene_bc_matrices_h5.h5 | 10x_h5 |
+| sc5p_v2_hs_PBMC_10k_clones.tsv | sc5p_v2_hs_PBMC_10k_filtered_feature_bc_matrix.h5 | 10x_h5 |
+
+```
+python ~/conga/scripts/merge_samples.py \
+--samples pbmc_samples.txt \
+--output_clones_file merged_pbmc_clones.tsv \
+--output_gex_data merged_pbmc_gex.h5ad \
+--organism human 
+```
+The `TCRdist` distances are calculated and KernelPCA is applied to the matrix here.
+
+3. **ANALYZE**: The merged `AnnData` object containing the gene expression and the merged clones file can 
+now be analyzed using the `scripts/run_conga.py` script:
+
+```
+python ~/conga/scripts/run_conga.py \
+--gex_data merged_pbmc_gex.h5ad \
+--gex_data_type h5ad \
+--clones_file merged_pbmc_clones.tsv \
+--organism human \
+--graph_vs_graph \
+--outfile_prefix ../merged_pbmc_outs/merged_pbmc
 ```
 
 # Updates
