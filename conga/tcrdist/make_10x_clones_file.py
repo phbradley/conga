@@ -270,6 +270,18 @@ def read_tcr_data_batch(
 
     metadata_file is a comma-separated (.csv) or tab-separated (.tsv) file
     that should have the columns 'file' and 'suffix'
+<<<<<<< bcr
+=======
+    'file' gives the filename for the different filtered_contig_annotations files
+    'suffix' gives the string that should be appended to the raw nucleotide barcodes
+    in order to match the GEX data. The existing suffixes, if any, are removed.
+
+    Right now this assumes that the nucleotide barcode part of the string in the
+    barcode field of each contigs file is the first element if we split by '-'
+    ie, something like  "CATGCTAGCTAGTCG-1". This would then get turned into
+    "CATGCTAGCTAGTCG-<suffix>" where <suffix> is the suffix provided in the
+    metadata file for that contigs file.
+>>>>>>> * Add a new plot to show the TCR database matches * Shorten the clustermaps by reducing the default max_type_features from 100 to 50 in plot_interesting_features_vs_clustermap * add batch keys to clustermaps when batch data is present * improve clustermap figure sizing * preprocess.filter_normalize_and_hvg can take a batch key and pass it along to the highly-variable-gene finding code to focus on variable genes shared across batches * lots of small changes that have accumulated over the last few months: formatting, comments, minor plot improvements
 
     Returns:
 
@@ -282,7 +294,11 @@ def read_tcr_data_batch(
         sep = ','
     else:
         sep = '\t'
+<<<<<<< bcr
     md = pd.read_csv(metadata_file, sep=sep, dtype=str)
+=======
+    md = pd.read_csv(metadata_file, sep='\t', dtype=str)
+>>>>>>> * Add a new plot to show the TCR database matches * Shorten the clustermaps by reducing the default max_type_features from 100 to 50 in plot_interesting_features_vs_clustermap * add batch keys to clustermaps when batch data is present * improve clustermap figure sizing * preprocess.filter_normalize_and_hvg can take a batch key and pass it along to the highly-variable-gene finding code to focus on variable genes shared across batches * lots of small changes that have accumulated over the last few months: formatting, comments, minor plot improvements
 
     if prefix_clone_ids_with_tcr_type:
         if organism2vdj_type[organism] == IG_VDJ_TYPE:
@@ -300,6 +316,7 @@ def read_tcr_data_batch(
         assert add_batch_id_location in ('prefix','suffix'), "Specify either 'prefix' or 'suffix'"
         assert batch_id_delim is not None, "Specify delimiter between batch_id and barcode"
 
+<<<<<<< bcr
         for x in md.itertuples():
             dfx = pd.read_csv( x.file )
             batch_id = str(x.batch_id)
@@ -324,6 +341,17 @@ def read_tcr_data_batch(
         for x in md.itertuples():
             dfx = pd.read_csv( x.file )
             contig_list.append(dfx)
+=======
+        # strip the suffix off the barcode
+        # note that this assumes that the "nucleotide" part of the barcode
+        # is the first element (ie, element 0 in python-speak)
+        barcodes = dfx['barcode'].str.split('-').str.get(0)
+
+        # add correct suffix
+        dfx['barcode'] = barcodes + '-' + suffix
+        dfx['raw_clonotype_id'] = clone_id_prefix + dfx['raw_clonotype_id'] + '_' + suffix
+        contig_list.append(dfx)
+>>>>>>> * Add a new plot to show the TCR database matches * Shorten the clustermaps by reducing the default max_type_features from 100 to 50 in plot_interesting_features_vs_clustermap * add batch keys to clustermaps when batch data is present * improve clustermap figure sizing * preprocess.filter_normalize_and_hvg can take a batch key and pass it along to the highly-variable-gene finding code to focus on variable genes shared across batches * lots of small changes that have accumulated over the last few months: formatting, comments, minor plot improvements
 
     # merge filtered_contig_annotations tables
     df = pd.concat(contig_list)

@@ -1429,7 +1429,11 @@ def calculate_tcrdist_nbrs_cpp(
             all_nbrs[nbr_frac] = knn_indices[:,:num_nbrs]
         else:
             # use argpartition instead
+<<<<<<< bcr
             all_nbrs[nbr_frac] = np.zeros((N,num_nbrs), dtype=np.int)
+=======
+            all_nbrs[nbr_frac] = np.zeros((N,num_nbrs), dtype=np.int32)
+>>>>>>> * Add a new plot to show the TCR database matches * Shorten the clustermaps by reducing the default max_type_features from 100 to 50 in plot_interesting_features_vs_clustermap * add batch keys to clustermaps when batch data is present * improve clustermap figure sizing * preprocess.filter_normalize_and_hvg can take a batch key and pass it along to the highly-variable-gene finding code to focus on variable genes shared across batches * lots of small changes that have accumulated over the last few months: formatting, comments, minor plot improvements
 
             print(f'all_nbrs tcrdist using {all_nbrs[nbr_frac].nbytes} bytes',
                   f'nbr_frac= {nbr_frac}')

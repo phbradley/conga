@@ -15,6 +15,7 @@ from sklearn.metrics import pairwise_distances
 from sklearn.decomposition import PCA
 from scipy.stats import hypergeom, mannwhitneyu, linregress, norm, ttest_ind, poisson
 import scipy.sparse as sps
+from scipy.sparse import issparse, csr_matrix
 from statsmodels.stats.multitest import multipletests
 from collections import Counter, OrderedDict
 import scanpy as sc
@@ -1785,7 +1786,7 @@ def find_tcr_clumping_single_chain(
         pvalue_threshold = 1.0,
         verbose=True,
         preserve_vj_pairings = False,
-        pseudocount=0.25,
+        bg_tcrs = None, # usually better to leave this None
 ):
     ''' Returns a pandas dataframe with the following columns:
     - chain (A or B)
@@ -1806,6 +1807,9 @@ def find_tcr_clumping_single_chain(
     num_clones = len(tcrs)
     num_random_samples = num_random_samples_multiplier * num_clones
 
+    if bg_tcrs is None:
+        bg_tcrs = tcrs
+
     agroups, bgroups = preprocess.setup_tcr_groups_for_tcrs(tcrs)
 
     tmpfiles = [] # for cleanup
@@ -1816,6 +1820,7 @@ def find_tcr_clumping_single_chain(
         tmpfile_prefix=outprefix,
         preserve_vj_pairings=preserve_vj_pairings,
         save_unpaired_dists=True,
+        tcrs_for_background_generation=bg_tcrs,
         #nocleanup=True,
     )
 
@@ -1918,7 +1923,6 @@ def find_tcr_clumping_single_chain(
                 #hgeom_pval *= len(radii) * num_clones # simple multiple test correction
                 if pval <= pvalue_threshold:
                     is_clumped[ii] = True
-                    # count might just be pseudocount
                     raw_count = ii_bg_counts[irad]
                     if verbose:
                         atcr_str = ' '.join(tcrs[ii][0][:3])
@@ -2318,6 +2322,219 @@ def predict_T_cell_subset (adata, model = 'gradientBoost', use_raw = True):
     return adata
 
 
+def run_umap_and_clustering_from_indices_distances(
+        adata,
+        knn_indices,
+        knn_distances,
+        umap_key_added,
+        cluster_key_added,
+        clustering_resolution = None,
+        clustering_method=None,
+        n_components_umap = 2,
+):
+    ''' code is borrowed from conga.preprocess.calc_tcrdist_nbrs_umap_clusters_cpp
+
+    return TRUE on success, FALSE on failure (umap graph is too disconnected)
+
+    '''
+    assert knn_indices.shape == knn_distances.shape
+    num_nbrs = knn_indices.shape[1]
+
+    try: # HACK: the naming of this function changes across scanpy versions
+        distances, connectivities= sc.neighbors.compute_connectivities_umap(
+            knn_indices, knn_distances, adata.shape[0], num_nbrs)
+    except:
+        print('try new name for compute_connectivities_umap')
+        distances, connectivities= sc.neighbors._compute_connectivities_umap(
+            knn_indices, knn_distances, adata.shape[0], num_nbrs)
+
+    if issparse(connectivities): # I think this is always true
+        from scipy.sparse.csgraph import connected_components
+        connected_components = connected_components(connectivities)
+        number_connected_components = connected_components[0]
+        print('number_connected_components:', number_connected_components)
+        if number_connected_components > 2*n_components_umap:
+            print('run_umap_and_clustering_from_indices_distances:',
+                  'too many connected components in the',
+                  'neighbor graph:', number_connected_components)
+            return False # signal failure
+
+    ################
+    # stash the stuff in adata, stolen from scanpy/neighbors/__init__.py
+    #
+    adata.uns['neighbors'] = {}
+    adata.uns['neighbors']['params']={'n_neighbors': num_nbrs, 'method': 'umap'}
+    adata.uns['neighbors']['params']['metric'] = 'tcrdist'# fake metric
+    # if metric_kwds:
+    #     adata.uns['neighbors']['params']['metric_kwds'] = metric_kwds
+    # if use_rep is not None:
+    #     adata.uns['neighbors']['params']['use_rep'] = use_rep
+    # if n_pcs is not None:
+    #     adata.uns['neighbors']['params']['n_pcs'] = n_pcs
+    adata.uns['neighbors']['distances'] = distances
+    adata.uns['neighbors']['connectivities'] = connectivities
+
+    # as far as I can tell, these are only used if there are too many connected
+    # components in the nbr graph... see the infinite while loop up above.
+    print('temporarily putting random pca vectors into adata...')
+    fake_pca = np.random.randn(adata.shape[0], 10)
+    adata.obsm['X_pca'] = fake_pca
+
+    print('running umap', adata.shape)
+    sc.tl.umap(adata, n_components=n_components_umap)
+    print('DONE running umap')
+    adata.obsm[umap_key_added] = adata.obsm['X_umap']
+
+
+    resolution = 1.0 if clustering_resolution is None else clustering_resolution
+    if clustering_method=='louvain':
+        sc.tl.louvain(adata, resolution=resolution, key_added=cluster_key_added)
+        print('ran louvain clustering:', resolution, cluster_key_added)
+    elif clustering_method=='leiden':
+        sc.tl.leiden(adata, resolution=resolution, key_added=cluster_key_added)
+        print('ran leiden clustering:', resolution, cluster_key_added)
+    else: # try both (hacky)
+        try:
+            sc.tl.leiden(adata, resolution=resolution, key_added=cluster_key_added)
+            print('ran leiden clustering:', resolution, cluster_key_added)
+        except ImportError: # hacky
+            sc.tl.louvain(adata, resolution=resolution, key_added=cluster_key_added)
+            print('ran louvain clustering:', resolution, cluster_key_added)
+
+    adata.obs[cluster_key_added] = np.copy(adata.obs[cluster_key_added]).astype(int)
+    print('DONE running louvain', cluster_key_added)
+
+    del adata.obsm['X_pca'] # delete the fake pcas
+    del adata.obsm['X_umap'] # delete the extra umap copy
+
+    return True
+
+
+def create_conga_hits_adata(
+        adata,
+        outfile_prefix, # for plots
+        small_nbr_frac = 0.1,
+        big_nbr_frac = 0.25,
+        num_nbrs = 10, # for UMAP/clustering
+        verbose = True,
+):
+    ''' Try UMAP/clustering just the conga hits, using a measure that combines GEX and
+    TCR
+
+    returns a new adata which just contains conga hits, and has new fields
+
+    adata.obs.clusters_combo
+    adata.obsm.X_combo_2d
+
+    '''
+
+    # subset to the conga hits
+    mask = adata.obs.conga_scores < 1.0
+    adata = adata[mask].copy()
+
+    all_nbrs = preprocess.calc_nbrs(
+        adata, [small_nbr_frac, big_nbr_frac], sort_nbrs=True)
+
+    nbrs_gex, nbrs_tcr= all_nbrs[big_nbr_frac]
+
+    N = adata.shape[0]
+    overlaps = []
+
+    knn_indices = np.zeros((N,num_nbrs), dtype=np.int32)
+    knn_distances = np.zeros((N,num_nbrs), dtype=float)
+
+    big_num_nbrs = nbrs_gex.shape[1]
+    scores = np.zeros((big_num_nbrs,))
+
+    for ii in range(N):
+        if ii and ii%1000==0 and verbose:
+            print(ii)
+        gnbrs = nbrs_gex[ii]
+        tnbrs_index = {x:i for i,x in enumerate(nbrs_tcr[ii])}
+        for j,jj in enumerate(gnbrs):
+            k = tnbrs_index.get(jj,0.5*N)
+            scores[j] = 0.5*(j+k)/N
+        inds = np.argpartition(scores, num_nbrs-1)[:num_nbrs]
+        knn_distances[ii,:] = scores[inds]
+        knn_indices[ii,:] = gnbrs[inds]
+
+
+    run_umap_and_clustering_from_indices_distances(
+        adata,
+        knn_indices,
+        knn_distances,
+        'X_combo_2d',
+        'clusters_combo',
+        #clustering_resolution=2.0,
+    )
+
+    # show new UMAP space colored in various ways
+    pngfile = outfile_prefix+'_combo_umaps.png'
+    xy = adata.obsm['X_combo_2d']
+
+    genes = ('conga_scores clone_sizes KLRB1 GZMK GZMH CCL5 SELL '
+             'CCR7 IKZF2 ZNF683 KIR TCF7'.split())
+
+    kir_genes = ['KIR2DL1', 'KIR2DL3', 'KIR2DL4', 'KIR3DL1', 'KIR3DL2', 'KIR3DL3']
+
+    nrows, ncols = 3,4
+    plt.figure(figsize=(ncols*4,nrows*4))
+    for ig,gene in enumerate(genes):
+        plt.subplot(nrows, ncols, ig+1)
+        if gene == 'conga_scores':
+            colors = np.sqrt(-1*np.log10(adata.obs.conga_scores))
+        elif gene == 'clone_sizes':
+            colors = np.log10(adata.obs.clone_sizes)
+        elif gene == 'KIR':
+            colors = np.sum(np.vstack(
+                [adata.raw.X[:,adata.raw.var_names.get_loc(g)].toarray()[:,0]
+                 for g in kir_genes if g in adata.raw.var_names]),axis=0)
+        else:
+            colors = adata.raw.X[:,adata.raw.var_names.get_loc(gene)].toarray()[:,0]
+        reorder = np.argsort(colors)
+        plt.scatter(xy[reorder,0], xy[reorder,1], c=colors[reorder], s=5)
+        plt.title(gene)
+        plt.xticks([],[])
+        plt.yticks([],[])
+    plt.tight_layout()
+    plt.savefig(pngfile)
+    print('made:', pngfile)
+
+    #borrowed from  plotting.make_tcr_clumping_plots
+    fake_clusters_gex = np.zeros((N,)).astype(int)
+    fake_clusters_tcr = np.array(adata.obs.clusters_combo)
+
+    pngfile = outfile_prefix+'_combo_clusters_old_2d.png'
+
+    nbrs_gex, nbrs_tcr = all_nbrs[small_nbr_frac]
+
+    min_cluster_size_for_logos=3
+
+    plotting.make_cluster_logo_plots_figure(
+        adata, adata.obs.conga_scores, 10.0, # 10.0 is congathreshold (anything above 1)
+        fake_clusters_gex, fake_clusters_tcr, nbrs_gex, nbrs_tcr,
+        min_cluster_size_for_logos, pngfile, show_real_clusters_gex=True,
+    )
+    print('made:', pngfile)
+
+    X_gex_2d_save = np.array(adata.obsm['X_gex_2d']).copy()
+    X_tcr_2d_save = np.array(adata.obsm['X_tcr_2d']).copy()
+    adata.obsm['X_gex_2d'] = adata.obsm['X_combo_2d']
+    adata.obsm['X_tcr_2d'] = adata.obsm['X_combo_2d']
+
+    pngfile = outfile_prefix+'_combo_clusters_new_2d.png'
+    plotting.make_cluster_logo_plots_figure(
+        adata, adata.obs.conga_scores, 10.0, # 10.0 is congathreshold (anything above 1)
+        fake_clusters_gex, fake_clusters_tcr, nbrs_gex, nbrs_tcr,
+        min_cluster_size_for_logos, pngfile, show_real_clusters_gex=True,
+    )
+    print('made:', pngfile)
+
+    adata.obsm['X_gex_2d'] = X_gex_2d_save
+    adata.obsm['X_tcr_2d'] = X_tcr_2d_save
+
+    return adata
+
 
 
 
@@ -2558,14 +2775,153 @@ def compute_cluster_interactions(
         expected = acounts[a] * bcounts[b] / float(total)
         pval = pval_rescale * pvals[a,b]
 
+<<<<<<< bcr
         if pval > max_pval:
             break
+=======
+def run_umap_and_clustering_from_indices_distances(
+        adata,
+        knn_indices,
+        knn_distances,
+        umap_key_added,
+        cluster_key_added,
+        clustering_resolution = None,
+        clustering_method=None,
+        n_components_umap = 2,
+):
+    ''' code is borrowed from conga.preprocess.calc_tcrdist_nbrs_umap_clusters_cpp
+
+    return TRUE on success, FALSE on failure (umap graph is too disconnected)
+
+    '''
+    assert knn_indices.shape == knn_distances.shape
+    num_nbrs = knn_indices.shape[1]
+
+    try: # HACK: the naming of this function changes across scanpy versions
+        distances, connectivities= sc.neighbors.compute_connectivities_umap(
+            knn_indices, knn_distances, adata.shape[0], num_nbrs)
+    except:
+        print('try new name for compute_connectivities_umap')
+        distances, connectivities= sc.neighbors._compute_connectivities_umap(
+            knn_indices, knn_distances, adata.shape[0], num_nbrs)
+
+    if issparse(connectivities): # I think this is always true
+        from scipy.sparse.csgraph import connected_components
+        connected_components = connected_components(connectivities)
+        number_connected_components = connected_components[0]
+        print('number_connected_components:', number_connected_components)
+        if number_connected_components > 2*n_components_umap:
+            print('run_umap_and_clustering_from_indices_distances:',
+                  'too many connected components in the',
+                  'neighbor graph:', number_connected_components)
+            return False # signal failure
+
+    ################
+    # stash the stuff in adata, stolen from scanpy/neighbors/__init__.py
+    #
+    adata.uns['neighbors'] = {}
+    adata.uns['neighbors']['params']={'n_neighbors': num_nbrs, 'method': 'umap'}
+    adata.uns['neighbors']['params']['metric'] = 'tcrdist'# fake metric
+    # if metric_kwds:
+    #     adata.uns['neighbors']['params']['metric_kwds'] = metric_kwds
+    # if use_rep is not None:
+    #     adata.uns['neighbors']['params']['use_rep'] = use_rep
+    # if n_pcs is not None:
+    #     adata.uns['neighbors']['params']['n_pcs'] = n_pcs
+    adata.uns['neighbors']['distances'] = distances
+    adata.uns['neighbors']['connectivities'] = connectivities
+
+    # as far as I can tell, these are only used if there are too many connected
+    # components in the nbr graph... see the infinite while loop up above.
+    print('temporarily putting random pca vectors into adata...')
+    fake_pca = np.random.randn(adata.shape[0], 10)
+    adata.obsm['X_pca'] = fake_pca
+
+    print('running umap', adata.shape)
+    sc.tl.umap(adata, n_components=n_components_umap)
+    print('DONE running umap')
+    adata.obsm[umap_key_added] = adata.obsm['X_umap']
+
+
+    resolution = 1.0 if clustering_resolution is None else clustering_resolution
+    if clustering_method=='louvain':
+        sc.tl.louvain(adata, resolution=resolution, key_added=cluster_key_added)
+        print('ran louvain clustering:', resolution, cluster_key_added)
+    elif clustering_method=='leiden':
+        sc.tl.leiden(adata, resolution=resolution, key_added=cluster_key_added)
+        print('ran leiden clustering:', resolution, cluster_key_added)
+    else: # try both (hacky)
+        try:
+            sc.tl.leiden(adata, resolution=resolution, key_added=cluster_key_added)
+            print('ran leiden clustering:', resolution, cluster_key_added)
+        except ImportError: # hacky
+            sc.tl.louvain(adata, resolution=resolution, key_added=cluster_key_added)
+            print('ran louvain clustering:', resolution, cluster_key_added)
+
+    adata.obs[cluster_key_added] = np.copy(adata.obs[cluster_key_added]).astype(int)
+    print('DONE running louvain', cluster_key_added)
+
+    del adata.obsm['X_pca'] # delete the fake pcas
+    del adata.obsm['X_umap'] # delete the extra umap copy
+
+    return True
+
+
+def create_conga_hits_adata(
+        adata,
+        outfile_prefix, # for plots
+        small_nbr_frac = 0.1,
+        big_nbr_frac = 0.25,
+        num_nbrs = 10, # for UMAP/clustering
+        verbose = True,
+):
+    ''' Try UMAP/clustering just the conga hits, using a measure that combines GEX and
+    TCR
+
+    returns a new adata which just contains conga hits, and has new fields
+
+    adata.obs.clusters_combo
+    adata.obsm.X_combo_2d
+
+    '''
+
+    # subset to the conga hits
+    mask = adata.obs.conga_scores < 1.0
+    adata = adata[mask].copy()
+
+    all_nbrs = preprocess.calc_nbrs(
+        adata, [small_nbr_frac, big_nbr_frac], sort_nbrs=True)
+
+    nbrs_gex, nbrs_tcr= all_nbrs[big_nbr_frac]
+
+    N = adata.shape[0]
+    overlaps = []
+
+    knn_indices = np.zeros((N,num_nbrs), dtype=np.int32)
+    knn_distances = np.zeros((N,num_nbrs), dtype=float)
+
+    big_num_nbrs = nbrs_gex.shape[1]
+    scores = np.zeros((big_num_nbrs,))
+
+    for ii in range(N):
+        if ii and ii%1000==0 and verbose:
+            print(ii)
+        gnbrs = nbrs_gex[ii]
+        tnbrs_index = {x:i for i,x in enumerate(nbrs_tcr[ii])}
+        for j,jj in enumerate(gnbrs):
+            k = tnbrs_index.get(jj,0.5*N)
+            scores[j] = 0.5*(j+k)/N
+        inds = np.argpartition(scores, num_nbrs-1)[:num_nbrs]
+        knn_distances[ii,:] = scores[inds]
+        knn_indices[ii,:] = gnbrs[inds]
+>>>>>>> * Add a new plot to show the TCR database matches * Shorten the clustermaps by reducing the default max_type_features from 100 to 50 in plot_interesting_features_vs_clustermap * add batch keys to clustermaps when batch data is present * improve clustermap figure sizing * preprocess.filter_normalize_and_hvg can take a batch key and pass it along to the highly-variable-gene finding code to focus on variable genes shared across batches * lots of small changes that have accumulated over the last few months: formatting, comments, minor plot improvements
 
         outlog.write('clusclus2_intxn: {:2d} {:2d} {:8.1e} {:3d} {:6.1f} {:4d} {:4d} {:2d} {:2d} {:5d} ex {}\n'\
                      .format( a,b,pval,overlap,expected,acounts[a],bcounts[b],
                               len(set(aclusters)),len(set(bclusters)),len(barcodes),
                               len(overlap_barcodes)-overlap ))
 
+<<<<<<< bcr
         # now iterate
         if acounts[a] <= bcounts[b]:
             mask = aclusters!=a
@@ -4813,6 +5169,8 @@ def create_conga_hits_adata(
         knn_indices[ii,:] = gnbrs[inds]
 
 
+=======
+>>>>>>> * Add a new plot to show the TCR database matches * Shorten the clustermaps by reducing the default max_type_features from 100 to 50 in plot_interesting_features_vs_clustermap * add batch keys to clustermaps when batch data is present * improve clustermap figure sizing * preprocess.filter_normalize_and_hvg can take a batch key and pass it along to the highly-variable-gene finding code to focus on variable genes shared across batches * lots of small changes that have accumulated over the last few months: formatting, comments, minor plot improvements
     run_umap_and_clustering_from_indices_distances(
         adata,
         knn_indices,
