@@ -149,7 +149,7 @@ parser.add_argument('--max_clones_for_clustermaps', type=int, default=20000,
                     ' This can get slow and memory intensive, so limit the'
                     ' dataset size for these plots.')
 
-# configure the logo plots
+# configure the logo plots and some other plots
 parser.add_argument('--skip_gex_header', action='store_true')
 parser.add_argument('--skip_gex_header_raw', action='store_true')
 parser.add_argument('--skip_gex_header_nbrZ', action='store_true')
@@ -164,6 +164,7 @@ parser.add_argument('--gex_logo_genes', type=str, nargs='*')
 parser.add_argument('--gex_header_genes', type=str, nargs='*')
 parser.add_argument('--gex_nbrhood_tcr_score_names', type=str, nargs='*')
 parser.add_argument('--dont_show_lit_matches_in_logos', action='store_true')
+parser.add_argument('--short_clustermaps', action='store_true')
 
 
 # preprocessing options
@@ -303,10 +304,10 @@ if args.no_kpca:
 
 
 ## check consistency of args
-if args.find_pmhc_nbrhood_overlaps or args.calc_clone_pmhc_pvals:
-    # we need pmhc info for these analyses; right now that's restricted
-    # to the 10x AGBT dataset format
-    assert args.tenx_agbt
+# if args.find_pmhc_nbrhood_overlaps or args.calc_clone_pmhc_pvals:
+#     # we need pmhc info for these analyses; right now that's restricted
+#     # to the 10x AGBT dataset format
+#     assert 'pmhc_var_names' in adata.uns or args.tenx_agbt
 
 if args.batch_keys:
     assert args.gex_data_type == 'h5ad' # need the info already in the obs dict
@@ -794,6 +795,11 @@ if (args.match_to_tcr_database and
         adjusted_pvalue_threshold= args.pvalue_threshold_for_db_matching
     )
 
+    conga.plotting.make_tcr_db_match_plot(
+        adata,
+        args.outfile_prefix,
+    )
+
 
 if args.tcr_clumping: #########################################################
     num_random_samples = args.num_random_samples_for_tcr_clumping
@@ -878,8 +884,11 @@ if args.graph_vs_features:
         adata, all_nbrs, outfile_prefix=args.outfile_prefix)
 
     # make the plots
+    clustermap_max_type_features = 25 if args.short_clustermaps else 50
     conga.plotting.make_graph_vs_features_plots(
-        adata, all_nbrs, args.outfile_prefix)
+        adata, all_nbrs, args.outfile_prefix,
+        clustermap_max_type_features=clustermap_max_type_features,
+    )
 
 
 if args.graph_vs_graph and args.graph_vs_features: #########################
@@ -928,10 +937,12 @@ if args.find_hotspot_features: ################################################
     conga.correlations.find_hotspots_wrapper(
         adata, all_nbrs, outfile_prefix=args.outfile_prefix)
 
+    clustermap_max_type_features = 25 if args.short_clustermaps else 50
     conga.plotting.make_hotspot_plots(
         adata, all_nbrs, args.outfile_prefix,
         make_raw_feature_plots=args.make_hotspot_raw_feature_plots,
         max_clones_for_dendrograms=args.max_clones_for_clustermaps,
+        clustermap_max_type_features=clustermap_max_type_features,
         )
 
 if args.find_hotspot_nbrhoods:

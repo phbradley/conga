@@ -80,6 +80,11 @@ def normalize_and_log_the_raw_matrix(
         print('normalize_and_log_the_raw_matrix:: matrix is already logged')
         return adata
 
+    if 'pmhc_var_names' in adata.uns and normalize_antibody_features_CLR:
+        normalize_antibody_features_CLR=False
+        print('pmhc data is present, not performing CLR normalization of',
+              'the non-gene features')
+
     print('Normalize and logging matrix...')
 
     ft_varname = util.get_feature_types_varname(adata)
@@ -407,6 +412,7 @@ def filter_normalize_and_hvg(
         hvg_min_mean= 0.0125, #hvg= highly variable genes
         hvg_max_mean= 3,
         hvg_min_disp=0.5,
+        hvg_batch_key=None, # key for adata.obs that defines batches, passed to hvg code
         exclude_TR_genes = True, # this should really be True
         also_exclude_TR_constant_region_genes = True,
         exclude_sexlinked = False,
@@ -452,6 +458,14 @@ def filter_normalize_and_hvg(
     #adds n_genes to obs
     sc.pp.filter_cells(adata, min_genes=min_genes_per_cell)
     sc.pp.filter_genes(adata, min_cells=min_cells_per_gene)
+
+    if 'pmhc_var_names' in adata.uns:
+        old_pmhcs = list(adata.uns['pmhc_var_names'])
+        new_pmhcs = [x for x in old_pmhcs if x in adata.var_names]
+        adata.uns['pmhc_var_names'] = new_pmhcs
+        if len(new_pmhcs)<len(old_pmhcs):
+            print('filtered pmhcs in too few cells:',
+                  [x for x in old_pmhcs if x not in new_pmhcs])
 
 
     #find mitochondrial genes
@@ -516,8 +530,27 @@ def filter_normalize_and_hvg(
     sc.pp.log1p(adata)
 
     #find and filter by highly variable genes
-    sc.pp.highly_variable_genes(adata, min_mean=hvg_min_mean,
-                                max_mean=hvg_max_mean, min_disp=hvg_min_disp)
+    if hvg_batch_key is None:
+        # paranoid, since this is a new addition for conga (2021-09-15)
+        # not sure how far back batch_key option was supported in scanpy hvg...
+        sc.pp.highly_variable_genes(
+            adata,
+            min_mean=hvg_min_mean,
+            max_mean=hvg_max_mean,
+            min_disp=hvg_min_disp,
+        )
+    else:
+        tmp_key = 'tmp_hvg_batch_key' # make sure it's a category or we get an error
+        adata.obs[tmp_key] = adata.obs[hvg_batch_key].astype('category')
+
+        sc.pp.highly_variable_genes(
+            adata,
+            min_mean=hvg_min_mean,
+            max_mean=hvg_max_mean,
+            min_disp=hvg_min_disp,
+            batch_key=tmp_key,
+        )
+        del adata.obs[tmp_key]
     hvg_mask = np.array(adata.var['highly_variable'])
 
     # allow the user to specify which variable genes to use
@@ -637,6 +670,8 @@ def cluster_and_tsne_and_umap(
         n_neighbors=10, # used for umap and clustering
         n_gex_pcs=40, # only used if we have to compute them
         make_1d_umaps=True,
+        umap_min_dist=0.5, # these are the scanpy defaults
+        umap_spread=1.0,
 ):
     '''calculates neighbors, tsne, louvain for both GEX and TCR
 
@@ -678,7 +713,10 @@ def cluster_and_tsne_and_umap(
                   ' not present in adata.obsm; using exact tcrdist nbrs'
                   ' for umap and clustering')
             calc_tcrdist_nbrs_umap_clusters_cpp(
-                adata, n_neighbors, make_1d_umaps=make_1d_umaps)
+                adata, n_neighbors, make_1d_umaps=make_1d_umaps,
+                clustering_method=clustering_method,
+                clustering_resolution=clustering_resolution,
+            )
             continue
 
         adata.obsm['X_pca'] = adata.obsm['X_pca_'+tag]
@@ -688,7 +726,7 @@ def cluster_and_tsne_and_umap(
         if not skip_tsne:
             sc.tl.tsne(adata, n_pcs=n_pcs)
             adata.obsm['X_tsne_'+tag] = adata.obsm['X_tsne']
-        sc.tl.umap(adata)
+        sc.tl.umap(adata, min_dist=umap_min_dist, spread=umap_spread)
         adata.obsm['X_umap_'+tag] = adata.obsm['X_umap']
         if make_1d_umaps:
             try: # this used to fail in the adata obsm-stashing phase...
@@ -737,6 +775,7 @@ def filter_and_scale(
         max_percent_mito= None,
         outfile_prefix_for_qc_plots= None,
         normalize_antibody_features_CLR=True, # centered log normalize
+        hvg_batch_key=None,
 ):
     ## filter, normalize, identify highly variable genes ('hvg')
     adata = filter_normalize_and_hvg(
@@ -748,6 +787,7 @@ def filter_and_scale(
         exclude_sexlinked=True,
         outfile_prefix_for_qc_plots=outfile_prefix_for_qc_plots,
         normalize_antibody_features_CLR=normalize_antibody_features_CLR,
+        hvg_batch_key = hvg_batch_key,
     )
 
 
@@ -1113,12 +1153,13 @@ def calc_nbrs(
         target_N_for_batching = 8192,
         use_exact_tcrdist_nbrs = False,
         tmpfile_prefix = None, # only used if use_exact_tcrdist_nbrs and CPP
+        sort_nbrs = False,
 ):
     ''' returns dict mapping from nbr_frac to [nbrs_gex, nbrs_tcr]
 
     nbrs exclude self and any clones in same atcr group or btcr group
     '''
-    if adata.shape[0] > 1.25*target_N_for_batching: ## EARLY RETURN
+    if adata.shape[0] > 1.25*target_N_for_batching and not sort_nbrs: ## EARLY RETURN
         return calc_nbrs_batched(
             adata, nbr_fracs, obsm_tag_gex, obsm_tag_tcr, also_calc_nndists,
             nbr_frac_for_nndists, target_N_for_batching,
@@ -1158,6 +1199,15 @@ def calc_nbrs(
             num_neighbors = max(1, int(nbr_frac*adata.shape[0]))
             print('argpartitions:', nbr_frac, adata.shape[0], tag)
             nbrs = np.argpartition( D, num_neighbors-1 )[:,:num_neighbors] # will NOT include self in there
+            if sort_nbrs:
+                ar = np.arange(adata.shape[0])[:,None]
+                inds = np.argsort(D[ar, nbrs])
+                nbrs = nbrs[ar, inds]
+                # hacking:
+                # d0 = D[np.arange(adata.shape[0]), nbrs[:,0]]
+                # d1 = D[np.arange(adata.shape[0]), nbrs[:,-1]]
+                # assert all(d0 <= d1)
+                # print('yay!')
             assert nbrs.shape == (adata.shape[0], num_neighbors)
             all_nbrs[nbr_frac][itag] = nbrs
 
@@ -1170,6 +1220,7 @@ def calc_nbrs(
     if use_exact_tcrdist_nbrs:
         tcr_nbrs, tcr_nndists = calculate_tcrdist_nbrs(
             adata, nbr_fracs, nbr_frac_for_nndists,
+            sort_nbrs=sort_nbrs,
             tmpfile_prefix=tmpfile_prefix)
         for nbr_frac in nbr_fracs:
             nbrs_gex,_ = all_nbrs[nbr_frac]
@@ -1187,6 +1238,7 @@ def calculate_tcrdist_nbrs(
         nbr_fracs,
         nbr_frac_for_nndists = None, # if not None, calculate nndists at this nbr fraction
         tmpfile_prefix = None,
+        sort_nbrs = False,
 ):
     ''' returns all_nbrs, nndists
 
@@ -1198,10 +1250,11 @@ def calculate_tcrdist_nbrs(
 
     nbrs exclude self and any clones in same atcr group or btcr group
     '''
-    if util.tcrdist_cpp_available():
+    if util.tcrdist_cpp_available() or sort_nbrs: # tmp hack for sort_nbrs
         return calculate_tcrdist_nbrs_cpp(
             adata, nbr_fracs, nbr_frac_for_nndists,
-            tmpfile_prefix=tmpfile_prefix)
+            tmpfile_prefix=tmpfile_prefix,
+            sort_nbrs=sort_nbrs)
     else:
         return calculate_tcrdist_nbrs_python(adata, nbr_fracs, nbr_frac_for_nndists)
 
@@ -1269,6 +1322,7 @@ def calculate_tcrdist_nbrs_cpp(
         nbr_fracs,
         nbr_frac_for_nndists = None,
         tmpfile_prefix = None,
+        sort_nbrs = False,
 ):
     ''' returns all_nbrs, nndists
 
@@ -1336,6 +1390,13 @@ def calculate_tcrdist_nbrs_cpp(
     print(f'reading array of size {N}x{num_nbrs} from {knn_distances_filename}')
     knn_distances = np.loadtxt(knn_distances_filename, dtype=np.float32)
 
+    if sort_nbrs:
+        print('argsort!')
+        inds = np.argsort(knn_distances)#axis is -1 by default
+        ar = np.arange(N)[:,None]
+        knn_indices   = knn_indices  [ar, inds]
+        knn_distances = knn_distances[ar, inds]
+
     all_nbrs = {}
     all_nbrs[max_nbr_frac] = knn_indices
     # probably paranoid here, but I don't like the full argpartition below
@@ -1353,17 +1414,23 @@ def calculate_tcrdist_nbrs_cpp(
             continue
         num_nbrs = max(1, int(nbr_frac*N))
         assert num_nbrs <= knn_indices.shape[1]
-        all_nbrs[nbr_frac] = np.zeros((N,num_nbrs), dtype=np.int32)
-        print(f'all_nbrs tcrdist using {all_nbrs[nbr_frac].nbytes} bytes',
-              f'nbr_frac= {nbr_frac}')
-        for bb in range(num_batches):
-            b_start = bb*batch_size
-            b_stop = min(N, (bb+1)*batch_size)
-            #batch_indices = np.arange(b_start, b_stop)
-            inds = np.argpartition(
-                knn_distances[b_start:b_stop,:], num_nbrs-1)[:,:num_nbrs]
-            ar = np.arange(b_start,b_stop)[:,np.newaxis]
-            all_nbrs[nbr_frac][b_start:b_stop,:] = knn_indices[ar,inds]
+        if sort_nbrs:
+            # since they are sorted already:
+            all_nbrs[nbr_frac] = knn_indices[:,:num_nbrs]
+        else:
+            # use argpartition instead
+            all_nbrs[nbr_frac] = np.zeros((N,num_nbrs), dtype=np.int32)
+
+            print(f'all_nbrs tcrdist using {all_nbrs[nbr_frac].nbytes} bytes',
+                  f'nbr_frac= {nbr_frac}')
+            for bb in range(num_batches):
+                b_start = bb*batch_size
+                b_stop = min(N, (bb+1)*batch_size)
+                #batch_indices = np.arange(b_start, b_stop)
+                inds = np.argpartition(
+                    knn_distances[b_start:b_stop,:], num_nbrs-1)[:,:num_nbrs]
+                ar = np.arange(b_start,b_stop)[:,np.newaxis]
+                all_nbrs[nbr_frac][b_start:b_stop,:] = knn_indices[ar,inds]
 
 
     for filename in [tcrs_filename, agroups_filename, bgroups_filename,
@@ -1698,6 +1765,7 @@ def calc_tcrdist_nbrs_umap_clusters_cpp(
         umap_key_added = 'X_tcr_2d', # change to default loc
         cluster_key_added = 'clusters_tcr', # change to default loc
         clustering_resolution = None,
+        clustering_method=None,
         n_components_umap = 2,
         make_1d_umaps = True,
         umap_1d_key_added = 'X_tcr_1d',
@@ -1816,10 +1884,21 @@ def calc_tcrdist_nbrs_umap_clusters_cpp(
         except:
             print('ERROR calc_tcrdist_nbrs_umap_clusters_cpp: 1D UMAP failed')
 
-
-    print('running louvain', adata.shape)
     resolution = 1.0 if clustering_resolution is None else clustering_resolution
-    sc.tl.louvain(adata, resolution=resolution, key_added=cluster_key_added)
+    if clustering_method=='louvain':
+        sc.tl.louvain(adata, resolution=resolution, key_added=cluster_key_added)
+        print('ran louvain clustering:', resolution, cluster_key_added)
+    elif clustering_method=='leiden':
+        sc.tl.leiden(adata, resolution=resolution, key_added=cluster_key_added)
+        print('ran leiden clustering:', resolution, cluster_key_added)
+    else: # try both (hacky)
+        try:
+            sc.tl.louvain(adata, resolution=resolution, key_added=cluster_key_added)
+            print('ran louvain clustering:', resolution, cluster_key_added)
+        except ImportError: # hacky
+            sc.tl.leiden(adata, resolution=resolution, key_added=cluster_key_added)
+            print('ran leiden clustering:', resolution, cluster_key_added)
+
     adata.obs[cluster_key_added] = np.copy(adata.obs[cluster_key_added]).astype(int)
     print('DONE running louvain', cluster_key_added)
 

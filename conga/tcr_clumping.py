@@ -148,6 +148,7 @@ def find_tcr_clumping(
         verbose=True,
         clusters_gex=None, # if passed, will look for clumps within clusters
         preserve_vj_pairings = False,
+        bg_tcrs = None, # usually better to leave this None
 ):
     ''' Returns a pandas dataframe with the following columns:
     - clone_index
@@ -168,6 +169,9 @@ def find_tcr_clumping(
 
     num_clones = len(tcrs)
 
+    if bg_tcrs is None:
+        bg_tcrs = tcrs
+
     radii = [int(x+0.1) for x in radii] #ensure integers
 
     outprefix = f'{tmpfile_prefix}_{random.random()}_tcr_clumping'
@@ -180,6 +184,7 @@ def find_tcr_clumping(
         num_random_samples=num_random_samples,
         tmpfile_prefix=outprefix,
         preserve_vj_pairings=preserve_vj_pairings,
+        tcrs_for_background_generation=bg_tcrs,
     )
 
     tcrs_file = outprefix +'_tcrs.tsv'

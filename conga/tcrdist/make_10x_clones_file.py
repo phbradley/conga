@@ -1,3 +1,5 @@
+######################################################################################88
+
 from .basic import *
 from .all_genes import all_genes
 #import parse_tsv
@@ -260,7 +262,19 @@ def read_tcr_data_batch(
         verbose = False,
         prefix_clone_ids_with_tcr_type = False,
 ):
-    """ Parse tcr data, only taking 'productive' tcrs
+    """ Parse tcr data from multiple batches
+
+    metadata_file is a comma-separated (.csv) or tab-separated (.tsv) file
+    that should have the columns 'file' and 'suffix'
+    'file' gives the filename for the different filtered_contig_annotations files
+    'suffix' gives the string that should be appended to the raw nucleotide barcodes
+    in order to match the GEX data. The existing suffixes, if any, are removed.
+
+    Right now this assumes that the nucleotide barcode part of the string in the
+    barcode field of each contigs file is the first element if we split by '-'
+    ie, something like  "CATGCTAGCTAGTCG-1". This would then get turned into
+    "CATGCTAGCTAGTCG-<suffix>" where <suffix> is the suffix provided in the
+    metadata file for that contigs file.
 
     Returns:
 
@@ -269,7 +283,11 @@ def read_tcr_data_batch(
     """
     assert exists( metadata_file )
 
-    md = pd.read_csv(metadata_file, dtype=str)#"string")
+    if metadata_file.endswith('.csv'):
+        sep = ','
+    else:
+        sep = '\t'
+    md = pd.read_csv(metadata_file, sep='\t', dtype=str)
 
     if prefix_clone_ids_with_tcr_type:
         if organism2vdj_type[organism] == IG_VDJ_TYPE:
@@ -287,42 +305,37 @@ def read_tcr_data_batch(
         suffix = str(x.suffix)
 
         # strip the suffix off the barcode
+        # note that this assumes that the "nucleotide" part of the barcode
+        # is the first element (ie, element 0 in python-speak)
         barcodes = dfx['barcode'].str.split('-').str.get(0)
 
         # add correct suffix
         dfx['barcode'] = barcodes + '-' + suffix
-
-        #update contig_id
-        dfx['contig_id'] = barcodes + '-' + suffix + '_contig_' + dfx['contig_id'].str.split('_').str.get(2) # currently unused, but can't hurt
-
         dfx['raw_clonotype_id'] = clone_id_prefix + dfx['raw_clonotype_id'] + '_' + suffix
-        dfx['raw_consensus_id'] = clone_id_prefix + dfx['raw_consensus_id'] + '_' + suffix
-
         contig_list.append(dfx)
 
     df = pd.concat(contig_list)
 
     expected_gene_names = set(all_genes[organism].keys())
 
-    #from cdr3s_human import all_align_fasta
-
     gene_suffix = '*01' # may not be used
 
 
     # read the contig annotations-- map from clonotypes to barcodes
+    # and from clonotypes to tcrs
+    #
+    # example header and first line:
     # barcode,is_cell,contig_id,high_confidence,length,chain,v_gene,d_gene,j_gene,c_gene,full_length,productive,cdr3,cdr3_nt,reads,umis,raw_clonotype_id,raw_consensus_id
     # AAAGATGGTCTTCTCG-1,True,AAAGATGGTCTTCTCG-1_contig_1,True,695,TRB,TRBV5-1*01,TRBD2*02,TRBJ2-3*01,TRBC2*01,True,True,CASSPLAGYAADTQYF,TGCGCCAGCAGCCCCCTAGCGGGATACGCAGCAGATACGCAGTATTTT,9427,9,clonotype14,clonotype14_consensus_1
 
-    #_, lines = parse_csv_file(contig_annotations_csvfile)
-    #df = pd.read_csv(contig_annotations_csvfile)
-    df['productive'] = df['productive'].astype(str) #sometimes it already is if there are 'Nones' in there...
+    df['productive'] = df['productive'].astype(str)
     clonotype2tcrs = {}
     clonotype2barcodes = {}
     for l in df.itertuples():
         # the fields we use:   barcode  raw_clonotype_id  productive  cdr3  cdr3_nt  chain  v_gene  j_gene  umis
         bc = l.barcode
-        clonotype = str(clone_id_prefix) + str(l.raw_clonotype_id)
-        # annoying: pandas sometimes converts to True/False booleans and sometimes not.
+        clonotype = l.raw_clonotype_id
+
         assert l.productive in [ 'None', 'False', 'True']
         if clonotype =='None':
             continue
@@ -330,11 +343,9 @@ def read_tcr_data_batch(
             clonotype2barcodes[clonotype] = []
         if bc in clonotype2barcodes[clonotype]:
             pass
-            #print 'repeat barcode'
         else:
             clonotype2barcodes[clonotype].append( bc )
 
-        ## experimenting here ########################################3
         if l.productive != 'True':
             continue
         if l.cdr3.lower() == 'none' or l.cdr3_nt.lower() == 'none':
@@ -346,7 +357,7 @@ def read_tcr_data_batch(
             continue
         if clonotype not in clonotype2tcrs:
             clonotype2tcrs[ clonotype ] = {'A':Counter(), 'B':Counter() }
-        # stolen from below
+
         vg = fixup_gene_name(l.v_gene, gene_suffix, expected_gene_names)
         jg = fixup_gene_name(l.j_gene, gene_suffix, expected_gene_names)
 
@@ -358,8 +369,6 @@ def read_tcr_data_batch(
             print('unrecognized J gene:', organism, jg)
             if not allow_unknown_genes:
                 continue
-        #assert vg in all_align_fasta[organism]
-        #assert jg in all_align_fasta[organism]
 
         tcr_chain = ( vg, jg, l.cdr3, l.cdr3_nt.lower() )
 
