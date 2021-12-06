@@ -827,10 +827,14 @@ features assigned to individual cells?
 
 	 # has columns: barcode donor sample tissue
 <<<<<<< bcr
+<<<<<<< bcr
 	 batch_info_tsvfile = 'cell_batch_info.tsv'
 =======
 	 batch_info_tsvfile = bdir+'batches.tsv'
 >>>>>>> add batch info to the readme
+=======
+	 batch_info_tsvfile = 'cell_batch_info.tsv'
+>>>>>>> tweak whitespace in readme
 
 	 adata = sc.read_10x_h5(old_gex_filename)
 	 batch_info = pd.read_csv(batch_info_tsvfile, sep='\t')
