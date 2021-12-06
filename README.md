@@ -821,7 +821,7 @@ features assigned to individual cells?
 	 new_gex_filename = 'filtered_gene_bc_matrices_w_batches.h5ad'
 
 	 # has columns: barcode donor sample tissue
-	 batch_info_tsvfile = bdir+'batches.tsv'
+	 batch_info_tsvfile = 'cell_batch_info.tsv'
 
 	 adata = sc.read_10x_h5(old_gex_filename)
 	 batch_info = pd.read_csv(batch_info_tsvfile, sep='\t')
