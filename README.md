@@ -818,10 +818,15 @@ features assigned to individual cells?
 	 ```python
 	 import scanpy as sc
 <<<<<<< bcr
+<<<<<<< bcr
 	 import pandas as pd
 	 
 =======
 >>>>>>> add batch info to the readme
+=======
+	 import pandas as pd
+	 
+>>>>>>> tweak whitespace in readme
 	 old_gex_filename = 'filtered_gene_bc_matrices.h5'
 	 new_gex_filename = 'filtered_gene_bc_matrices_w_batches.h5ad'
 
@@ -845,6 +850,7 @@ features assigned to individual cells?
 <<<<<<< bcr
 <<<<<<< bcr
 <<<<<<< bcr
+<<<<<<< bcr
 	   adata.obs[col] = df[col]
 =======
 	 		 adata.obs[col] = df[col]
@@ -854,6 +860,9 @@ features assigned to individual cells?
 >>>>>>> tweak whitespace in readme
 =======
 	 	 adata.obs[col] = df[col]
+>>>>>>> tweak whitespace in readme
+=======
+	   adata.obs[col] = df[col]
 >>>>>>> tweak whitespace in readme
 	 adata.uns['batch_keys'] = list(batch_info.columns)
 
