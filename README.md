@@ -840,12 +840,16 @@ features assigned to individual cells?
 	 for col in batch_info:
 <<<<<<< bcr
 <<<<<<< bcr
+<<<<<<< bcr
 	   adata.obs[col] = df[col]
 =======
 	 		 adata.obs[col] = df[col]
 >>>>>>> add batch info to the readme
 =======
 	 	   adata.obs[col] = df[col]
+>>>>>>> tweak whitespace in readme
+=======
+	 	 adata.obs[col] = df[col]
 >>>>>>> tweak whitespace in readme
 	 adata.uns['batch_keys'] = list(batch_info.columns)
 
