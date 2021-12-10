@@ -1836,6 +1836,10 @@ def make_tcr_db_match_plot(
               'do you need to call conga.tcr_clumping.match_adata_tcrs_to_db_tcrs?')
         return
 
+    if results.shape[0]==0:
+        print('conga.plotting.make_db_matches_figure:: no significant hits')
+        return
+
     results = results.sort_values('pvalue_adj').drop_duplicates('clone_index')
 
     missing_epitope = results.db_epitope==''
