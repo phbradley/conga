@@ -24,6 +24,7 @@ from . import pmhc_scoring
 from . import plotting
 from .tcrdist.tcr_distances import TcrDistCalculator
 from .util import tcrdist_cpp_available
+import bbknn
 
 # we also allow 'va' in place of 'va_gene' / 'ja' in place of 'ja_gene', etc:
 CLONES_FILE_REQUIRED_COLUMNS = 'clone_id va_gene ja_gene cdr3a cdr3a_nucseq vb_gene jb_gene cdr3b cdr3b_nucseq'.split()
@@ -655,6 +656,9 @@ def cluster_and_tsne_and_umap(
     '''
     assert clustering_method in [None, 'louvain', 'leiden']
 
+    if use_bbknn:
+        assert bbknn_batch_key is not None,'Specify obs column for BBKNN'
+
     ncells = adata.shape[0]
 
     if 'X_pca_gex' not in adata.obsm_keys() or recompute_pca_gex:
@@ -687,11 +691,6 @@ def cluster_and_tsne_and_umap(
         n_pcs = adata.obsm['X_pca'].shape[1]
         #n_pcs = n_gex_pcs_for_neighbors if tag=='gex' else n_tcr_pcs_for_neighbors
         if use_bbknn and tag == 'gex':
-            try:
-                import bbknn
-            except:
-                print('BBKNN is not available. Please install.')
-            assert bbknn_batch_key is not None,'Specify obs column for BBKNN'
             print(f"Using BBKNN for GEX neighbors with batch_key = {bbknn_batch_key}")
             bbknn.bbknn(adata, batch_key=bbknn_batch_key, n_pcs=n_pcs)
         else:
