@@ -138,7 +138,7 @@ parser.add_argument('--num_random_samples_for_tcr_matching', type=int,
 parser.add_argument('--clustering_method', choices=['louvain','leiden'])
 parser.add_argument('--clustering_resolution', type=float, default = 1.0)
 parser.add_argument('--use_bbknn', action= 'store_true', default = False)
-parser.add_argument('--bbknn_batch_key', type=str, nargs = 1 )
+parser.add_argument('--bbknn_batch_key', type=str, nargs = 1, default=None )
 parser.add_argument('--make_hotspot_raw_feature_plots', action='store_true',
                     help='The default is just to plot the nbrhood-averaged'
                     ' values')
@@ -468,6 +468,8 @@ if args.restart is None: ################################## load GEX/TCR data
             print('BBKNN is not available. Please install.')
         assert args.bbknn_batch_key is not None,'Specify obs column for BBKNN'
         bbknn_batch_key = args.bbknn_batch_key.pop(0) # cannot be passed as a list
+    else:
+        bbknn_batch_key = args.bbknn_batch_key
 
     if args.bad_barcodes_file:
         bad_barcodes = frozenset([x[:-1] for x in open(args.bad_barcodes_file,

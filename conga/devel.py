@@ -11,6 +11,7 @@ import matplotlib
 import matplotlib.pyplot as plt
 from scipy import stats
 from sklearn.metrics import pairwise_distances
+from sklearn.decomposition import PCA
 from scipy.stats import hypergeom, mannwhitneyu, linregress, norm, ttest_ind, poisson
 import scipy.sparse as sps
 from statsmodels.stats.multitest import multipletests
@@ -43,6 +44,13 @@ try:
 except:
     print('conga.devel:: failed to read human TFs list; prob not a big deal')
     human_tf_gene_names = []
+
+T_class_module_genes = Path.joinpath( Path(util.path_to_data),'T_cell_prediction_markers.tsv')
+assert exists(T_class_module_genes)
+
+models_path = Path.joinpath( Path(util.path_to_data), 'prediction_models')
+assert exists(models_path)
+
 
 def compute_distance_correlations( adata, verbose=False ):
     ''' return pvalues, rvalues  (each 1 1d numpy array of shape (num_clones,))
@@ -2278,6 +2286,32 @@ def split_into_cd4_and_cd8_subsets(
 
     return adata_cd4, adata_cd8
 
+
+def predict_T_cell_subset (adata, model = 'gradientBoost', use_raw = True):
+
+    assert adata.uns['organism'] == 'human', 'Model currently only supports human'
+    assert model in ['logreg','MLP','gradientBoost']
+    model_file = Path.joinpath( Path(models_path), f'{model}.sav')
+    assert exists(model_file), 'Model not found'
+    T_class_model = pd.read_pickle(model_file)
+    gs_df = pd.read_csv(T_class_module_genes, sep='\t' )
+
+    # score modules
+    subsets = gs_df.cluster.unique()
+    # check if scores logged already
+    if all(score in adata.obs.columns.tolist() for score in subsets) is False:
+        for subset in subsets:
+            gene_set = gs_df.gene[gs_df.cluster == subset].tolist()
+            sc.tl.score_genes(adata, gene_set, score_name = subset, use_raw=use_raw)
+   
+    cols_keeps = subsets.tolist()
+    X = adata.obs[cols_keeps]
+    
+    # prediction based on module scores
+    y_pred = T_class_model.predict(X)
+    adata.obs[f'T_cell_subset_{model}'] = y_pred
+    
+    return adata
 
 
 
