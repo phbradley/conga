@@ -352,6 +352,9 @@ def make_logo_plots(
         include_full_tcr_cluster_names_in_logo_lines=False,
         lit_matches=None, # show an additional 'logo' with lit-matches
 
+        ## makes pdf version make_graph_vs_graph_logos and make_tcr_clumping_plots, expect large file sizes
+        save_pdf = False
+
 ):
     ''' need:
     * gex/tcr clusters: (obsm)
@@ -1449,6 +1452,11 @@ or arguments to the conga.plotting.make_logo_plots function.
     print('making:', logo_pngfile)
     plt.savefig(logo_pngfile, dpi=300)
 
+    if save_pdf:
+        logo_pdffile = logo_pngfile.replace(".png", ".pdf")
+        print('making:', logo_pdffile)
+        plt.savefig(logo_pdffile, dpi=300)
+
     if not nocleanup:
         for tmpfile in tmpfiles:
             if exists(tmpfile):
@@ -2178,7 +2186,7 @@ def make_feature_panel_plots(
         tl_rect = [0, 0, 1, 1.0-title_height_inches/figsize[1]]
     plt.tight_layout(rect=tl_rect)
     print('making:', pngfile)
-    plt.savefig(pngfile)
+    plt.savefig(pngfile, dpi = 300)
 
     help_message = f"""Graph-versus-feature analysis was used to identify
 a set of {feature_type.upper()} features that showed biased distributions
