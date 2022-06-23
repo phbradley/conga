@@ -320,7 +320,10 @@ def calc_clone_pmhc_pvals(adata, min_log1p_delta=2.0, min_actual_delta=3 ):
 
     preprocess.normalize_and_log_the_raw_matrix(adata) # just in case
 
-    X_pmhc = get_X_pmhc( adata, pmhc_var_names )
+    # adata.obsm['X_pmhc'] gets set up during reduce_to_single_cell_per_clone
+    #X_pmhc = adata.obsm['X_pmhc']
+    X_pmhc = _get_X_pmhc( adata, pmhc_var_names )
+    assert X_pmhc.shape == (adata.shape[0], len(pmhc_var_names))
 
     N = adata.shape[0] # total num cells, bigger than num clones
     assert X_pmhc.shape[0] == N
@@ -390,3 +393,101 @@ def calc_clone_pmhc_pvals(adata, min_log1p_delta=2.0, min_actual_delta=3 ):
 
     results_df = pd.DataFrame( results )
     return results_df
+
+
+def calc_clone_pmhc_pvals_absolute_threshold(
+        adata,
+        log1p_umi_threshold,
+        min_log1p_delta = 2.0, # a threshold for displaying insignificant results
+):
+    ''' This needs to be called before we subset to a single cell per clone
+
+    here we use absolute UMI counts to determine whether a cell is pmhc-positive
+    '''
+    pmhc_var_names = adata.uns['pmhc_var_names']
+
+    preprocess.normalize_and_log_the_raw_matrix(adata) # just in case
+
+    # adata.obsm['X_pmhc'] gets set up during reduce_to_single_cell_per_clone
+    #X_pmhc = adata.obsm['X_pmhc']
+    X_pmhc = _get_X_pmhc( adata, pmhc_var_names )
+    assert X_pmhc.shape == (adata.shape[0], len(pmhc_var_names))
+
+    N = adata.shape[0] # total num cells, bigger than num clones
+    assert X_pmhc.shape[0] == N
+
+    # X_pmhc_pos = (X_pmhc >= log1p_umi_threshold) # boolean array
+    # X_pmhc_sorted = -1 * np.sort( -1 * X_pmhc )
+    # X_pmhc_argsorted = np.argsort( -1 * X_pmhc )
+    # log1p_delta = X_pmhc_sorted[:,0] - X_pmhc_sorted[:,1]
+    # actual_delta = np.expm1(X_pmhc_sorted[:,0]) - np.expm1(X_pmhc_sorted[:,1])
+
+    # is_pmhc_pos = ( actual_delta >= min_actual_delta ) & ( log1p_delta >= min_log1p_delta )
+    # top_pmhcs = np.array( [ pmhc_var_names[ X_pmhc_argsorted[ii,0] ] if m else 'none'
+    #                         for ii,m in enumerate(is_pmhc_pos) ] )
+    # all_pmhc_counts = Counter( top_pmhcs )
+
+    all_pmhc_counts = dict(
+        zip(pmhc_var_names, np.sum(X_pmhc>=log1p_umi_threshold, axis=0)))
+
+    tcrs = preprocess.retrieve_tcrs_from_adata(
+        adata, include_subject_id_if_present=True) # may contain duplicates
+    unique_tcrs = sorted(set(tcrs))
+    num_clones = len(unique_tcrs)
+    tcr2clone_id = { y:x for x,y in enumerate(unique_tcrs)}
+    clone_ids = np.array( [ tcr2clone_id[x] for x in tcrs ] )
+
+    results = []
+
+    print('calc_clone_pmhc_pvals: num_clones=', len(unique_tcrs))
+
+    for c, tcr in enumerate(unique_tcrs):
+        #clone_cells = np.array( [ x for x,y in enumerate(clone_ids) if y==c] )
+        clone_mask = (clone_ids==c)
+        clone_size = np.sum( clone_mask )
+        X_pmhc_clone = X_pmhc[clone_mask,:]
+        X_pmhc_clone_avg = np.sum(X_pmhc_clone, axis=0 )/clone_size
+        X_pmhc_clone_avg_sorted = -1 * np.sort( -1 * X_pmhc_clone_avg )
+        X_pmhc_clone_avg_argsorted = np.argsort( -1 * X_pmhc_clone_avg )
+        pmhc_counts = Counter(
+            dict(zip(pmhc_var_names,
+                     np.sum(X_pmhc_clone>=log1p_umi_threshold, axis=0))))
+        #print(pmhc_counts.most_common())
+        for pmhc, count in pmhc_counts.most_common():
+            if count==0: break
+            # surprise at seeing this many?
+            # this is not be quite right since there are multiple possible pmhcs...
+            pval = N*hypergeom.sf( count-1, N, clone_size, all_pmhc_counts[pmhc] )
+            expected = float(clone_size*all_pmhc_counts[pmhc])/N
+            l2r = np.log2( count / expected )
+            # how would this pmhc look with an "r20" clone theshold??
+            ipmhc = pmhc_var_names.index(pmhc)
+            other_index = 1 if ipmhc == X_pmhc_clone_avg_argsorted[0] else 0
+            avglog1p_delta = (X_pmhc_clone_avg[ipmhc] -
+                              X_pmhc_clone_avg_sorted[other_index])
+
+            if pval<1 or avglog1p_delta>= min_log1p_delta:
+                results.append( {'clone_index':c,
+                                 'adjusted_pvalue': pval,
+                                 'pmhc_positive_fraction': float(count)/clone_size,
+                                 'avglog1p_delta': avglog1p_delta,
+                                 'num_pmhc_positive_in_clone': count,
+                                 'clone_size': clone_size,
+                                 'pmhc': pmhc,
+                                 'num_pmhc_positive_overall': all_pmhc_counts[pmhc],
+                                 'num_cells': N,
+                                 'num_clones': num_clones,
+                                 'va': tcr[0][0],
+                                 'ja': tcr[0][1],
+                                 'cdr3a': tcr[0][2],
+                                 'cdr3a_nucseq': tcr[0][3],
+                                 'vb': tcr[1][0],
+                                 'jb': tcr[1][1],
+                                 'cdr3b': tcr[1][2],
+                                 'cdr3b_nucseq': tcr[1][3],
+                             } )
+
+
+    results_df = pd.DataFrame( results )
+    return results_df
+

@@ -1,3 +1,5 @@
+######################################################################################88
+
 from .basic import *
 from .all_genes import all_genes
 #import parse_tsv
@@ -256,7 +258,7 @@ def read_tcr_data(
 def read_tcr_data_batch(
         organism,
         metadata_file,
-        replace_batch_id = True, 
+        replace_batch_id = True,
         strip_batch_id_location = 'suffix',
         add_batch_id_location = 'suffix',
         batch_id_delim = '-',
@@ -264,7 +266,10 @@ def read_tcr_data_batch(
         verbose = False,
         prefix_clone_ids_with_tcr_type = False,
 ):
-    """ Parse tcr data, only taking 'productive' tcrs
+    """ Parse tcr data from multiple batches
+
+    metadata_file is a comma-separated (.csv) or tab-separated (.tsv) file
+    that should have the columns 'file' and 'suffix'
 
     Returns:
 
@@ -273,7 +278,11 @@ def read_tcr_data_batch(
     """
     assert exists( metadata_file )
 
-    md = pd.read_csv(metadata_file, dtype=str)
+    if metadata_file.endswith('.csv'):
+        sep = ','
+    else:
+        sep = '\t'
+    md = pd.read_csv(metadata_file, sep=sep, dtype=str)
 
     if prefix_clone_ids_with_tcr_type:
         if organism2vdj_type[organism] == IG_VDJ_TYPE:
@@ -304,7 +313,7 @@ def read_tcr_data_batch(
                 dfx['barcode'] = barcodes + batch_id_delim + batch_id
                 dfx['contig_id'] = barcodes + batch_id_delim + batch_id + '_contig_' + dfx['contig_id'].str.split('_').str.get(2) # currently unused, but can't hurt
             else:
-                dfx['barcode'] = batch_id + batch_id_delim + barcodes 
+                dfx['barcode'] = batch_id + batch_id_delim + barcodes
                 dfx['contig_id'] = batch_id + batch_id_delim + barcodes + '_contig_' + dfx['contig_id'].str.split('_').str.get(2)
 
             dfx['raw_clonotype_id'] = clone_id_prefix + dfx['raw_clonotype_id'] + '_' + batch_id
@@ -321,24 +330,23 @@ def read_tcr_data_batch(
 
     expected_gene_names = set(all_genes[organism].keys())
 
-    #from cdr3s_human import all_align_fasta
-
     gene_suffix = '*01' # may not be used
 
     # read the contig annotations-- map from clonotypes to barcodes
+    # and from clonotypes to tcrs
+    #
+    # example header and first line:
     # barcode,is_cell,contig_id,high_confidence,length,chain,v_gene,d_gene,j_gene,c_gene,full_length,productive,cdr3,cdr3_nt,reads,umis,raw_clonotype_id,raw_consensus_id
     # AAAGATGGTCTTCTCG-1,True,AAAGATGGTCTTCTCG-1_contig_1,True,695,TRB,TRBV5-1*01,TRBD2*02,TRBJ2-3*01,TRBC2*01,True,True,CASSPLAGYAADTQYF,TGCGCCAGCAGCCCCCTAGCGGGATACGCAGCAGATACGCAGTATTTT,9427,9,clonotype14,clonotype14_consensus_1
 
-    #_, lines = parse_csv_file(contig_annotations_csvfile)
-    #df = pd.read_csv(contig_annotations_csvfile)
-    df['productive'] = df['productive'].astype(str) #sometimes it already is if there are 'Nones' in there...
+    df['productive'] = df['productive'].astype(str)
     clonotype2tcrs = {}
     clonotype2barcodes = {}
     for l in df.itertuples():
         # the fields we use:   barcode  raw_clonotype_id  productive  cdr3  cdr3_nt  chain  v_gene  j_gene  umis
         bc = l.barcode
-        clonotype = str(clone_id_prefix) + str(l.raw_clonotype_id)
-        # annoying: pandas sometimes converts to True/False booleans and sometimes not.
+        clonotype = l.raw_clonotype_id
+
         assert l.productive in [ 'None', 'False', 'True']
         if clonotype =='None':
             continue
@@ -346,11 +354,9 @@ def read_tcr_data_batch(
             clonotype2barcodes[clonotype] = []
         if bc in clonotype2barcodes[clonotype]:
             pass
-            #print 'repeat barcode'
         else:
             clonotype2barcodes[clonotype].append( bc )
 
-        ## experimenting here ########################################3
         if l.productive != 'True':
             continue
         if l.cdr3.lower() == 'none' or l.cdr3_nt.lower() == 'none':
@@ -362,7 +368,7 @@ def read_tcr_data_batch(
             continue
         if clonotype not in clonotype2tcrs:
             clonotype2tcrs[ clonotype ] = {'A':Counter(), 'B':Counter() }
-        # stolen from below
+
         vg = fixup_gene_name(l.v_gene, gene_suffix, expected_gene_names)
         jg = fixup_gene_name(l.j_gene, gene_suffix, expected_gene_names)
 
@@ -374,8 +380,6 @@ def read_tcr_data_batch(
             print('unrecognized J gene:', organism, jg)
             if not allow_unknown_genes:
                 continue
-        #assert vg in all_align_fasta[organism]
-        #assert jg in all_align_fasta[organism]
 
         tcr_chain = ( vg, jg, l.cdr3, l.cdr3_nt.lower() )
 
@@ -712,7 +716,7 @@ def make_10x_clones_file_batch(
         metadata_file,
         organism,
         clones_file,
-        replace_batch_id = True, 
+        replace_batch_id = True,
         strip_batch_id_location = 'suffix',
         add_batch_id_location = 'suffix',
         batch_id_delim = '-',
@@ -720,17 +724,17 @@ def make_10x_clones_file_batch(
         **kwargs
 ):
     """
-    Aggregates multiple filtered_conting_anntotations.csv files into a single clones.tsv file for merging with 
-    an aggregate gex matrix in CoNGA preprocessing. 
-    
-    This was primarily motivated for cases when an aggregate gex matrix is generated through cellranger aggr 
-    and each samples' vdj library was processed seperately through cellranger vdj, so the default behavior is to 
-    strip the '-1' suffix set by cellranger vdj and replace it with those specified in the metadata_file batch_id column. 
+    Aggregates multiple filtered_conting_anntotations.csv files into a single clones.tsv file for merging with
+    an aggregate gex matrix in CoNGA preprocessing.
+
+    This was primarily motivated for cases when an aggregate gex matrix is generated through cellranger aggr
+    and each samples' vdj library was processed seperately through cellranger vdj, so the default behavior is to
+    strip the '-1' suffix set by cellranger vdj and replace it with those specified in the metadata_file batch_id column.
 
     The locations of the barcode batch_id to be stripped and where the new one should be inserted relative to the barcode can be specified,
     which might be useful in cases where the gex data was merged later through other means further downstream.
 
-    metadata_file: path to a csv file containing two columns: 
+    metadata_file: path to a csv file containing two columns:
         'file': the paths to the filtered_contig_annotations.csv files for each sample being merged
         'batch_id': replacement barcode suffix or prefix to match with appropriate cell barcodes in gex file.
     organism
@@ -744,12 +748,12 @@ def make_10x_clones_file_batch(
 
     """
 
-    clonotype2tcrs, clonotype2barcodes = read_tcr_data_batch( organism, 
-        metadata_file, 
-        replace_batch_id, 
-        strip_batch_id_location, 
-        add_batch_id_location, 
-        batch_id_delim, 
+    clonotype2tcrs, clonotype2barcodes = read_tcr_data_batch( organism,
+        metadata_file,
+        replace_batch_id,
+        strip_batch_id_location,
+        add_batch_id_location,
+        batch_id_delim,
         **kwargs )
 
     if stringent:

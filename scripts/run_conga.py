@@ -3,6 +3,7 @@ import argparse
 from os.path import exists
 import sys
 import os
+import pickle
 
 parser = argparse.ArgumentParser(
     description='Run the CoNGA clonotype neighbor-graph analysis pipeline.',
@@ -137,8 +138,6 @@ parser.add_argument('--num_random_samples_for_tcr_matching', type=int,
                     default=50000)
 parser.add_argument('--clustering_method', choices=['louvain','leiden'])
 parser.add_argument('--clustering_resolution', type=float, default = 1.0)
-parser.add_argument('--use_bbknn', action= 'store_true', default = False)
-parser.add_argument('--bbknn_batch_key', type=str, nargs = 1, default=None )
 parser.add_argument('--make_hotspot_raw_feature_plots', action='store_true',
                     help='The default is just to plot the nbrhood-averaged'
                     ' values')
@@ -151,7 +150,7 @@ parser.add_argument('--max_clones_for_clustermaps', type=int, default=20000,
                     ' This can get slow and memory intensive, so limit the'
                     ' dataset size for these plots.')
 
-# configure the logo plots
+# configure the logo plots and some other plots
 parser.add_argument('--skip_gex_header', action='store_true')
 parser.add_argument('--skip_gex_header_raw', action='store_true')
 parser.add_argument('--skip_gex_header_nbrZ', action='store_true')
@@ -166,6 +165,7 @@ parser.add_argument('--gex_logo_genes', type=str, nargs='*')
 parser.add_argument('--gex_header_genes', type=str, nargs='*')
 parser.add_argument('--gex_nbrhood_tcr_score_names', type=str, nargs='*')
 parser.add_argument('--dont_show_lit_matches_in_logos', action='store_true')
+parser.add_argument('--short_clustermaps', action='store_true')
 
 
 # preprocessing options
@@ -216,6 +216,12 @@ parser.add_argument('--restart',
                     ' preprocessing, clustering, UMAP, etc. Could be the'
                     ' *_final.h5ad file generated at the end of a previous'
                     ' conga run.')
+parser.add_argument('--reuse_nbrs',
+                    help='pickle with the nbr fractions for a restart.'
+                    ' Could be the *_all_nbrs.pkl file generated'
+                    ' at the end of a previous conga run.'
+                    ' This can save a lot of time when working with large datasets.'
+                    ' Nbr fractions will be recalculated if set to None.')
 parser.add_argument('--rerun_kpca', action='store_true')
 parser.add_argument('--kpca_kernel',
                     help='only used if rerun_kpca is True; if not provided'
@@ -305,16 +311,16 @@ if args.no_kpca:
 
 
 ## check consistency of args
-if args.find_pmhc_nbrhood_overlaps or args.calc_clone_pmhc_pvals:
-    # we need pmhc info for these analyses; right now that's restricted
-    # to the 10x AGBT dataset format
-    assert args.tenx_agbt
+# if args.find_pmhc_nbrhood_overlaps or args.calc_clone_pmhc_pvals:
+#     # we need pmhc info for these analyses; right now that's restricted
+#     # to the 10x AGBT dataset format
+#     assert 'pmhc_var_names' in adata.uns or args.tenx_agbt
 
 if args.batch_keys:
     assert args.gex_data_type == 'h5ad' # need the info already in the obs dict
 
 if args.restart: # these are incompatible with restarting
-     assert not (args.calc_clone_pmhc_pvals or
+    assert not (args.calc_clone_pmhc_pvals or
                  args.bad_barcodes_file or
                  args.filter_ribo_norm_low_cells or
                  args.exclude_vgene_strings or
@@ -322,6 +328,14 @@ if args.restart: # these are incompatible with restarting
                  args.subset_to_CD8_cells or
                  #args.shuffle_tcr_kpcs or
                  args.rerun_kpca )
+
+if args.reuse_nbrs: # these are incompatible with reusing the nbrs
+    assert exists(args.reuse_nbrs)
+    assert(args.restart)
+    assert not (args.exclude_mait_and_inkt_cells or
+         args.exclude_gex_clusters or
+         args.subset_to_CD4 or
+         args.subset_to_CD8)
 
 logfile = args.outfile_prefix+'_log.txt'
 outlog = open(logfile, 'w')
@@ -461,16 +475,6 @@ if args.restart is None: ################################## load GEX/TCR data
 
         print('pmhc_var_names:', adata.uns['pmhc_var_names'])
 
-    if args.use_bbknn:
-        try:
-            import bbknn
-        except:
-            print('BBKNN is not available. Please install.')
-        assert args.bbknn_batch_key is not None,'Specify obs column for BBKNN'
-        bbknn_batch_key = args.bbknn_batch_key.pop(0) # cannot be passed as a list
-    else:
-        bbknn_batch_key = args.bbknn_batch_key
-
     if args.bad_barcodes_file:
         bad_barcodes = frozenset([x[:-1] for x in open(args.bad_barcodes_file,
                                                        'rU')])
@@ -555,9 +559,7 @@ if args.restart is None: ################################## load GEX/TCR data
     print('run cluster_and_tsne_and_umap'); sys.stdout.flush()
     adata = conga.preprocess.cluster_and_tsne_and_umap(
         adata, clustering_resolution = clustering_resolution,
-        clustering_method=args.clustering_method,
-        use_bbknn=args.use_bbknn,
-        bbknn_batch_key=bbknn_batch_key)
+        clustering_method=args.clustering_method)
 
     ###########################################################################
 else: ### restarting from a previous conga run
@@ -596,9 +598,7 @@ else: ### restarting from a previous conga run
         # need to redo the cluster/tsne/umap
         adata = conga.preprocess.cluster_and_tsne_and_umap(
             adata, clustering_method=args.clustering_method,
-            clustering_resolution=args.clustering_resolution,
-            use_bbknn=args.use_bbknn,
-            bbknn_batch_key=bbknn_batch_key)
+            clustering_resolution=args.clustering_resolution)
 
 
     if args.shuffle_tcr_kpcs:
@@ -660,9 +660,7 @@ if args.exclude_gex_clusters:
 
     adata = conga.preprocess.cluster_and_tsne_and_umap(
         adata, clustering_method=args.clustering_method,
-        clustering_resolution=args.clustering_resolution,
-        use_bbknn=args.use_bbknn,
-        bbknn_batch_key=bbknn_batch_key)
+        clustering_resolution=args.clustering_resolution)
 
 if args.subset_to_CD4 or args.subset_to_CD8:
     assert not (args.subset_to_CD4 and args.subset_to_CD8)
@@ -672,9 +670,7 @@ if args.subset_to_CD4 or args.subset_to_CD8:
 
     adata = conga.preprocess.cluster_and_tsne_and_umap(
         adata, clustering_method=args.clustering_method,
-        clustering_resolution=args.clustering_resolution,
-        use_bbknn=args.use_bbknn,
-        bbknn_batch_key=bbknn_batch_key)
+        clustering_resolution=args.clustering_resolution)
 
 # this will probably not happen anymore, since we are computing these
 # inside preprocess.cluster_and_tsne_and_umap if X_pca_tcr is missing.
@@ -731,16 +727,27 @@ outlog.write(f'nbr_frac_for_nndists: {nbr_frac_for_nndists}\n')
 adata.uns['conga_stats']['nbr_frac_for_nndists'] = nbr_frac_for_nndists
 
 obsm_tag_tcr = None if args.use_exact_tcrdist_nbrs else 'X_pca_tcr'
-all_nbrs, nndists_gex, nndists_tcr = conga.preprocess.calc_nbrs(
-    adata,
-    args.nbr_fracs,
-    also_calc_nndists = True,
-    nbr_frac_for_nndists = nbr_frac_for_nndists,
-    obsm_tag_tcr = obsm_tag_tcr,
-    use_exact_tcrdist_nbrs = args.use_exact_tcrdist_nbrs,
-)
 
+if args.reuse_nbrs:
+    # reloading if no cells removed and restarting
+    all_nbrs = pd.read_pickle(args.reuse_nbrs)
+else:
+    all_nbrs, nndists_gex, nndists_tcr = conga.preprocess.calc_nbrs( adata, 
+        args.nbr_fracs, 
+        also_calc_nndists = True, 
+        nbr_frac_for_nndists = nbr_frac_for_nndists,
+        obsm_tag_tcr = obsm_tag_tcr,
+        use_exact_tcrdist_nbrs = args.use_exact_tcrdist_nbrs)
 
+    # stash these in obs array, they are used in a few places...
+    adata.obs['nndists_gex'] = nndists_gex
+    adata.obs['nndists_tcr'] = nndists_tcr
+
+    #save as a pickle for reruns
+    nbr_pickle = args.outfile_prefix+'_all_nbrs.pkl'
+    f = open(nbr_pickle,"wb")
+    pickle.dump(all_nbrs,f)
+    f.close()
 #
 if args.analyze_junctions:
     tcrs = conga.preprocess.retrieve_tcrs_from_adata(adata)
@@ -773,12 +780,7 @@ if args.shuffle_gex_nbrs:
             new_nbrs.append( [ reorder[x] for x in old_nbrs[old_ii]])
         all_nbrs[nbr_frac] = [np.array(new_nbrs), all_nbrs[nbr_frac][1]]
 
-
-# stash these in obs array, they are used in a few places...
-adata.obs['nndists_gex'] = nndists_gex
-adata.obs['nndists_tcr'] = nndists_tcr
 conga.preprocess.setup_tcr_cluster_names(adata) #stores in adata.uns
-
 
 if args.verbose_nbrs:
     for nbr_frac in args.nbr_fracs:
@@ -812,6 +814,11 @@ if (args.match_to_tcr_database and
         num_random_samples_for_bg_freqs=
             args.num_random_samples_for_tcr_matching, # long line
         adjusted_pvalue_threshold= args.pvalue_threshold_for_db_matching
+    )
+
+    conga.plotting.make_tcr_db_match_plot(
+        adata,
+        args.outfile_prefix,
     )
 
 
@@ -898,8 +905,11 @@ if args.graph_vs_features:
         adata, all_nbrs, outfile_prefix=args.outfile_prefix)
 
     # make the plots
+    clustermap_max_type_features = 25 if args.short_clustermaps else 50
     conga.plotting.make_graph_vs_features_plots(
-        adata, all_nbrs, args.outfile_prefix)
+        adata, all_nbrs, args.outfile_prefix,
+        clustermap_max_type_features=clustermap_max_type_features,
+    )
 
 
 if args.graph_vs_graph and args.graph_vs_features: #########################
@@ -948,10 +958,12 @@ if args.find_hotspot_features: ################################################
     conga.correlations.find_hotspots_wrapper(
         adata, all_nbrs, outfile_prefix=args.outfile_prefix)
 
+    clustermap_max_type_features = 25 if args.short_clustermaps else 50
     conga.plotting.make_hotspot_plots(
         adata, all_nbrs, args.outfile_prefix,
         make_raw_feature_plots=args.make_hotspot_raw_feature_plots,
         max_clones_for_dendrograms=args.max_clones_for_clustermaps,
+        clustermap_max_type_features=clustermap_max_type_features,
         )
 
 if args.find_hotspot_nbrhoods:

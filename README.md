@@ -789,12 +789,59 @@ in the `adata.var` array whose name starts with
 	 * If you didn't, or that's not working for some reason, you can just manually
 	 add the `conga` github repository directory to your path before importing conga.
 	 For example:
-   ```
+   ```python
    import sys
    path_to_conga = '/path/to/gitrepos/conga/' # contains README.md, scripts, conga
    sys.path.append(path_to_conga)
    import conga
    ```
+1. How can I visualize the different batches in my data? Or other discrete/categorical
+features assigned to individual cells?
+   Right now, CoNGA has a simple framework for analyzing this kind of data.
+	 There can be multiple flavors of "batch" information, like donor, tissue,
+	 disease, etc. Each must be represented as an integer-valued column in
+	 `adata.obs`, and the names of the different batch columns should be given
+	 as a list in `adata.uns['batch_keys']`.
+
+	 One easy way to add these columns is through the `scripts/merge_samples.py`
+	 script, which accepts a `--batch_keys` argument. That argument should be a list
+	 of column names where those columns are present in the samples tsvfile provided
+	 with the `--samples` argument. So if you are merging data and the batch structure
+	 you want to visualize breaks down by the input files, that should work.
+
+	 For more complicated data, the best thing is to read the GEX data into a
+	 `scanpy` `AnnData` object and manually add the new batch columns to the
+	 `adata.obs` array. Then save the new `AnnData` for analyzing with
+	 `scripts/run_conga.py` or a jupyter notebook.
+
+	 For example, something like this:
+	 ```python
+	 import scanpy as sc
+	 import pandas as pd
+	 
+	 old_gex_filename = 'filtered_gene_bc_matrices.h5'
+	 new_gex_filename = 'filtered_gene_bc_matrices_w_batches.h5ad'
+
+	 # has columns: barcode donor sample tissue
+	 batch_info_tsvfile = 'cell_batch_info.tsv'
+
+	 adata = sc.read_10x_h5(old_gex_filename)
+	 batch_info = pd.read_csv(batch_info_tsvfile, sep='\t')
+	 batch_info.set_index('barcode', drop=True, inplace=True)
+
+	 df = adata.obs.join(batch_info) # funny behavior if I try to reassign adata.obs
+	 for col in batch_info:
+	   adata.obs[col] = df[col]
+	 adata.uns['batch_keys'] = list(batch_info.columns)
+
+   adata.write_h5ad(new_gex_filename)
+	 ```
+
+	 When using `run_conga.py` to analyze data with batches, provide
+	 the `adata.obs` batch column names with the argument `--batch_keys`.
+
+   This functionality is still under development. Let us know if you run into any
+	 trouble.
 1. I have a question that isn't addressed here. What should I do?
    * You could open an issue on github, or email Phil and Stefan (emails at the
 	 top of this README) and we will try to help.

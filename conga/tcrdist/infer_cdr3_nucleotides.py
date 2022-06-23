@@ -33,7 +33,9 @@ def infer_cdr3_nucleotides(
         cdr3,
         verbose=False,
 ):
-    ''' Still need to add some logic to fixup alleles based on protein seq
+    ''' returns cdr3_nucseq
+
+    Still need to add some logic to fixup alleles based on protein seq
     matches?
     '''
     cdr3_nucseqs = get_degenerate_cdr3_nucseqs(cdr3)
@@ -45,7 +47,7 @@ def infer_cdr3_nucleotides(
             return_cdr3_nucseq_src=True)
 
         inserts = result[-2]
-
+        assert len(inserts) == 4
         total_insert= sum(inserts[1:])
         if verbose:
             print(cdr3, cdr3_nucseq, total_insert, result[0], result[1])

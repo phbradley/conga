@@ -158,7 +158,7 @@ def setup_uns_dicts(adata):
         adata.uns['conga_results'] = {}
 
     if 'conga_stats' not in adata.uns_keys():
-        adata.uns['conga_stats'] = OrderedDict()
+        adata.uns['conga_stats'] = {}
 
 
 

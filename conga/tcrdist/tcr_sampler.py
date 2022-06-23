@@ -373,8 +373,8 @@ def analyze_junction(
             n_vd_insert = 0
             n_dj_insert = 0
             n_vj_insert = len(nseq) # BUGFIX? added 2021-07-12
-            d0_trim = 0
-            d1_trim = 0
+            d0_trim = 0 # this is not quite right, since D gene was likely completely
+            d1_trim = 0 # trimmed... so total trims value will not make sense
 
 
     if cdr3_protseq:
@@ -438,18 +438,22 @@ def parse_tcr_junctions( organism, tcrs ):
         va, ja, cdr3a, cdr3a_nucseq = atcr
         vb, jb, cdr3b, cdr3b_nucseq = btcr
 
-        aresults = analyze_junction(organism, va, ja, cdr3a, cdr3a_nucseq, return_cdr3_nucseq_src=True)
-        bresults = analyze_junction(organism, vb, jb, cdr3b, cdr3b_nucseq, return_cdr3_nucseq_src=True)
+        aresults = analyze_junction(organism, va, ja, cdr3a, cdr3a_nucseq,
+                                    return_cdr3_nucseq_src=True)
+        bresults = analyze_junction(organism, vb, jb, cdr3b, cdr3b_nucseq,
+                                    return_cdr3_nucseq_src=True)
 
         # trims = ( v_trim, d0_trim, d1_trim, j_trim )
         # inserts = ( best_d_id, n_vd_insert, n_dj_insert, n_vj_insert )
-        # return new_nucseq, cdr3_protseq_masked, cdr3_protseq_new_nucleotide_countstring, trims, inserts, cdr3_nucseq_src
 
         _, cdr3a_protseq_masked, _, a_trims, a_inserts, cdr3a_nucseq_src = aresults
         _, cdr3b_protseq_masked, _, b_trims, b_inserts, cdr3b_nucseq_src = bresults
 
         assert a_trims[1]+a_trims[2] == 0
         assert a_inserts[1]+a_inserts[2] == 0
+
+        a_indels = f'+{sum(a_inserts)}-{sum(a_trims)}'
+        b_indels = f'+{sum(b_inserts)}-{sum(b_trims)}'
 
         dfl.append( OrderedDict( clone_index=ii,
                                  va=va,
@@ -474,6 +478,8 @@ def parse_tcr_junctions( organism, tcrs ):
                                  vd_insert=b_inserts[1],
                                  dj_insert=b_inserts[2],
                                  vj_insert=b_inserts[3],
+                                 a_indels=a_indels,
+                                 b_indels=b_indels,
                                  ))
 
     return pd.DataFrame(dfl)
@@ -621,7 +627,6 @@ def resample_shuffled_tcr_chains(
             break
     print(f'success_rate: {100.0*successes/attempts:.2f}')
     return new_tcrs
-
 
 
 

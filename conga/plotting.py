@@ -1815,6 +1815,79 @@ def make_summary_figure(
     util.make_figure_helpfile(figure_tag, adata)
 
 
+def make_tcr_db_match_plot(
+        adata,
+        outfile_prefix,
+        pval_adj_threshold=1.,
+):
+    ''' Plot the location of the lit matches in the GEX and TCR UMAP landscapes
+    should be called after calling conga.tcr_clumping.match_adata_tcrs_to_db_tcrs
+    '''
+
+    table_tag = TCR_DB_MATCH
+    figure_tag = TCR_DB_MATCH_PLOT
+
+    util.setup_uns_dicts(adata) # shouldn't be necessary
+
+    results = adata.uns['conga_results'].get(table_tag, None)
+    if table_tag is None:
+        print('WARNING: conga.plotting.make_db_matches_figure::',
+              "lit match results not found in adata.uns['conga_results']",
+              'do you need to call conga.tcr_clumping.match_adata_tcrs_to_db_tcrs?')
+        return
+
+    if results.shape[0]==0:
+        print('conga.plotting.make_db_matches_figure:: no significant hits')
+        return
+
+    results = results.sort_values('pvalue_adj').drop_duplicates('clone_index')
+
+    missing_epitope = results.db_epitope==''
+    results.loc[missing_epitope,'db_epitope'] = results.db_epitope_gene[missing_epitope]
+
+    missing_epitope = results.db_epitope==''
+    results.loc[missing_epitope, 'db_epitope'] = 'UNKNOWN'
+
+    results['pmhc_label'] = (results.db_epitope+'_'+results.db_mhc_trim.astype(str))
+    counts = results.pmhc_label.value_counts()
+
+    pngfile = f'{outfile_prefix}_{figure_tag}.png'
+    plt.figure(figsize=(12,6))
+
+    for col, xytag in enumerate('gex tcr'.split()):
+        plt.subplot(1,2,col+1)
+        xy = adata.obsm[f'X_{xytag}_2d']
+
+        # show all the points in light gray
+        plt.scatter(xy[:,0], xy[:,1], c='#dddddd', s=5)
+
+        # now show the lit matches colored
+        if counts.shape[0] <=10:
+            cmap = plt.get_cmap('tab10')
+        else:
+            cmap = plt.get_cmap('tab20')
+        for ii, pmhc_label in enumerate(counts.index):
+            inds = np.array(results[results.pmhc_label==pmhc_label].clone_index)
+            print(ii, pmhc_label, len(inds))
+            plt.scatter(xy[inds,0], xy[inds,1], c=[cmap.colors[ii%len(cmap.colors)]],
+                        s=5, label=pmhc_label)
+        plt.xticks([],[])
+        plt.yticks([],[])
+        plt.xlabel(f'{xytag.upper()} UMAP1')
+        plt.ylabel(f'{xytag.upper()} UMAP2')
+        plt.legend(fontsize=8)
+    plt.tight_layout()
+    plt.savefig(pngfile)
+    print('made:', pngfile)
+
+    # store results and help message
+    adata.uns['conga_results'][figure_tag] = pngfile
+    help_message = """GEX and TCR UMAPs showing the location of significant
+    matches to the literature TCR database"""
+    adata.uns['conga_results'][figure_tag+HELP_SUFFIX] = help_message
+    util.make_figure_helpfile(figure_tag, adata)
+
+
 def make_clone_gex_umap_plots(
         adata,
         outfile_prefix,
@@ -2014,6 +2087,8 @@ def make_clone_batch_clustermaps(
         ##
 
         fig_width, fig_height = (10,14)
+        if not colorbar_row_colors:
+            colorbar_row_colors = None
         cm = sns.clustermap(A, metric='euclidean', col_cluster=False, vmin=0, vmax=1,
                             figsize=(fig_width,fig_height), cmap='Reds',
                             row_colors=colorbar_row_colors)
@@ -2488,10 +2563,11 @@ def plot_interesting_features_vs_clustermap(
         feature_labels = None,
         feature_scores = None,
         feature_scores_cmap = 'viridis',
-        max_type_features = 100, # in the clustermap
+        max_type_features = 50, # in the clustermap
         show_gex_cluster_colorbar = None,
         show_tcr_cluster_colorbar = None,
         show_VJ_gene_segment_colorbars = None,
+        show_batch_keys_colorbars = True,
         min_vmax = 0.45,
         max_vmax = 0.45,
         # max_redundant_features = None,
@@ -2536,6 +2612,9 @@ def plot_interesting_features_vs_clustermap(
     if show_VJ_gene_segment_colorbars is None:
         show_VJ_gene_segment_colorbars = dist_tag=='tcr'
 
+    if show_batch_keys_colorbars and 'batch_keys' not in adata.uns:
+        show_batch_keys_colorbars = False
+
     if feature_labels is None:
         feature_labels = features[:]
 
@@ -2575,7 +2654,7 @@ def plot_interesting_features_vs_clustermap(
         col_cluster = True
 
     A = make_raw_feature_scores_table(
-        features, feature_types, adata, verbose=True).T
+        features, feature_types, adata, verbose=verbose).T
 
     A_mn = np.mean(A, axis=1)
     A_std = np.maximum(np.std(A, axis=1), 1e-9) # no divide by 0
@@ -2679,6 +2758,20 @@ def plot_interesting_features_vs_clustermap(
     organism = adata.uns['organism']
     colorbar_names, colorbar_colors, colorbar_sorted_tuples = [], [], []
 
+    if show_batch_keys_colorbars:
+        for batch_key in adata.uns['batch_keys']:
+            batch_counts = adata.obsm[batch_key]
+            num_batches = batch_counts.shape[1]
+            batch_color_dict = get_integers_color_dict(num_batches)
+            top_batch = np.argmax(batch_counts, axis=1)
+            colorbar_names.append(batch_key)
+            colorbar_colors.append( [batch_color_dict[x] for x in top_batch])
+            colorbar_sorted_tuples.append(
+                [(str(x), batch_color_dict[x])
+                 for x in range(num_batches)])
+
+
+
     if show_gex_cluster_colorbar:
         clusters_gex = np.array(adata.obs['clusters_gex'])
         num_clusters_gex = np.max(clusters_gex)+1
@@ -2743,9 +2836,10 @@ def plot_interesting_features_vs_clustermap(
         colorbar_colors = [[x[i] for i in cells_order] for x in colorbar_colors]
 
     xmargin = 0.1
-    ymargin_top = 0.8
+    ymargin_top = 0.4
     ymargin_bottom = 0.1
-    col_dendro_height = 2.5 if col_cluster else 0.1 #inches
+    col_dendro_height = max(1.5 if col_cluster else 0.1,
+                            len(colorbar_colors)*0.1)
     col_colors_height = len(colorbar_colors)*0.2
     heatmap_height = len(features)*0.15
     row_dendro_width = 2.5 #inches
@@ -2793,7 +2887,7 @@ def plot_interesting_features_vs_clustermap(
     cm.ax_heatmap.set_position([x2,y0,x3-x2,y1-y0])
     if cm.ax_col_colors is not None:
         cm.ax_col_colors.set_position([x2,y1,x3-x2,y2-y1])
-    if col_cluster:
+    if cm.ax_col_dendrogram:
         cm.ax_col_dendrogram.set_position([x2,y2,x3-x2,y3-y2])
     cax_height = ymargin_top + col_dendro_height + col_colors_height - 0.5
     cm.cax.set_position([x0,(fig_height-0.1-cax_height)/fig_height,
@@ -2810,25 +2904,36 @@ def plot_interesting_features_vs_clustermap(
     ax = cm.ax_col_dendrogram
     col_dendro_width= fig_width*(ax.get_position().x1 - ax.get_position().x0 )
     col_dendro_height= fig_height*(ax.get_position().y1 - ax.get_position().y0)
-    offset = 0.05 # inches
+    #offset = 0.05 # inches
     if title is not None:
-        ax.text(0.5, 1.0-offset/col_dendro_height, title,
-                va='top', ha='center', fontsize=9, color='k',
+        #ax.text(0.5, 1.0-offset/col_dendro_height, title,
+        ax.text(0.5, 1.02, title,
+                va='bottom', ha='center', fontsize=9, color='k',
                 transform=ax.transAxes)
-        offset += 0.2
+        #offset += 0.2
 
     line_height_inches = 0.09
     fontsize=7
     for ii, sorted_tuples in enumerate(colorbar_sorted_tuples):
-        ax.text(-0.01, 1.0 - (ii*line_height_inches+offset)/col_dendro_height,
+        #y = 1.0 - ii/len(colorbar_sorted_tuples)
+        y = 1.0 - (ii*line_height_inches)/col_dendro_height
+        ax.text(-0.01, y,
                 colorbar_names[ii], va='top', ha='right', fontsize=fontsize,
                 color='k', transform=ax.transAxes)
         for jj in range(len(sorted_tuples)):
             gene, color = sorted_tuples[jj]
             ax.text(float(jj)/len(sorted_tuples),
-                    1.0 - (ii*line_height_inches+offset)/col_dendro_height,
+                    y,#1.0 - (ii*line_height_inches+offset)/col_dendro_height,
                     gene, va='top', ha='left', fontsize=fontsize, color=color,
                     transform=ax.transAxes)
+
+    # label the column color bars
+    if colorbar_colors and cm.ax_col_colors:
+        ax = cm.ax_col_colors
+        for ii, name in enumerate(colorbar_names):
+            ax.text(-0.01, 1.0 - (ii+0.5)/len(colorbar_names), name,
+                    va='center', ha='right', fontsize=fontsize,
+                    color='k', transform=ax.transAxes)
 
     # show the tiny_lines
     if tiny_lines is not None:
@@ -3367,6 +3472,8 @@ def make_batch_colored_umaps(
     clonotype. The batches are the ones present in adata.uns['batch_keys']
     and are given in the titles of the individual panels.
     """
+    if 'conga_results' not in adata.uns:
+        util.setup_uns_dicts(data)
     adata.uns['conga_results'][figure_tag] = pngfile
     adata.uns['conga_results'][figure_tag+HELP_SUFFIX] = help_message
     util.make_figure_helpfile(figure_tag, adata)
@@ -3459,6 +3566,7 @@ def make_graph_vs_features_plots(
         clustermap_pvalue_threshold=0.05, # adjusted pvalues
         clustermap_pvalue_threshold_big=1e-3, # for really big feature sets
         clustermap_pvalue_threshold_big_size=500, # ie, more than 500 fts
+        clustermap_max_type_features=50,
         min_nbrs_for_averaging=30,
 ):
     util.setup_uns_dicts(adata) # should already be done
@@ -3547,7 +3655,7 @@ def make_graph_vs_features_plots(
                 compute_nbr_averages=True,
                 feature_labels=feature_labels,
                 feature_scores=feature_scores,
-                max_type_features=100,
+                max_type_features=clustermap_max_type_features,
                 use_1d_landscape_for_cell_order=
                     use_1d_landscape_for_clustermap_cell_order,
                 title=figure_tag,
@@ -3638,6 +3746,7 @@ def make_hotspot_plots(
         make_raw_feature_plots=False,
         max_clones_for_dendrograms=20000, # control memory
         min_nbrs_for_averaging=30,
+        clustermap_max_type_features=50,
 ):
     ''' Call conga.correlations.find_hotspots_wrapper first!
     '''
@@ -3744,7 +3853,7 @@ def make_hotspot_plots(
                     nbrs=plot_nbrs,
                     compute_nbr_averages=True,
                     feature_labels=feature_labels,
-                    max_type_features=100,
+                    max_type_features=clustermap_max_type_features,
                     feature_scores=feature_scores,
                     use_1d_landscape_for_cell_order=
                         use_1d_landscape_for_clustermap_cell_order,
@@ -3767,9 +3876,10 @@ def make_hotspot_plots(
                         pngfile, plot_tag,
                         compute_nbr_averages=False,
                         feature_labels=feature_labels,
-                        max_redundant_features=max_redundant_features,
-                        redundancy_threshold=redundancy_threshold,
+                        max_type_features=clustermap_max_type_features,
                         feature_scores=feature_scores,
+                        use_1d_landscape_for_cell_order=
+                            use_1d_landscape_for_clustermap_cell_order,
                         title=f'HotSpot {tag} features vs {plot_tag} landscape '
                         '(raw)')
 
@@ -3791,6 +3901,7 @@ default_content_order = [
     TCR_CLUMPING,
     TCR_CLUMPING_LOGOS,
     TCR_DB_MATCH,
+    TCR_DB_MATCH_PLOT,
     TCR_GRAPH_VS_GEX_FEATURES,
     TCR_GRAPH_VS_GEX_FEATURES_PLOT,
     TCR_GRAPH_VS_GEX_FEATURES_PANELS,
