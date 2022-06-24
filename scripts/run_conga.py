@@ -478,11 +478,11 @@ if args.restart is None: ################################## load GEX/TCR data
         print('pmhc_var_names:', adata.uns['pmhc_var_names'])
 
     if args.use_bbknn:
-    try:
-        import bbknn
-    except:
-        print('BBKNN is not available. Please install.')
-    assert args.bbknn_batch_key is not None,'Specify obs column for BBKNN'
+        try:
+            import bbknn
+        except:
+            print('BBKNN is not available. Please install.')
+        assert args.bbknn_batch_key is not None,'Specify obs column for BBKNN'
         bbknn_batch_key = args.bbknn_batch_key.pop(0) # cannot be passed as a list
     else:
         bbknn_batch_key = args.bbknn_batch_key
@@ -571,7 +571,9 @@ if args.restart is None: ################################## load GEX/TCR data
     print('run cluster_and_tsne_and_umap'); sys.stdout.flush()
     adata = conga.preprocess.cluster_and_tsne_and_umap(
         adata, clustering_resolution = clustering_resolution,
-        clustering_method=args.clustering_method)
+        clustering_method=args.clustering_method,
+        use_bbknn=args.use_bbknn,
+        bbknn_batch_key=bbknn_batch_key)
 
     ###########################################################################
 else: ### restarting from a previous conga run
