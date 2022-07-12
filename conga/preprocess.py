@@ -91,9 +91,16 @@ def normalize_and_log_the_raw_matrix(
     if ft_varname:
         ftypes_counts = Counter(adata.raw.var[ft_varname]).most_common()
         print('feature_types counter:', ftypes_counts)
+        top_type = ftypes_counts[0][0]
+        if top_type != util.GENE_EXPRESSION_FEATURE_TYPE:
+            print('WARNING:: strange top var feature type:', top_type)
 
         ngenes = sum( adata.raw.var[ft_varname] == util.GENE_EXPRESSION_FEATURE_TYPE)
         #ngenes = sum( adata.raw.var[ft_varname] != 'Antibody Capture' )
+        if ngenes==0:
+            ngenes = sum(adata.raw.var[ft_varname] == top_type)
+            print('WARNING:: no genes for ftype', util.GENE_EXPRESSION_FEATURE_TYPE,
+                  'using', top_type, 'instead')
     else:
         ngenes = adata.raw.shape[1]
     n_ab_features = adata.raw.shape[1] - ngenes

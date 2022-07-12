@@ -2104,7 +2104,7 @@ def assign_cd4_and_cd8_by_clusters(
     '''
 
 
-    assert adata.uns['organism'] == 'human' # tmp hack
+    assert adata.uns['organism'] in ['human', 'mouse']
 
     # run pca if necessary
     if 'X_pca_gex' not in adata.obsm_keys():
@@ -2128,8 +2128,13 @@ def assign_cd4_and_cd8_by_clusters(
     num_clones = adata.shape[0]
     all_gex = {}
 
-    cd4_genes = ['CD4']
-    cd8_genes = ['CD8A', 'CD8B']
+    if adata.uns['organism'] == 'human':
+        cd4_genes = ['CD4']
+        cd8_genes = ['CD8A', 'CD8B']
+    else:
+        # haven't tested on mouse yet...
+        cd4_genes = ['Cd4']
+        cd8_genes = ['Cd8a', 'Cd8b1']
 
     for gene in cd4_genes+cd8_genes:
         if gene not in adata.raw.var_names:
@@ -2218,7 +2223,7 @@ def split_into_cd4_and_cd8_subsets(
         # make new adatas
         dfl = []
         for ad in [ad4,ad8]:
-            ad.uns['organism'] = 'human'
+            ad.uns['organism'] = adata.uns['organism']
             assign_cd4_and_cd8_by_clusters(ad, verbose=verbose)
 
         ad4_new = ad4[ad4.obs.cd4_or_cd8 == 'cd4'].concatenate(
