@@ -817,29 +817,13 @@ features assigned to individual cells?
 	 For example, something like this:
 	 ```python
 	 import scanpy as sc
-<<<<<<< bcr
-<<<<<<< bcr
 	 import pandas as pd
 	 
-=======
->>>>>>> add batch info to the readme
-=======
-	 import pandas as pd
-	 
->>>>>>> tweak whitespace in readme
 	 old_gex_filename = 'filtered_gene_bc_matrices.h5'
 	 new_gex_filename = 'filtered_gene_bc_matrices_w_batches.h5ad'
 
 	 # has columns: barcode donor sample tissue
-<<<<<<< bcr
-<<<<<<< bcr
 	 batch_info_tsvfile = 'cell_batch_info.tsv'
-=======
-	 batch_info_tsvfile = bdir+'batches.tsv'
->>>>>>> add batch info to the readme
-=======
-	 batch_info_tsvfile = 'cell_batch_info.tsv'
->>>>>>> tweak whitespace in readme
 
 	 adata = sc.read_10x_h5(old_gex_filename)
 	 batch_info = pd.read_csv(batch_info_tsvfile, sep='\t')
@@ -847,23 +831,7 @@ features assigned to individual cells?
 
 	 df = adata.obs.join(batch_info) # funny behavior if I try to reassign adata.obs
 	 for col in batch_info:
-<<<<<<< bcr
-<<<<<<< bcr
-<<<<<<< bcr
-<<<<<<< bcr
 	   adata.obs[col] = df[col]
-=======
-	 		 adata.obs[col] = df[col]
->>>>>>> add batch info to the readme
-=======
-	 	   adata.obs[col] = df[col]
->>>>>>> tweak whitespace in readme
-=======
-	 	 adata.obs[col] = df[col]
->>>>>>> tweak whitespace in readme
-=======
-	   adata.obs[col] = df[col]
->>>>>>> tweak whitespace in readme
 	 adata.uns['batch_keys'] = list(batch_info.columns)
 
    adata.write_h5ad(new_gex_filename)

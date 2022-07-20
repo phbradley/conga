@@ -31,7 +31,6 @@ from scipy.cluster import hierarchy
 from scipy.spatial import distance
 import time
 import random
-import base64
 
 
 default_logo_genes = {
@@ -4014,8 +4013,7 @@ def make_html_summary(
 
             # now the image
             out.write(f'Image source: {pngfile}<br>\n')
-            encoded = base64.b64encode(open(f"{pngfile}", "rb").read()).decode('utf-8')
-            out.write(f'<img src="data:image/png;base64,{encoded}\" {extra_tag} />\n')
+            out.write(f'<img src="{pngfile}" {extra_tag} />\n')
 
         else: # results is a pandas DataFrame
             out.write(f'<h1>{content_tag}</h1>\n<br>\n')

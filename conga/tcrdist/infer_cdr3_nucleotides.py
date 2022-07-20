@@ -32,24 +32,18 @@ def infer_cdr3_nucleotides(
         j,
         cdr3,
         verbose=False,
-        return_stats=False,
-        allow_internal_mismatches=False,
 ):
-    ''' returns cdr3_nucseq and (optionally) the number of insertions
+    ''' returns cdr3_nucseq
 
     Still need to add some logic to fixup alleles based on protein seq
     matches?
     '''
-    if allow_internal_mismatches:
-        mismatch_score = -4 # default for junction analysis
-    else:
-        mismatch_score = -1000
     cdr3_nucseqs = get_degenerate_cdr3_nucseqs(cdr3)
 
     sortl = []
     for cdr3_nucseq in cdr3_nucseqs:
         result = tcr_sampler.analyze_junction(
-            organism, v, j, cdr3, cdr3_nucseq, mismatch_score=mismatch_score,
+            organism, v, j, cdr3, cdr3_nucseq, mismatch_score=-1000,
             return_cdr3_nucseq_src=True)
 
         inserts = result[-2]
@@ -79,18 +73,14 @@ def infer_cdr3_nucleotides(
     # V
     for i,(a,b) in enumerate(zip(v_nucseq, cdr3_degseq)):
         if i>=num_matched_v:break
-        if logo_tools.nucleotide_symbols_match(a,b):
-            cdr3_nucseq[i] = a
-        else:
-            assert allow_internal_mismatches
+        assert logo_tools.nucleotide_symbols_match(a,b)
+        cdr3_nucseq[i] = a
 
     # J
     for i,(a,b) in enumerate(zip(reversed(j_nucseq), reversed(cdr3_degseq))):
         if i>=num_matched_j:break
-        if logo_tools.nucleotide_symbols_match(a,b):
-            cdr3_nucseq[-1-i] = a
-        else:
-            assert allow_internal_mismatches
+        assert logo_tools.nucleotide_symbols_match(a,b)
+        cdr3_nucseq[-1-i] = a
 
     ( v_trim, d0_trim, d1_trim, j_trim ) = trims
     ( best_d_id, n_vd_insert, n_dj_insert, n_vj_insert ) = inserts
@@ -103,10 +93,8 @@ def infer_cdr3_nucleotides(
         d_match_seq = d_nucseq[d0_trim:None if d1_trim==0 else -d1_trim]
         assert len(d_match_seq) == num_matched_d
         for i,(a,b) in enumerate(zip(d_match_seq, cdr3_degseq[match_start:])):
-            if logo_tools.nucleotide_symbols_match(a,b):
-                cdr3_nucseq[match_start+i] = a
-            else:
-                assert allow_internal_mismatches
+            assert logo_tools.nucleotide_symbols_match(a,b)
+            cdr3_nucseq[match_start+i] = a
 
     # there may still be degenerate symbols in the N-inserted regions
     for i in range(len(cdr3_nucseq)):
@@ -119,11 +107,7 @@ def infer_cdr3_nucleotides(
     assert all(x in 'acgt' for x in cdr3_nucseq)
     assert translation.get_translation(cdr3_nucseq) == cdr3
 
-    if return_stats:
-        return cdr3_nucseq, total_insert
-    else:
-        return cdr3_nucseq
-
+    return cdr3_nucseq
 
 
 

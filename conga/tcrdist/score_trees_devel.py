@@ -40,13 +40,7 @@ class CallAverageScore:
 
 
 
-def Make_tree_new(
-        distance,
-        num_leaves,
-        Update_distance_matrix,
-        leaf_scores,
-        Compute_average_score
-):
+def Make_tree_new( distance, num_leaves, Update_distance_matrix, leaf_scores, Compute_average_score ):
     # Compute_average_score has to be callable with two args: leaf_list and leaf_scores
     N = num_leaves
 
@@ -325,25 +319,11 @@ def Node_labels(tree,sizes,node_position,use_sizes_as_weights=False):
 
 ## return the y-coordinates of the different clusters
 
-def Canvas_tree(
-        tree,
-        names,
-        sizes,
-        upper_left,
-        lower_right,
-        branch_width_fraction,
-        plotter,
-        label_singletons = False,
-        label_internal_nodes = True,
-        font=None,
-        score_range_for_coloring=None,
-        vertical_line_width = 1,
-        show_colorful_rmsd_bar = False,
-        rmsd_bar_label_stepsize=1,
-        rmsd_bar_label_fontsize=10,
-        force_min_rmsd=None,
-        verbose=False,
-):
+def Canvas_tree(tree, names, sizes, upper_left, lower_right, branch_width_fraction, plotter, label_singletons = False,
+                label_internal_nodes = True, font=None, score_range_for_coloring=None,
+                vertical_line_width = 1, show_colorful_rmsd_bar = False, rmsd_bar_label_stepsize=1,
+                rmsd_bar_label_fontsize=10,
+                force_min_rmsd=None ):
     ## score_range_for_coloring is a tuple:(mn,mx)
     if score_range_for_coloring: assert len(score_range_for_coloring) == 2
 
@@ -377,9 +357,8 @@ def Canvas_tree(
     remainder = plot_height - total
     cluster_width = float(remainder)/len(names) ## padding alotted to each cluster
 
-    if verbose:
-        print('branch_width_pixels: {:.2f} plot_height: {:.2f} cluster_padding: {:.3f} w_factor: {:.3f} num_clusters: {} total_members: {}'\
-              .format( branch_width_pixels,plot_height,cluster_width,w_factor,len(sizes),sum(sizes)))
+    #print('branch_width_pixels: {:.2f} plot_height: {:.2f} cluster_padding: {:.3f} w_factor: {:.3f} num_clusters: {} total_members: {}'\
+    #    .format( branch_width_pixels,plot_height,cluster_width,w_factor,len(sizes),sum(sizes)))
 
     ## position nodes vertically on tree
     nodes = Node_members(tree)
@@ -421,12 +400,11 @@ def Canvas_tree(
 
     min_score = min(scores)
     max_score = max(scores)
-    if verbose:
-        print('min_score:',min_score,'max_score:',max_score,score_range_for_coloring)
-    if max_score == min_score:
-        max_score = max_score + 1
+    #print('min_score:',min_score,'max_score:',max_score,score_range_for_coloring)
     if score_range_for_coloring:
         min_score,max_score = score_range_for_coloring
+    if max_score == min_score:
+        max_score = max_score + 1
 
     ## write the edges
     for e in edges:

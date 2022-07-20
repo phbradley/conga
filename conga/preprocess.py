@@ -92,16 +92,9 @@ def normalize_and_log_the_raw_matrix(
     if ft_varname:
         ftypes_counts = Counter(adata.raw.var[ft_varname]).most_common()
         print('feature_types counter:', ftypes_counts)
-        top_type = ftypes_counts[0][0]
-        if top_type != util.GENE_EXPRESSION_FEATURE_TYPE:
-            print('WARNING:: strange top var feature type:', top_type)
 
         ngenes = sum( adata.raw.var[ft_varname] == util.GENE_EXPRESSION_FEATURE_TYPE)
         #ngenes = sum( adata.raw.var[ft_varname] != 'Antibody Capture' )
-        if ngenes==0:
-            ngenes = sum(adata.raw.var[ft_varname] == top_type)
-            print('WARNING:: no genes for ftype', util.GENE_EXPRESSION_FEATURE_TYPE,
-                  'using', top_type, 'instead')
     else:
         ngenes = adata.raw.shape[1]
     n_ab_features = adata.raw.shape[1] - ngenes
@@ -1436,11 +1429,7 @@ def calculate_tcrdist_nbrs_cpp(
             all_nbrs[nbr_frac] = knn_indices[:,:num_nbrs]
         else:
             # use argpartition instead
-<<<<<<< bcr
             all_nbrs[nbr_frac] = np.zeros((N,num_nbrs), dtype=np.int)
-=======
-            all_nbrs[nbr_frac] = np.zeros((N,num_nbrs), dtype=np.int32)
->>>>>>> * Add a new plot to show the TCR database matches * Shorten the clustermaps by reducing the default max_type_features from 100 to 50 in plot_interesting_features_vs_clustermap * add batch keys to clustermaps when batch data is present * improve clustermap figure sizing * preprocess.filter_normalize_and_hvg can take a batch key and pass it along to the highly-variable-gene finding code to focus on variable genes shared across batches * lots of small changes that have accumulated over the last few months: formatting, comments, minor plot improvements
 
             print(f'all_nbrs tcrdist using {all_nbrs[nbr_frac].nbytes} bytes',
                   f'nbr_frac= {nbr_frac}')

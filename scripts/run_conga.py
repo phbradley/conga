@@ -418,6 +418,16 @@ if args.restart is None: ################################## load GEX/TCR data
     assert 'organism' in adata.uns_keys()
     if args.batch_keys:
         adata.uns['batch_keys'] = args.batch_keys
+        for k in args.batch_keys:
+            assert k in adata.obs_keys()
+            # confirm integer-value
+            vals = np.array(adata.obs[k]).astype(int)
+            counts = Counter(vals)
+            expected_choices = np.max(vals)+1
+            observed_choices = len(counts.keys())
+            print(f'read batch info for key {k} with {expected_choices}'
+                  f' possible and {observed_choices} observed choices')
+            adata.obs[k] = vals
     elif 'batch_keys' in adata.uns:
         old_batch_keys = list(adata.uns['batch_keys'])
         if not all(x in adata.obs_keys() for x in old_batch_keys):
@@ -429,18 +439,6 @@ if args.restart is None: ################################## load GEX/TCR data
             adata.uns['batch_keys'] = new_batch_keys
         else:
             del adata.uns['batch_keys']
-
-    if 'batch_keys' in adata.uns: # may have just been put there...
-        for k in adata.uns['batch_keys']:
-            assert k in adata.obs_keys()
-            # confirm integer-value
-            vals = np.array(adata.obs[k]).astype(int)
-            counts = Counter(vals)
-            expected_choices = np.max(vals)+1
-            observed_choices = len(counts.keys())
-            print(f'read batch info for key {k} with {expected_choices}'
-                  f' possible and {observed_choices} observed choices')
-            adata.obs[k] = vals
 
     if args.exclude_vgene_strings:
         tcrs = conga.preprocess.retrieve_tcrs_from_adata(adata)

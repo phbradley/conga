@@ -39,23 +39,6 @@ def count_matches( a,b,mismatch_score=-3 ):
             num_matches = i+1
     return num_matches
 
-def count_aa_matches( a,b,mismatch_score=-3 ):
-    ## from the beginning
-    assert a[0].upper() == a[0]
-    match_score    = 1
-    best_score=0
-    score=0
-    num_matches = 0
-    for i in range(min(len(a),len(b))):
-        if a[i] == b[i]:
-            score += match_score
-        else:
-            score += mismatch_score
-        if score >= best_score: ## gt OR EQUAL! take longer matched regions
-            best_score = score
-            num_matches = i+1
-    return num_matches
-
 
 
 def get_v_cdr3_nucseq( organism, v_gene):
@@ -171,9 +154,6 @@ def find_alternate_alleles(
     only take an alternate allele if its coverage of cdr3_nucseq is greater by at least
     min_improvement over the current allele
     '''
-    mismatch_score = default_mismatch_score_for_junction_analysis # -4
-    # want to eventually make this the default:
-    #mismatch_score = -1000 # 2022-01-21  this makes more sense to me (PB)
 
     v_prefix = v_gene[:v_gene.index('*')+1]
     alternate_v_alleles = [ x for x in all_genes[organism] if x.startswith(v_prefix) and x != v_gene]
@@ -186,7 +166,7 @@ def find_alternate_alleles(
         if not v_nucseq:
             #print(vg, v_nucseq)
             continue
-        num_matched = count_matches(v_nucseq, cdr3_nucseq, mismatch_score)
+        num_matched = count_matches( v_nucseq, cdr3_nucseq, default_mismatch_score_for_junction_analysis )
         if vg == v_gene:
             best_v_gene = vg
             best_num_matched = num_matched
@@ -199,9 +179,9 @@ def find_alternate_alleles(
 
     for jg in [j_gene]+alternate_j_alleles:
         j_nucseq = get_j_cdr3_nucseq( organism, jg )
-        num_matched = count_matches(''.join( reversed( list( j_nucseq ) )),
-                                    ''.join( reversed( list( cdr3_nucseq ))),
-                                    mismatch_score)
+        num_matched = count_matches( ''.join( reversed( list( j_nucseq ) )),
+                                     ''.join( reversed( list( cdr3_nucseq ))),
+                                     default_mismatch_score_for_junction_analysis )
         if jg == j_gene:
             best_j_gene = jg
             best_num_matched = num_matched

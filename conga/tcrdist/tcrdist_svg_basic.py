@@ -11,29 +11,25 @@ from .html_colors import CB_RED, CB_GREEN, CB_BLUE, CB_ORANGE, CB_PURPLE
 all_text_height = {20:15.5, 100:75.}
 all_text_width  = {20:12.5, 100:60.}
 
-def rgb_from_fraction(fraction, cmap=None):
+def rgb_from_fraction( fraction ):
 
     assert fraction >=0 and fraction<=1
 
     fraction = float(fraction)
 
-    if cmap is None:
-        if fraction<0.5:
-            i = 2*fraction*256
+    if fraction<0.5:
+        i = 2*fraction*256
 
-            #green = min(200,2*i)
-            green = int( min(200,(200*i)/128) )
-            blue = max(0,int( min(255,510-2*i) ))
-            red = 0
-        else:
-            i = 2*(fraction-0.5)*256
-            red = int( min(255,2*i) )
-            green = int( max(0,min(200,400 - (200*i)/128)) )
-            #green = min(200,510-2*i)
-            blue = 0
+        #green = min(200,2*i)
+        green = int( min(200,(200*i)/128) )
+        blue = max(0,int( min(255,510-2*i) ))
+        red = 0
     else:
-        color_tuple = cmap(fraction)[:3]
-        red, green, blue = [min(255,int(x*255)) for x in color_tuple]
+        i = 2*(fraction-0.5)*256
+        red = int( min(255,2*i) )
+        green = int( max(0,min(200,400 - (200*i)/128)) )
+        #green = min(200,510-2*i)
+        blue = 0
 
     assert 0<=red  <=255
     assert 0<=green<=255
@@ -121,9 +117,8 @@ def make_text( text, lower_left, fontsize,
 
 
 class SVG_tree_plotter:
-    def __init__( self, cmap=None ):
+    def __init__( self ):
         self.cmds = []
-        self.cmap = cmap
 
     def make_line( self, p0, p1, line_width, normalized_score, extra_tag=None, color=None ):
 
@@ -131,7 +126,7 @@ class SVG_tree_plotter:
             #color='black'
             color = '#aaaaaa' # gray
         elif color==None:
-            color = rgb_from_fraction(normalized_score, cmap=self.cmap)
+            color = rgb_from_fraction( normalized_score )
 
         if p0[0] == p1[0]: ## vertical line, get width exactly right
             x = p0[0] ; y0 = min(p0[1],p1[1]) ; y1 = max(p0[1],p1[1] )

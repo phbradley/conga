@@ -8,8 +8,6 @@ from . import html_colors
 from . import tcr_sampler
 import scipy.stats
 import numpy as np
-import pandas as pd
-
 #from functools import reduce
 #from mannwhitneyu import mannwhitneyu as mannwhitneyu_exact #too slow
 
@@ -70,10 +68,6 @@ def make_tall_tcr_tree(
         clone_sizes=None,
         extra_tcr_labels_df=None,
         extra_tcr_labels_to_color_by_color_score=[],
-        ignore_nucseqs=False, # if True, don't need cdr3a/b_nucseq in tcrs
-        verbose=False,
-        cmap=None,
-        node_score_func=None, # takes list of leaves, returns node score
 ):
     ''' tcrs is a list of tuples: tcrs = [ (atcr1,btcr1), (atcr2,btcr2), ....
     atcr1 = (va1, ja1, cdr3a1, cdr3a_nucseq1, *)
@@ -95,19 +89,8 @@ def make_tall_tcr_tree(
     if clone_sizes is None:
         clone_sizes = [1]*N
 
-    if not ignore_nucseqs:
-        if verbose:
-            print('parsing junctions for', len(tcrs), 'tcrs')
-        junctions = tcr_sampler.parse_tcr_junctions(organism, tcrs)
-    else:
-        junctions = pd.DataFrame(dict(
-            va   =[x[0][0] for x in tcrs],
-            ja   =[x[0][1] for x in tcrs],
-            cdr3a=[x[0][2] for x in tcrs],
-            vb   =[x[1][0] for x in tcrs],
-            jb   =[x[1][1] for x in tcrs],
-            cdr3b=[x[1][2] for x in tcrs],
-        ))
+    print('parsing junctions for', len(tcrs), 'tcrs')
+    junctions = tcr_sampler.parse_tcr_junctions(organism, tcrs)
 
     va_colors, ja_colors, vb_colors, jb_colors = util.assign_colors_to_conga_tcrs(
         tcrs, organism)
@@ -157,8 +140,7 @@ def make_tall_tcr_tree(
     centers = []
     all_members = []
 
-    if verbose:
-        print(f'clustering {len(tcrs)} tcrs')
+    print(f'clustering {len(tcrs)} tcrs')
     while True:
         clusterno = len(centers)
 
@@ -230,17 +212,12 @@ def make_tall_tcr_tree(
             all_center_dists[ (new_index,other_new_index) ] = dist
             all_center_dists[ (other_new_index,new_index) ] = dist
 
-    percentile = -1 # means average
+    percentile = -1
 
-    if node_score_func is None:
-        node_scorer = score_trees_devel.CallAverageScore(percentile)
-    else:
-        node_scorer = (lambda leaves,scores :
-                       node_score_func([new2old_index[x] for x in leaves]))
-
+    print('Make_tree')
     tree = score_trees_devel.Make_tree_new(
         all_center_dists, len(names), score_trees_devel.Update_distance_matrix_AL,
-        all_scores, node_scorer,
+        all_scores, score_trees_devel.CallAverageScore(percentile),
     )
 
     ## look for branches with high/low scores
@@ -257,6 +234,7 @@ def make_tall_tcr_tree(
 
     ## node_position tells us where the different clusters are located, vertically
     ##
+    print('Canvas_tree 1st time')
     tmp_plotter = SVG_tree_plotter()
     node_position,Transform,canvas_tree_min_rmsd, canvas_tree_w_factor \
         = score_trees_devel.Canvas_tree(
@@ -287,29 +265,20 @@ def make_tall_tcr_tree(
         htext = ''
         CDR_START,CDR_STOP = (3,-2) if not dont_trim_labels else (0,None)
         if 'A' in ab:
-            if ignore_nucseqs:
-                text0 += _pad_to_middle(tcr.cdr3a[CDR_START:CDR_STOP], 15)
-                htext += '  cdr3a  '
-            else:
-                text0 += '{} {} {}'.format(
-                    _pad_to_middle(tcr.cdr3a[CDR_START:CDR_STOP], 15),
-                    _pad_to_middle(tcr.cdr3a_protseq_masked[CDR_START:CDR_STOP], 15),
-                    _pad_to_middle(tcr.a_indels, 6))
-                htext += '  cdr3a,cdr3a_masked,a_indels  '
+            text0 += '{} {} {}'.format(
+                _pad_to_middle(tcr.cdr3a[CDR_START:CDR_STOP], 15),
+                _pad_to_middle(tcr.cdr3a_protseq_masked[CDR_START:CDR_STOP], 15),
+                _pad_to_middle(tcr.a_indels, 6))
+            htext += '  cdr3a,cdr3a_masked,a_indels  '
         if 'B' in ab:
-            if text0:
-                text0 += ' '
-            if ignore_nucseqs:
-                text0 += _pad_to_middle(tcr.cdr3b[CDR_START:CDR_STOP], 15)
-                if htext:
-                    htext += '     '
-                htext += '    cdr3b'
-            else:
-                text0 += '{} {} {}'.format(
-                    _pad_to_middle(tcr.cdr3b[CDR_START:CDR_STOP], 15),
-                    _pad_to_middle(tcr.cdr3b_protseq_masked[CDR_START:CDR_STOP], 15),
-                    _pad_to_middle(tcr.b_indels, 6))
-                htext += '  cdr3b,cdr3b_masked,b_indels  '
+            if text0: text0 += ' '
+            text0 += '{} {} {}'.format(
+                _pad_to_middle(tcr.cdr3b[CDR_START:CDR_STOP], 15),
+                _pad_to_middle(tcr.cdr3b_protseq_masked[CDR_START:CDR_STOP], 15),
+                _pad_to_middle(tcr.b_indels, 6))
+            if htext:
+                htext += '     '
+            htext += '    cdr3b,cdr3b_masked,b_indels'
 
         text_columns[ icol ].append( ( text0, 'black' ) )
         header[icol] = htext
@@ -340,8 +309,7 @@ def make_tall_tcr_tree(
         for label in extra_tcr_labels:
             if label in extra_tcr_labels_to_color_by_color_score:
                 mn,mx = color_score_range
-                frac = max(0, min(1, (tcr.color_score-mn)/(mx-mn)))
-                color = rgb_from_fraction(frac, cmap=cmap)
+                color = rgb_from_fraction((tcr.color_score-mn)/(mx-mn))
             else:
                 color = 'black'
             text_columns[icol].append((tcr[label], color))
@@ -383,7 +351,8 @@ def make_tall_tcr_tree(
     ## node_position tells us where the different clusters are located, vertically
     ##
 
-    plotter = SVG_tree_plotter(cmap=cmap)
+    plotter = SVG_tree_plotter()
+    print('Canvas_tree 2nd time')
     node_position,Transform,canvas_tree_min_rmsd, canvas_tree_w_factor = \
         score_trees_devel.Canvas_tree(
             tree, names, sizes, tree_p0, tree_p1, branch_width_fraction,
@@ -404,6 +373,5 @@ def make_tall_tcr_tree(
     create_file(cmds, total_svg_width, total_svg_height, pngfile[:-3]+'svg',
                 create_png=True)
 
-    if verbose:
-        print('made:', pngfile)
-        print('made:', pngfile[:-3]+'svg')
+    print('made:', pngfile)
+    print('made:', pngfile[:-3]+'svg')
