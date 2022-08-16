@@ -30,7 +30,9 @@ def fixup_gene_name( gene, gene_suffix, expected_gene_names ):
         return gene # ALL DONE
 
     vj = gene[3]
-    assert vj in 'VJ'
+    if vj not in 'VJ':
+        print('wonky gene name:', gene)
+        return gene
 
     if vj=='V' and 'DV' in gene:
         # sometimes they just delete the '/'
@@ -137,9 +139,10 @@ def read_tcr_data(
             if verbose:
                 print('skip: productive!=True', l)
             continue
-        if l.cdr3.lower() == 'none' or l.cdr3_nt.lower() == 'none':
+        if 'none' in [l.cdr3.lower(), l.cdr3_nt.lower(), l.v_gene.lower(),
+                      l.j_gene.lower()]:
             if verbose:
-                print('skip: bad_cdr3', l)
+                print('skip: none cdr3 or v/j genes', l)
             continue
 
         chain = l.chain
