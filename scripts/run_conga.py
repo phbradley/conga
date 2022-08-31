@@ -990,7 +990,7 @@ if args.find_batch_biases: #####################################################
 
         nbrs_gex, nbrs_tcr = all_nbrs[ max(args.nbr_fracs) ]
 
-        conga.plotting.make_batch_bias_plots(
+        conga.devel.make_batch_bias_plots(
             adata,
             nbrhood_results,
             nbrs_gex,

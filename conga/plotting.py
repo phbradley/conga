@@ -3986,7 +3986,7 @@ def make_html_summary(
         if type(results) is str:
             # filename of an image
             # assume we don't need the path/folder stuff for this html file
-            pngfile = Path(results).name
+            pngfile = results
 
             # hacking: limit the width/height on specific plots
             extra_tag = ''
@@ -4006,7 +4006,7 @@ def make_html_summary(
 
             # now the image
             out.write(f'Image source: {pngfile}<br>\n')
-            encoded = base64.b64encode(open(f"{pngfile}", "rb").read()).decode('utf-8')
+            encoded = base64.b64encode(open(pngfile, "rb").read()).decode('utf-8')
             out.write(f'<img src="data:image/png;base64,{encoded}\" {extra_tag} />\n')
 
         else: # results is a pandas DataFrame
