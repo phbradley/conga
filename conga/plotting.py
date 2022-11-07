@@ -4006,8 +4006,12 @@ def make_html_summary(
 
             # now the image
             out.write(f'Image source: {pngfile}<br>\n')
-            encoded = base64.b64encode(open(pngfile, "rb").read()).decode('utf-8')
-            out.write(f'<img src="data:image/png;base64,{encoded}\" {extra_tag} />\n')
+            if exists(pngfile):
+                encoded = base64.b64encode(open(pngfile, "rb").read()).decode('utf-8')
+                out.write(f'<img src="data:image/png;base64,{encoded}\" {extra_tag} />\n')
+            else:
+                # not sure why this would happen!
+                out.write('ERROR -- missing image {pngfile}<br><br>\n')
 
         else: # results is a pandas DataFrame
             out.write(f'<h1>{content_tag}</h1>\n<br>\n')

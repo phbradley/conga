@@ -165,6 +165,7 @@ parser.add_argument('--gex_header_genes', type=str, nargs='*')
 parser.add_argument('--gex_nbrhood_tcr_score_names', type=str, nargs='*')
 parser.add_argument('--dont_show_lit_matches_in_logos', action='store_true')
 parser.add_argument('--short_clustermaps', action='store_true')
+parser.add_argument('--pretty_gvg_logos', action='store_true')
 
 
 # preprocessing options
@@ -878,6 +879,9 @@ if args.graph_vs_graph: #######################################################
         show_pmhc_info_in_logos = args.show_pmhc_info_in_logos,
         logo_genes=args.gex_logo_genes,
         gex_header_genes=args.gex_header_genes,
+        pretty=args.pretty_gvg_logos,
+        add_conga_scores_colorbar=args.pretty_gvg_logos,
+        add_gex_logos_colorbar=args.pretty_gvg_logos,
     )
 
 if args.graph_vs_features:
