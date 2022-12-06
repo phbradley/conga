@@ -280,6 +280,41 @@ python ~/conga/scripts/run_conga.py \
 ```
 
 # Updates
+* 2022-12-05: Improvements for dealing with large datasets.
+
+Refactoring of the `calc_nbrs` routine for heavy mode. Memory management and calculation time
+can be an issue when calculating the neighbor fraction for large datasets (>100,000 clonotypes).
+Nbr fractions are now calculated in parallel using `concurrent.futures` to decrease runtime. 
+We also introduce `heavy_mode` into `calc_nbrs` which uncouples the nbr fractions calulations
+from the construction of the nbr fraction dictionary to offer more flexibility for 
+managing memory and preprocessing.
+
+Use heavy mode. X_pca_gex and raw tcrdist values used. Nothing is returned. All tmp files saved.
+`conga.preprocess.calc_nbrs( 
+    adata, nbr_fracs, 
+    heavy_mode = True, use_exact_tcrdist_nbrs = True
+    )`  
+
+Rebuild the dictionary from the tmp files.
+`
+all_nbrs, nndist_gex, nndist_tcr = conga.preprocess.reconstruct_nbr_dict(
+    adata, nbr_fracs, 'tmp_nbr', 
+    use_exact_tcrdist_nbrs = True, 
+    also_calc_nndists = True,
+     nbr_frac_for_nndists = 0.1)
+`
+
+The pickle can them be opened in an interactive session or in `run_conga.py` using the `--nbr_fracs_file` option
+
+`run_conga.py` now has a  `--preprocess_only` options that only returns the preprocessed h5ad file and the nbr_frac pickle.
+Analyses can then be run using `run_conga.py` with the `--restart` and `--nbr_fracs_file` options:
+
+`python ~/conga/scripts/run_conga.py \
+--restart test_final.h5ad \
+--outfile_prefix test \
+--nbr_fracs_file test_all_nbrs.pkl \
+--graph_vs_graph`
+
 * 2021-09-10: Rescale the adata.X gene expression matrix after reducing to a
 single clone. In very rare cases, not doing this was leading to wonky GEX UMAPs and
 clusters, seemingly due to GEX PC components dominated by individual genes.
