@@ -34,12 +34,53 @@ def infer_cdr3_nucleotides(
         verbose=False,
         return_stats=False,
         allow_internal_mismatches=False,
+        allow_allele_changes=False,
 ):
     ''' returns cdr3_nucseq and (optionally) the number of insertions
 
-    Still need to add some logic to fixup alleles based on protein seq
+    if allow_allele_changes: returns cdr3_nucseq, jgene, and (optionally) inserts
+
+    Still need to IMPROVE the logic to fixup alleles based on protein seq
     matches?
     '''
+
+    ########################### special handling of common allelic aa variation ########
+    if allow_allele_changes: # need to return the j gene
+        special_human_jgenes = ['TRAJ24','TRAJ37']
+        jg = j.split('*')[0]
+        if organism == 'human' and jg in special_human_jgenes:
+            best_inserts = 1000
+            for allele in ['*01','*02']:
+                new_j = jg+allele
+                for aim in [True, False]:
+                    cdr3_nucseq, total_inserts = infer_cdr3_nucleotides(
+                        organism, v, new_j, cdr3, return_stats=True,
+                        allow_internal_mismatches=aim,
+                        allow_allele_changes=False,
+                    )
+                    if allow_internal_mismatches:
+                        total_inserts += 1
+                    #print(j, allow_internal_mismatches, best_inserts, total_inserts,
+                    #      cdr3, cdr3_nucseq)
+                    if total_inserts < best_inserts:
+                        best_inserts = total_inserts
+                        new_tcr = (v, new_j, cdr3, cdr3_nucseq)
+            _, new_j, _, cdr3_nucseq = new_tcr
+        else:
+            new_j = j
+            cdr3_nucseq, best_inserts = infer_cdr3_nucleotides(
+                organism, v, new_j, cdr3, return_stats=True,
+                allow_internal_mismatches=allow_internal_mismatches,
+                allow_allele_changes=False,
+            )
+
+        if return_stats:
+            return cdr3_nucseq, new_j, best_inserts
+        else:
+            return cdr3_nucseq, new_j
+    ####################################################################################
+
+
     if allow_internal_mismatches:
         mismatch_score = -4 # default for junction analysis
     else:
@@ -123,8 +164,6 @@ def infer_cdr3_nucleotides(
         return cdr3_nucseq, total_insert
     else:
         return cdr3_nucseq
-
-
 
 
 

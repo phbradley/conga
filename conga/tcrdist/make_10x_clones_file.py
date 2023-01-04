@@ -123,9 +123,9 @@ def read_tcr_data(
         # annoying: pandas sometimes converts to True/False booleans
         #  and sometimes not.
         assert l.productive in ['None', 'False', 'True','TRUE','FALSE']
-        if clonotype =='None':
+        if clonotype.lower() in ['none', 'nan']:
             if verbose:
-                print('skip: clonotype==None', l)
+                print('skip: clonotype==None/nan', l)
             continue
         if clonotype not in clonotype2barcodes:
             clonotype2barcodes[clonotype] = []
