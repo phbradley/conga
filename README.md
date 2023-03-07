@@ -85,56 +85,33 @@ are the necessary installation commands from within a notebook environment.
 
 ## Overview
 
-1. Install the wonderful `scanpy` python package for single-cell analysis
-([docs](https://scanpy.readthedocs.io/en/stable/installation.html)). For
-example, with `pip`:
-```
-pip3 install scanpy[leiden]
-```
+1. Build a conda environment. 
 
 2. Download the CoNGA github repository and (optional but recommended) compile the
-C++ TCRdist implementation; for example with `git` and `make`:
-```
-git clone https://github.com/phbradley/conga.git && cd conga/tcrdist_cpp && make
-```
+C++ TCRdist implementation.
 
-3. Make sure you have a tool that can convert `.svg` files to `.png` files, like
+3. Lastly, you will need a tool that can convert `.svg` files to `.png` files, like
 inkscape, imagemagick convert, rsvg-convert, cairosvg (see below for details if
-you don't already have one).
+you don't already have one). See the `svg to png` section below
 
-**NOTE** we recognize that this is really lame, but right now you can't do
-`import conga` within a python script or notebook without first adding the install
-location to your python path (e.g., `sys.path.append('/path/to/github-repos/conga/')`.
-Running the scripts in the `conga/scripts/` folder from the command line does not
-require this. We hope to smooth this out in the near future.
-
-**UPDATE** Thanks to Neal Smith for helping us get set up with a very simple
-`setup.py` script, so now (in theory) one can `cd` to the top-most `conga` directory
-and type (after activating the relevant virtual environment):
-
-```
-pip install -e .
-```
-This should install the python dependencies and make it so you can just
-`import conga` without fiddling with `sys.path`.
-You will still need to have an svg--->png conversion tool like `convert` or `inkscape`
-installed (more details on that below).
-
-
-## Details
+## Installation details
 
 Here are some commands that would create an `anaconda` python environment for
 running CoNGA:
 
 ```
-conda create -n conga_new_env ipython python=3.6
-conda activate conga_new_env   # or: "source activate conga_new_env" depending on your conda setup
+conda create -n conga_env ipython python=3.9
+conda activate conga_env
 conda install seaborn scikit-learn statsmodels numba pytables
-conda install -c conda-forge python-igraph leidenalg louvain notebook
+pip install scanpy fastcluster python-louvain leidenalg igraph
+conda install pyyaml 
 conda install -c intel tbb # optional
-pip install scanpy
-pip install fastcluster # optional
-conda install pyyaml #optional for using yaml-formatted configuration files for scripts
+```
+
+or from `requirements.txt` with:
+
+```
+conda create --name conga_env --file requirements.txt
 ```
 
 If you do not have the command line tool `convert` from Imagemagick, or Inkscape, installed, you
@@ -149,27 +126,29 @@ If you don't have `git` installed you could go click on the big green `Code`
 button on the [CoNGA github page](https://github.com/phbradley/conga) and
 download and unpack the software that way.
 
-*NEW* We recently added a C++ implementation of TCRdist to speed neighbor calculations on
-large datasets and to compute the background TCRdist distributions for the new
+
+Install `conga` into your conda environment by moving to top-most `conga` directory and type 
+(after activating the relevant virtual environment):
+
+```
+pip install -e .
+```
+`import conga` should now be available when working within the environment.
+
+A C++ version of TCRdist is included to speed neighbor calculations on
+large datasets and to compute the background TCRdist distributions for the 
 'TCR clumping' analysis. This is not required by the core functionality
-described in the original manuscript, but we highly recommend that you compile
+as there are Python versions that will be used if the C++ version is unavailable, 
+but we highly recommend that you compile
 the C++ TCRdist code using your C++ compiler.
 
 We've successfullly used `g++` from the GNU Compiler Collection (https://gcc.gnu.org/) to compile on
 Linux and MacOS, and from MinGw (http://www.mingw.org/) for Windows.
 
-Using `make` on Linux or MacOS. (You can edit `conga/tcrdist_cpp/Makefile` to
-point to a C++ compiler other than `g++`)
+Using `make`. (You can edit `conga/tcrdist_cpp/Makefile` to point to a C++ compiler other than `g++`)
 ```
 cd conga/tcrdist_cpp
 make
-```
-Or without `make` (for Windows)
-```
-cd conga/tcrdist_cpp
-g++ -O3 -std=c++11 -Wall -I ./include/ -o ./bin/find_neighbors ./src/find_neighbors.cc
-g++ -O3 -std=c++11 -Wall -I ./include/ -o ./bin/calc_distributions ./src/calc_distributions.cc
-g++ -O3 -std=c++11 -Wall -I ./include/ -o ./bin/find_paired_matches ./src/find_paired_matches.cc
 ```
 
 ## Even more details
@@ -185,6 +164,7 @@ which might possibly be installed with the following `conda` command:
 ```
 conda create -n conga_classic_env ipython python=3.6 scanpy=1.4.3 umap-learn=0.3.9 louvain=0.6.1
 ```
+
 
 # Migrating Seurat data to CoNGA
 We recommend using the write10XCounts function from the DropletUtils package for
@@ -280,7 +260,7 @@ python ~/conga/scripts/run_conga.py \
 ```
 
 # Updates
-* 2022-12-05: Improvements for dealing with large datasets.
+* 2023-03-06: Improvements for dealing with large datasets.
 
 Refactoring of the `calc_nbrs` routine for heavy mode. Memory management and calculation time
 can be an issue when calculating the neighbor fraction for large datasets (>100,000 clonotypes).
