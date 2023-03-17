@@ -260,31 +260,28 @@ python ~/conga/scripts/run_conga.py \
 ```
 
 # Updates
-* 2023-03-06: Improvements for dealing with large datasets.
+* 2023-03-20 Batch integration enabled
 
-Refactoring of the `calc_nbrs` routine for heavy mode. Memory management and calculation time
-can be an issue when calculating the neighbor fraction for large datasets (>100,000 clonotypes).
-Nbr fractions are now calculated in parallel using `concurrent.futures` to decrease runtime. 
-We also introduce `heavy_mode` into `calc_nbrs` which uncouples the nbr fractions calulations
-from the construction of the nbr fraction dictionary to offer more flexibility for 
-managing memory and preprocessing.
+`Scanorama`, `Harmony`, and `BBKNN` are now enabled. To use these, you must fist install:
 
-Use heavy mode. X_pca_gex and raw tcrdist values used. Nothing is returned. All tmp files saved.
-`conga.preprocess.calc_nbrs( 
-    adata, nbr_fracs, 
-    heavy_mode = True, use_exact_tcrdist_nbrs = True
-    )`  
+`pip install scanorama harmonypy bbknn`
 
-Rebuild the dictionary from the tmp files.
-`
-all_nbrs, nndist_gex, nndist_tcr = conga.preprocess.reconstruct_nbr_dict(
-    adata, nbr_fracs, 'tmp_nbr', 
-    use_exact_tcrdist_nbrs = True, 
-    also_calc_nndists = True,
-     nbr_frac_for_nndists = 0.1)
-`
+`Scanorama` and `Harmony` are applied using the new `conga.preprocess.batch_integration` function.
 
-The pickle can them be opened in an interactive session or in `run_conga.py` using the `--nbr_fracs_file` option
+`X_pca_gex` is replaced with the batch corrected version, and the original stored in `X_pca_gex_unintegrated`
+
+`BBKNN` is applied using `use_bbknn` and setting the `bbknn_batch_key` in `conga.preprocess.cluster_and_tsne_and_umap`
+
+* 2023-03-17 Revamp of `calc_nbrs` using `faiss`
+
+Computing and sorting pairwise distances is a bottleneck in the pipeline as dataset sizes continue to grow. 
+We have now implemented `faiss` in the `calc_nbrs` function leading for a dramatic increase in speed on large 
+datasets with negligble affects on accuracy. This is method is currently implemented for finding nbr fractions 
+when `X_pca_gex` and `X_pca_tcr` are in place. Using the `use_exact_tcrdist_nbrs` still calculates raw distances 
+prior to sorting and can still take some time. We are investigating methods for speeding up TCR nbr finding 
+when using raw distances.
+
+* 2023-03-06: Preprcessing with nbr calculations in `run_conga.py`
 
 `run_conga.py` now has a  `--preprocess_only` options that only returns the preprocessed h5ad file and the nbr_frac pickle.
 Analyses can then be run using `run_conga.py` with the `--restart` and `--nbr_fracs_file` options:

@@ -28,6 +28,7 @@ import re
 import time
 import scanpy.external as sce
 import faiss
+import bbknn
 
 # we also allow 'va' in place of 'va_gene' / 'ja' in place of 'ja_gene', etc:
 CLONES_FILE_REQUIRED_COLUMNS = 'clone_id va_gene ja_gene cdr3a cdr3a_nucseq vb_gene jb_gene cdr3b cdr3b_nucseq'.split()
@@ -681,13 +682,13 @@ def cluster_and_tsne_and_umap(
         n_neighbors=10, # used for umap and clustering
         n_gex_pcs=40, # only used if we have to compute them
         make_1d_umaps=True,
+        use_bbknn=False,
+        bbknn_batch_key=None,
         umap_min_dist=0.5, # these are the scanpy defaults
         umap_spread=1.0,
 ):
     '''calculates neighbors, tsne, louvain for both GEX and TCR
-
     stores in  adata:
-
     obsm: X_pca_gex (if not already present or if recompute_pca_gex==True)
     obsm: X_tsne_gex
     obsm: X_tsne_tcr
@@ -695,9 +696,11 @@ def cluster_and_tsne_and_umap(
     obsm: X_tcr_2d (same as) X_umap_tcr
     obs: clusters_gex (int version of) louvain_gex
     obs: clusters_tcr (int version of) louvain_tcr
-
     '''
     assert clustering_method in [None, 'louvain', 'leiden']
+
+    if use_bbknn:
+        assert bbknn_batch_key is not None,'Specify obs column for BBKNN'
 
     ncells = adata.shape[0]
 
@@ -733,7 +736,11 @@ def cluster_and_tsne_and_umap(
         adata.obsm['X_pca'] = adata.obsm['X_pca_'+tag]
         n_pcs = adata.obsm['X_pca'].shape[1]
         #n_pcs = n_gex_pcs_for_neighbors if tag=='gex' else n_tcr_pcs_for_neighbors
-        sc.pp.neighbors(adata, n_neighbors=n_neighbors, n_pcs=n_pcs)
+        if use_bbknn and tag == 'gex':
+            print(f"Using BBKNN for GEX neighbors with batch_key = {bbknn_batch_key}")
+            bbknn.bbknn(adata, batch_key=bbknn_batch_key, n_pcs=n_pcs)
+        else:
+            sc.pp.neighbors(adata, n_neighbors=n_neighbors, n_pcs=n_pcs)
         if not skip_tsne:
             sc.tl.tsne(adata, n_pcs=n_pcs)
             adata.obsm['X_tsne_'+tag] = adata.obsm['X_tsne']
