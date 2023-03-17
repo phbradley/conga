@@ -1,6 +1,6 @@
 # Used for cleaning up for metaconga. could be dropped later.
 from conga.tcrdist.all_genes import all_genes
-import regex as re
+import re
 
 def tcr_qc(adata, species):
     assert species in ['mouse', 'human', 'mouse_gd', 'human_gd', 'human_ig']

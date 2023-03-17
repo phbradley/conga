@@ -21,16 +21,13 @@ from sys import exit
 from . import tcr_scoring
 from . import util
 from . import pmhc_scoring
-from . import plotting
 from .tcrdist.tcr_distances import TcrDistCalculator
 from .util import tcrdist_cpp_available
-import concurrent.futures
-import uuid
-import threading
 import glob
 import re
 import time
 import scanpy.external as sce
+import faiss
 
 # we also allow 'va' in place of 'va_gene' / 'ja' in place of 'ja_gene', etc:
 CLONES_FILE_REQUIRED_COLUMNS = 'clone_id va_gene ja_gene cdr3a cdr3a_nucseq vb_gene jb_gene cdr3b cdr3b_nucseq'.split()
@@ -822,9 +819,6 @@ def filter_and_scale(
         # switch to arpack for better reproducibility
         sc.tl.pca(adata, svd_solver='arpack',
                   n_comps=min(adata.shape[0]-1, n_pcs))
-        pca_tag = 'X_pca'
-    else:
-        pca_tag = use_existing_pca_obsm_tag
 
     return adata
 
@@ -971,8 +965,6 @@ def reduce_to_single_cell_per_clone(
         adata_new = AnnData( X = new_X, obs = adata.obs, var = adata.raw.var )
         adata.raw = adata_new
 
-
-
     if batch_keys is not None:
         for k in batch_keys:
             counts = np.array(clone_batch_counts[k])
@@ -1002,21 +994,21 @@ def batch_integration(
     **kwargs):
 
     ''' returns adata
-
     Uses scanpy external API to apply scanorama and harmony for batch correction
-
     X_pca_gex is replaced with the adjusted PCA after batch correction
-
     adjusted_basis should remain X_pca_gex for downstream preprocessing
     '''
     assert method in ['scanorama', 'harmony']
 
-    if method == 'scanorma':
+    if method == 'scanorama':
         sce.pp.scanorama_integrate(adata, key, basis, adjusted_basis, **kwargs)
     else:
+        adata.obs['batch'] = adata.obs['batch'].astype('category')
         sce.pp.harmony_integrate(adata, key, basis, adjusted_basis, **kwargs)
 
+    adata.obsm['X_pca_gex_unintegrated'] = adata.obsm['X_pca']
     adata.obsm['X_pca_gex'] = adata.obsm['X_batch']
+
     return adata
 
 def write_proj_info( adata, outfile ):
@@ -1052,31 +1044,14 @@ def setup_tcr_groups( adata ):
     return setup_tcr_groups_for_tcrs(
         retrieve_tcrs_from_adata(adata, include_subject_id_if_present=True))
 
-def _calc_nndists( D, nbrs ):
-    batch_size, num_nbrs = nbrs.shape
-    assert D.shape[0] == batch_size
-    sample_range = np.arange(batch_size)[:, np.newaxis]
-    nbrs_sorted = nbrs[sample_range, np.argsort(D[sample_range, nbrs])]
-    D_nbrs_sorted = D[sample_range, nbrs_sorted]
+def _calc_nndists( D ):
+    num_nbrs = D.shape[1]
     wts = np.linspace(1.0, 1.0/num_nbrs, num_nbrs)
     wts /= np.sum(wts)
-    nndists = np.sum( D_nbrs_sorted * wts[np.newaxis,:], axis=1)
-    assert nndists.shape==(batch_size,)
+    nndists = np.sum( D * wts[np.newaxis,:], axis=1)
     return nndists
 
-def _calc_nndists_old( D, nbrs ):
-    num_clones, num_nbrs = nbrs.shape
-    assert D.shape ==(num_clones, num_clones)
-    sample_range = np.arange(num_clones)[:, np.newaxis]
-    nbrs_sorted = nbrs[sample_range, np.argsort(D[sample_range, nbrs])]
-    D_nbrs_sorted = D[sample_range, nbrs_sorted]
-    wts = np.linspace(1.0, 1.0/num_nbrs, num_nbrs)
-    wts /= np.sum(wts)
-    nndists = np.sum( D_nbrs_sorted * wts[np.newaxis,:], axis=1)
-    assert nndists.shape==(num_clones,)
-    return nndists
-
-def empty_nbr_dict(
+def empty_nbr_dict( # may drop
     adata, 
     nbr_fracs, 
     obsm_tag_gex, 
@@ -1097,7 +1072,7 @@ def empty_nbr_dict(
                 id(all_nbrs[nbr_frac][-1]))
     return all_nbrs
 
-def reconstruct_nbr_dict(
+def reconstruct_nbr_dict( # may drop later
     adata, 
     nbr_fracs, 
     path,
@@ -1153,7 +1128,7 @@ def reconstruct_nbr_dict(
 
     return all_nbrs
 
-def tcr_nbr_from_tmp(
+def tcr_nbr_from_tmp( 
         adata,
         nbr_fracs,
         nbr_frac_for_nndists = None,
@@ -1233,152 +1208,6 @@ def tcr_nbr_from_tmp(
 
     return all_nbrs, nndists
 
-def distcalc(args):
-    pos = args[0]
-    obsm_tag = args[1]
-    X = args[2]
-    batch = args[3]
-    runid = args[4]
-    nbr_frac = args[5]
-    dir = args[6]
-    also_calc_nndists = args[7]
-
-
-    uid = 'batch' + str(int(batch)) + '_' + obsm_tag + '_' + str(runid)
-
-    #calc dist matrix
-    D = pairwise_distances(X[pos[0]:pos[1], :], X)
-
-    # sort and save nbr fractions
-    sort_I = np.argsort(D, kind='mergesort') #sorted nbr indexes
-    print('done ' + uid)
-    np.savetxt(f'{dir}/' + uid + '.csv',
-               sort_I[:, :int(X.shape[0] * nbr_frac) + 1].astype(int),fmt='%i',
-               delimiter=",")
-    print(uid + '.csv')
-
-    nndist = []
-    if also_calc_nndists:
-        num_neighbors = max(1, int(nbr_frac*X.shape[0]))
-        nbrs = np.argpartition( D, num_neighbors-1 )[:,:num_neighbors]
-        nndist = _calc_nndists(D, nbrs)
-
-    return nndist
-
-def calc_nbrs_futures( 
-    adata, 
-    obsm_tag, 
-    nbr_fracs, 
-    target_N_for_batching, 
-    dir,
-    also_calc_nndists = False):
-
-    N = adata.shape[0]
-    # try for a dataset size of target_N, ie batch_size*N = target_N**2,
-    #   batch_size = target_N**2 / N
-    batch_size = max(10, int(target_N_for_batching**2/N))
-    num_batches = (N-1)//batch_size + 1
-
-    agroups, bgroups = setup_tcr_groups(adata)
-    X = adata.obsm[obsm_tag]
-
-    runid=uuid.uuid1()
-    inds = []
-    for bb in range(num_batches):
-        b_start = bb * batch_size
-        b_stop = min(N, (bb + 1) * batch_size)
-        batch_indices = np.arange(b_start, b_stop)
-        inds.append(((b_start, b_stop), obsm_tag, X, bb, runid ,np.max(nbr_fracs), dir, also_calc_nndists)) #calculate the largest nbr fraction in batches
-    
-    start = time.time()
-
-    nndists = []
-    try:
-        with concurrent.futures.ThreadPoolExecutor() as exector:
-            ftrs = exector.map(distcalc, inds)
-            for f in ftrs:
-                nndists.append(f)
-            exector.shutdown()
-    except Exception as e:
-        print(e)
-        stop = time.time()
-        print("Errored out after %f" % (stop - start))
-    stop = time.time()
-    print("Finished after %f" % (stop - start))
-
-    if also_calc_nndists:
-        return np.hstack(nndists)
-
-def calc_nbrs_batched(
-        adata,
-        nbr_fracs,
-        obsm_tag_gex = 'X_pca_gex',
-        obsm_tag_tcr = 'X_pca_tcr', # set to None to skip tcr calc
-        also_calc_nndists = False,
-        nbr_frac_for_nndists = None,
-        heavy_mode = False,
-        target_N_for_batching = 8192,
-        use_exact_tcrdist_nbrs = False,
-):
-    ''' returns dict mapping from nbr_frac to [nbrs_gex, nbrs_tcr]
-    nbrs exclude self and any clones in same atcr group or btcr group
-    '''
-
-    if also_calc_nndists:
-        assert nbr_frac_for_nndists in nbr_fracs
-
-    if use_exact_tcrdist_nbrs:
-        obsm_tag_tcr = None # dont do the standard calculation
-
-    if obsm_tag_tcr is not None and obsm_tag_tcr not in adata.obsm_keys():
-        print('calc_nbrs: obsm_tag_tcr not present in adata.obsm so'
-              ' calculating exact tcrdist nbrs')
-        obsm_tag_tcr = None
-        use_exact_tcrdist_nbrs = True
-
-    N = adata.shape[0]
-
-    runid=uuid.uuid1()
-    tmp_dir = f'tmp_nbr_{runid}'
-    os.mkdir(tmp_dir)
-    if heavy_mode:
-        #write it all and save for later
-        assert util.tcrdist_cpp_available(), "heavy_mode requires complimation of find_neighbors.cc"
-        also_calc_nndists = True 
-        adata.obs['nndists_gex'] = calc_nbrs_futures(adata, obsm_tag_gex, nbr_fracs, target_N_for_batching, also_calc_nndists )
-        calculate_tcrdist_nbrs( 
-            adata, nbr_fracs, return_array = False, 
-            nbr_frac_for_nndists = nbr_frac_for_nndists, 
-            tmpfile_prefix=f'{tmp_dir}/tcr_nbr', 
-            remove_tmp_files =False)
-    else:
-        
-        for (tag, obsm_tag) in [['gex', obsm_tag_gex], ['tcr', obsm_tag_tcr]]:
-            if obsm_tag is None or (use_exact_tcrdist_nbrs and tag =='tcr'):
-                calculate_tcrdist_nbrs( 
-                    adata, nbr_fracs,  
-                    return_array = False, 
-                    nbr_frac_for_nndists = nbr_frac_for_nndists, 
-                    tmpfile_prefix=f'{tmp_dir}/tcr_nbr', 
-                    remove_tmp_files =False)
-            else:
-                nndists = calc_nbrs_futures(adata, obsm_tag, nbr_fracs, target_N_for_batching, also_calc_nndists )
-                if also_calc_nndists:
-                    adata.obs[f'nndists_{tag}'] = nndists
-
-        all_nbrs = reconstruct_nbr_dict( 
-            adata, nbr_fracs, path = f'{tmp_dir}/tcr_nbr', 
-            use_exact_tcrdist_nbrs = use_exact_tcrdist_nbrs, 
-            nbr_frac_for_nndists = nbr_frac_for_nndists,
-            remove_tmp_files = True)
-
-        try:
-            os.rmdir(tmp_dir)
-        except:
-            print(f"Keeping {tmp_dir}, files still remaining in directory.")
-
-        return all_nbrs
-
 def calc_nbrs(
         adata,
         nbr_fracs,
@@ -1386,23 +1215,14 @@ def calc_nbrs(
         obsm_tag_tcr = 'X_pca_tcr', # set to None to skip tcr calc
         also_calc_nndists = False,
         nbr_frac_for_nndists = None,
-        heavy_mode = False,
-        target_N_for_batching = 8192,
         use_exact_tcrdist_nbrs = False,
         tmpfile_prefix = None, # only used if use_exact_tcrdist_nbrs and CPP
         sort_nbrs = False,
 ):
-    ''' returns dict mapping from nbr_frac to [nbrs_gex, nbrs_tcr]
+    ''' returns dict mapping from nbr_fracs to [nbrs_gex, nbrs_tcr]
 
     nbrs exclude self and any clones in same atcr group or btcr group
     '''
-    start = time.time()
-    if (adata.shape[0] > 1.25*target_N_for_batching and not sort_nbrs) or heavy_mode: ## EARLY RETURN
-        return calc_nbrs_batched(
-            adata, nbr_fracs, obsm_tag_gex, obsm_tag_tcr, also_calc_nndists,
-            nbr_frac_for_nndists, heavy_mode, target_N_for_batching,
-            use_exact_tcrdist_nbrs=use_exact_tcrdist_nbrs,
-            tmpfile_prefix=tmpfile_prefix)
 
     if also_calc_nndists:
         assert nbr_frac_for_nndists in nbr_fracs
@@ -1416,44 +1236,94 @@ def calc_nbrs(
         obsm_tag_tcr = None
         use_exact_tcrdist_nbrs = True
 
+    nbr_fracs = sorted(nbr_fracs, reverse = True)
     all_nbrs = empty_nbr_dict(adata, nbr_fracs, obsm_tag_gex, obsm_tag_tcr)
     nndists = [ None, None ]
 
     agroups, bgroups = setup_tcr_groups(adata)
+
+    #find neighbors for largest fraction first
     for itag, (tag, obsm_tag) in enumerate([['gex', obsm_tag_gex], ['tcr', obsm_tag_tcr]]):
         if obsm_tag is None:
             print('skipping', tag, 'nbr calc:', obsm_tag)
             continue
 
-        print('compute D', tag, adata.shape[0])
-        D = pairwise_distances( adata.obsm[obsm_tag], metric='euclidean' )
+        print(f'Indexing {tag}')
+        start = time.time()
+        #set dims
+        obs_l = adata.obsm[obsm_tag].shape[0]
+        d = adata.obsm[obsm_tag].shape[1]
+        #index
+        index = faiss.IndexFlatL2(d)
+        index.add(np.float32(np.ascontiguousarray(adata.obsm[obsm_tag])))
+
+        print(f'Finding {tag} nbrs for {obs_l} clonotypes')
+        N_nbrs = max(1, int(np.max(nbr_fracs)*obs_l))
+        
+        #take double the nbrs. this will be sliced down to N_nbrs below. 
+        D, I = index.search(np.float32(np.ascontiguousarray(adata.obsm[obsm_tag])), N_nbrs*2 ) 
+
+        # faster sorting based on k but trickier to account for atcr, btcr
+        #D, I = index.search(np.float32(np.ascontiguousarray(adata.obsm[obsm_tag])), N_nbrs + 1) 
+        #D = D[:,1:]
+        #I = I[:,1:]
+
+        #alt method for fast pwdist but needs to be sorted
+        #nb = adata.obsm['X_pca_gex'].shape[0]
+        #dim = adata.obsm['X_pca_gex'].shape[1]
+                                                                                                
+        # pre-allocate space for the result
+        #D = np.zeros((nb, nb), dtype=np.float32)
+
+        #faiss.pairwise_L2sqr(
+        #    dim, 
+        #    nb, faiss.swig_ptr(adata.obsm['X_pca_gex']), 
+        #    nb, faiss.swig_ptr(adata.obsm['X_pca_gex']),
+        #    faiss.swig_ptr(result))
+
+        sliced_D = np.empty([obs_l ,N_nbrs] )
+        sliced_I = np.empty([obs_l ,N_nbrs] )
         for ii,(a,b) in enumerate(zip(agroups, bgroups)):
-            D[ii, (agroups==a) ] = 1e3
-            D[ii, (bgroups==b) ] = 1e3
+            xtcr = np.unique(np.concatenate([np.where(agroups==a), np.where(bgroups==b)],1))
+            xtcr_i = np.intersect1d(I[ii], xtcr, assume_unique=True, return_indices=True)
+            sliced_I[ii] = np.delete(I[ii], xtcr_i[1])[:N_nbrs] #slice to the max nbr set after filtering atcr, btcr
+            sliced_D[ii] = np.delete(D[ii], xtcr_i[1])[:N_nbrs] 
+            #it might be prudent to put a catch in case sliced_I[ii] < N_nbrs. double the k and try again
+        del D, I
 
-        for nbr_frac in nbr_fracs:
-            num_neighbors = max(1, int(nbr_frac*adata.shape[0]))
-            print('argpartitions:', nbr_frac, adata.shape[0], tag)
-            nbrs = np.argpartition( D, num_neighbors-1 )[:,:num_neighbors] # will NOT include self in there
-            if sort_nbrs:
-                ar = np.arange(adata.shape[0])[:,None]
-                inds = np.argsort(D[ar, nbrs])
-                nbrs = nbrs[ar, inds]
-                # hacking:
-                # d0 = D[np.arange(adata.shape[0]), nbrs[:,0]]
-                # d1 = D[np.arange(adata.shape[0]), nbrs[:,-1]]
-                # assert all(d0 <= d1)
-                # print('yay!')
-            assert nbrs.shape == (adata.shape[0], num_neighbors)
-            all_nbrs[nbr_frac][itag] = nbrs
+        assert sliced_I.shape[1] == N_nbrs
+        all_nbrs[np.max(nbr_fracs)][itag] = np.int32(sliced_I)
 
-            if also_calc_nndists and nbr_frac == nbr_frac_for_nndists:
-                print('calculate nndists:', tag, nbr_frac)
-                nndists[itag] = _calc_nndists( D, nbrs )
-                print('DONE calculating nndists:', tag, nbr_frac)
+        if also_calc_nndists and np.max(nbr_fracs) == nbr_frac_for_nndists:
+            nndists[itag] = _calc_nndists( sliced_D )
+            print('DONE calculating nndists:', tag, np.max(nbr_fracs))
+    
+        if len(nbr_fracs) > 1:
+            for nbr_frac in nbr_fracs:
+                if nbr_frac == np.max(nbr_fracs):
+                    next
+                else:
+                    N_nbrs = max(1, int(nbr_frac*obs_l)) 
+                    sliced_D = sliced_D[:,:N_nbrs]
+                    sliced_I = sliced_I[:,:N_nbrs]
 
+                    assert sliced_I.shape[1] == N_nbrs
+
+                    all_nbrs[nbr_frac][itag] = np.int32(sliced_I)
+
+                    if also_calc_nndists and nbr_frac == nbr_frac_for_nndists:
+                        nndists[itag] = _calc_nndists( sliced_D )
+                        print('DONE calculating nndists:', tag, nbr_frac)
+        
+        stop = time.time()
+        print(f"Finished {tag} nbrs in {round((stop - start))} seconds")
 
     if use_exact_tcrdist_nbrs:
+
+        nbr_fracs = sorted(nbr_fracs)
+        print("Starting tcr nbr calculations using raw tcrdist")
+        start = time.time()
+
         tcr_nbrs, tcr_nndists = calculate_tcrdist_nbrs(
             adata, nbr_fracs,
             return_array = True,
@@ -1461,18 +1331,22 @@ def calc_nbrs(
             sort_nbrs=sort_nbrs,
             tmpfile_prefix=tmpfile_prefix,
             remove_tmp_files = True)
+
         for nbr_frac in nbr_fracs:
             nbrs_gex,_ = all_nbrs[nbr_frac]
             all_nbrs[nbr_frac] = [nbrs_gex, tcr_nbrs[nbr_frac]]
+
         nndists[1] = tcr_nndists
 
-    stop = time.time()
-    print("Finished after %f" % (stop - start))
+        stop = time.time()
+        print(f"Finished raw tcr nbrs in {round((stop - start))} seconds")
+
     if also_calc_nndists:
-        return all_nbrs, nndists[0], nndists[1]
+        adata.obs['nndists_gex']  = nndists[0]
+        adata.obs['nndists_tcr']  = nndists[1]
+        return all_nbrs
     else:
         return all_nbrs
-
 
 def calculate_tcrdist_nbrs(
         adata,
@@ -2146,261 +2020,6 @@ def calc_tcrdist_matrix_cpp(
         os.remove(filename)
 
     return D
-
-"""
-New experimental functions for enhancing interative flexibility
-"""
-def Prep_for_CoNGA(
-        adata,
-        clones_file,
-        output_prefix = None,
-        second_clones_file = None,
-        write_full_clone_df = True,
-):
-    ''' prepares adata object generated thru std scanpy workflow for CoNGA analysis.
-
-    Uses clones DataFrame generated by make_10x_clone_file or make_10x_clone_file_batch as input.
-    Clonotype information gets stored in adata.obs under multiple keys
-    TCRdist kPCA info in adata.obsm under the key 'X_pca_tcr' or 'X_pca_bcr'
-    returns adata
-
-    '''
-
-    combo_pipe = False
-    single_pipe = False
-    organism = adata.uns['organism']
-
-    if second_clones_file is None:
-        single_pipe = True
-    else:
-        combo_pipe = True
-
-
-    if single_pipe:
-
-        bcmap_file = clones_file +'.barcode_mapping.tsv'
-
-        assert exists(clones_file)
-        assert exists(bcmap_file)
-
-        #these steps might be worth moving up to make_10x_clone_file
-        clone_df = pd.read_csv( clones_file, sep='\t')
-        barcode_map = pd.read_csv( bcmap_file ,sep='\t')
-
-        tag = clone_df.iloc[0,0].split('_')[0]
-
-        if tag == 'bcr':
-            organism = organism + '_ig'
-
-        #melt the barcode map
-        wide_bc = barcode_map['barcodes'].str.split(',', expand=True).copy()
-        wide_bc['clone_id'] = barcode_map['clone_id']
-
-        long_bc = ( wide_bc.melt( id_vars=['clone_id'] , var_name='cell', value_name='barcode')
-                   .dropna()
-                   .drop(columns=['cell'])
-                   .copy()
-                   )
-
-        #merge barcodes and clone_df
-        clone_df_full = pd.merge( long_bc , clone_df, how='left', on= 'clone_id')
-        clone_df_full = clone_df_full.set_index('barcode')
-        clone_df_full['rep_type'] = tag
-        clone_df_full = clone_df_full.rename(columns={ "va_gene": "va", "ja_gene": "ja", "vb_gene": "vb", "jb_gene": "jb"})
-        mapped_cells = len( clone_df_full.index )
-        uclones = clone_df_full['clone_id'].nunique()
-
-        print(f'{mapped_cells} cells with {tag} info')
-        print(f'{uclones} unique {tag} clonotypes')
-
-        if write_full_clone_df:
-            full_file = clones_file[:-4]+'_full.tsv'
-            clone_df_full.to_csv( full_file , sep = '\t')
-
-        #add clone info into obs
-        adata.obs = adata.obs.join(clone_df_full)
-
-        #add kpca to adata.obsm
-
-        # add option to tune kernel pcs parameters in the future
-        kpcs = make_tcrdist_kernel_pcs_file_from_clones_file_V2( clones_file, organism, output_prefix)
-
-        kpcs_df = pd.DataFrame( data= kpcs )
-        kpcs_df['clone_id'] = clone_df['clone_id']
-        clones_tmp = adata.obs['clone_id']
-        kpcs_full = pd.merge( clones_tmp, kpcs_df, how='left',on= 'clone_id')
-        kpcs_full['clone_id'] = adata.obs.index
-
-        X_kpca = kpcs_full.to_numpy()
-        adata.obsm[f'X_pca_{tag}'] = X_kpca
-
-        return adata
-
-    elif combo_pipe:
-
-        bcmap_file_1 = clones_file +'.barcode_mapping.tsv'
-        bcmap_file_2 = second_clones_file +'.barcode_mapping.tsv'
-
-        assert exists(clones_file)
-        assert exists(bcmap_file_1)
-        assert exists(second_clones_file)
-        assert exists(bcmap_file_2)
-
-        list_in = [[clones_file, bcmap_file_1] , [second_clones_file, bcmap_file_2] ]
-        combo_clones = pd.DataFrame()
-
-        for row in list_in:
-            clones_file = row[0]
-            bcmap_file = row[1]
-
-            #these steps might be worth moving up to make_10x_clone_file
-            clone_df = pd.read_csv( clones_file, sep='\t')
-            barcode_map = pd.read_csv( bcmap_file ,sep='\t')
-            tag = clone_df.iloc[0,0].split('_')[0]
-
-            organism = adata.uns['organism']
-
-            if tag == 'bcr':
-                organism = organism + '_ig'
-
-            #melt the barcode map
-            wide_bc = barcode_map['barcodes'].str.split(',', expand=True).copy()
-            wide_bc['clone_id'] = barcode_map['clone_id']
-
-            long_bc = ( wide_bc.melt( id_vars=['clone_id'] , var_name='cell', value_name='barcode')
-                       .dropna()
-                       .drop(columns=['cell'])
-                       .copy()
-                       )
-
-            #merge barcodes and clone_df
-            clone_df_full = pd.merge( long_bc , clone_df, how='left', on= 'clone_id')
-            clone_df_full = clone_df_full.set_index('barcode')
-            clone_df_full['rep_type'] = tag
-            clone_df_full = clone_df_full.rename(columns={ "va_gene": "va", "ja_gene": "ja", "vb_gene": "vb", "jb_gene": "jb"})
-            mapped_cells = len( clone_df_full.index )
-            uclones = clone_df_full['clone_id'].nunique()
-            print(f'{mapped_cells} cells with repertoire info')
-            print(f'{uclones} unique clonotypes')
-
-            write_full_clone_df = True
-            if write_full_clone_df:
-                full_file = clones_file[:-4]+'_full.tsv'
-                clone_df_full.to_csv( full_file , sep = '\t')
-
-            combo_clones = pd.concat([combo_clones , clone_df_full])
-
-
-        #filter out collisions
-        combo_clones['collisions'] = combo_clones.index.value_counts()
-        doubles = combo_clones[ combo_clones.collisions > 1]
-        combo_clones_f = combo_clones[ combo_clones.collisions == 1].copy()
-        combo_clones_f = combo_clones_f.drop( columns = ['collisions'] )
-
-        #add to obs
-        adata.obs = adata.obs.join(combo_clones_f)
-
-        #filter out
-        print( f'{int(len(doubles) /2) } cells containing TCR and BCR information filtered out')
-        adata = adata[ ~ adata.obs.index.isin( doubles.index.to_list() ) , :]
-
-
-        # run tcrdist and perform kpca on clones tables without doublets
-        new_tcr = (adata.obs[ adata.obs.rep_type == 'tcr'].copy()
-                   .drop_duplicates(subset = 'clone_id')
-                   )
-
-        new_bcr = (adata.obs[ adata.obs.rep_type == 'bcr'].copy()
-                   .drop_duplicates(subset = 'clone_id')
-                   )
-
-
-        tick = 0
-        for df in new_tcr, new_bcr:
-
-            organism = adata.uns['organism']
-
-            if tick == 1:
-                tag = 'bcr'
-                organism = organism + '_ig'
-            else:
-                tag = 'tcr'
-
-            #calc TCRdist
-            kpcs = make_tcrdist_kernel_pcs_file_from_clones_file_V2( df, organism)
-            kpcs_df = pd.DataFrame( data= kpcs, index = df.clone_id)
-            kpcs_df = kpcs_df.reset_index()
-
-            clones_tmp =  ( adata.obs['clone_id'].copy()
-                           .reset_index()
-                           )
-
-            kpcs_full = pd.merge( clones_tmp, kpcs_df, 'left', on= 'clone_id')
-            kpcs_full = kpcs_full.set_index('index')
-
-            X_kpca = kpcs_full.to_numpy()
-            adata.obsm[f'X_pca_{tag}'] = X_kpca
-
-            tick += 1
-
-
-        return adata
-
-
-def make_tcrdist_kernel_pcs_file_from_clones_file_V2(
-        df,
-        organism,
-        output_prefix = None,
-        n_components_in=50,
-        kernel=None, # either None (-->default) or 'gaussian'
-        gaussian_kernel_sdev=100.0, #unused unless kernel=='gaussian'
-        verbose = False,
-        force_Dmax = None,
-):
-
-
-    # in conga we usually also have cdr3_nucseq but we don't need it for tcrdist; we also don't need the jgene but hey
-    tcrs = [ ( ( l.va, l.ja, l.cdr3a ), ( l.vb, l.jb, l.cdr3b ) ) for l in df.itertuples() ]
-    #ids = [ l.clone_id for l in df.itertuples() ]
-
-    print(f'compute tcrdist distance matrix for {len(tcrs)} clonotypes')
-
-    if tcrdist_cpp_available():
-        print('Using C++ TCRdist calculator')
-        D = calc_tcrdist_matrix_cpp(tcrs, organism, outfile)
-    else:
-        print('Using Python TCRdist calculator. Consider compiling C++ calculator for faster perfomance.')
-        tcrdist_calculator = TcrDistCalculator(organism)
-        D = np.array( [ tcrdist_calculator(x,y) for x in tcrs for y in tcrs ] ).reshape( (len(tcrs), len(tcrs)) )
-
-    n_components = min( n_components_in, D.shape[0] )
-
-    print(f'running KernelPCA with {kernel} kernel distance matrix shape= {D.shape} D.max()= {D.max()} force_Dmax= {force_Dmax}')
-
-    pca = KernelPCA(kernel='precomputed', n_components=n_components)
-
-    if kernel is None:
-        if force_Dmax is None:
-            force_Dmax = D.max()
-        gram = np.maximum(0.0, 1 - ( D / force_Dmax ))
-    elif kernel == 'gaussian':
-        gram = np.exp(-0.5 * (D/gaussian_kernel_sdev)**2 )
-    else:
-        print('conga.preprocess.make_tcrdist_kernel_pcs_file_from_clones_file:: unrecognized kernel:', kernel)
-        sys.exit(1)
-
-    xy = pca.fit_transform(gram)
-
-    if verbose: #show the eigenvalues
-        for ii in range(n_components):
-            print( 'eigenvalue: {:3d} {:.3f}'.format( ii, pca.lambdas_[ii]))
-
-    # expt with saving in numpy format
-    #need to make more specific name
-    #array_out =  f'{tag}.dist_{n_components}_kpcs.npy'
-    #np.save( array_out,  xy)
-
-    return xy
 
 
 def subset_to_CD4_or_CD8_clusters(
