@@ -28,7 +28,6 @@ import re
 import time
 import scanpy.external as sce
 import faiss
-import bbknn
 
 # we also allow 'va' in place of 'va_gene' / 'ja' in place of 'ja_gene', etc:
 CLONES_FILE_REQUIRED_COLUMNS = 'clone_id va_gene ja_gene cdr3a cdr3a_nucseq vb_gene jb_gene cdr3b cdr3b_nucseq'.split()
@@ -700,7 +699,12 @@ def cluster_and_tsne_and_umap(
     assert clustering_method in [None, 'louvain', 'leiden']
 
     if use_bbknn:
+        
         assert bbknn_batch_key is not None,'Specify obs column for BBKNN'
+        try:
+            import bbknn
+        except:
+            print('Install bbknn')
 
     ncells = adata.shape[0]
 
@@ -1005,13 +1009,29 @@ def batch_integration(
     X_pca_gex is replaced with the adjusted PCA after batch correction
     adjusted_basis should remain X_pca_gex for downstream preprocessing
     '''
-    assert method in ['scanorama', 'harmony']
+    assert method in ['scanorama', 'harmony', 'scvi']
 
     if method == 'scanorama':
         sce.pp.scanorama_integrate(adata, key, basis, adjusted_basis, **kwargs)
-    else:
-        adata.obs['batch'] = adata.obs['batch'].astype('category')
-        sce.pp.harmony_integrate(adata, key, basis, adjusted_basis, **kwargs)
+    elif method == 'harmony':
+        new_key = f'{key}_cat'
+        adata.obs[new_key] = adata.obs[key].astype('category')
+        sce.pp.harmony_integrate(adata, key = new_key, basis, adjusted_basis, **kwargs)
+    elif method =='scvi':
+        try:
+            import scvi
+        except:
+            print('Install scVI')
+
+        scvi.model.SCVI.setup_anndata( 
+            adata, layer="counts", 
+            categorical_covariate_keys= key, 
+            continuous_covariate_keys=["percent_mito"], 
+            **kwargs)
+            
+        model = scvi.model.SCVI(adata)
+        model.train()
+        adata.obsm["X_batch"] = model.get_latent_representation()
 
     adata.obsm['X_pca_gex_unintegrated'] = adata.obsm['X_pca']
     adata.obsm['X_pca_gex'] = adata.obsm['X_batch']
