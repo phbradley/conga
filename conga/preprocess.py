@@ -263,6 +263,11 @@ def read_dataset(
 
     adata = read_adata(gex_data, gex_data_type, gex_only=gex_only)
 
+    #stash counts
+    print('Logging counts matrix')
+    adata.layers['counts'] = adata.X.copy()
+
+
     util.setup_uns_dicts(adata) # for storing conga results
 
     adata.uns['conga_stats']['num_cells_w_gex'] = adata.shape[0]
@@ -439,6 +444,8 @@ def filter_normalize_and_hvg(
     util.setup_uns_dicts(adata) # in case not set
 
     organism = adata.uns['organism']
+
+    #log the counts matrix
 
     if min_genes_per_cell is None:
         min_genes_per_cell = 200
@@ -1024,7 +1031,7 @@ def batch_integration(
 
         scvi.model.SCVI.setup_anndata( 
             adata, layer="counts", 
-            categorical_covariate_keys= key, 
+            categorical_covariate_keys= [key], 
             continuous_covariate_keys=["percent_mito"], 
             **kwargs)
             
