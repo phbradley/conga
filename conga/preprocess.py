@@ -1014,9 +1014,8 @@ def batch_integration(
     if method == 'scanorama':
         sce.pp.scanorama_integrate(adata, key, basis, adjusted_basis, **kwargs)
     elif method == 'harmony':
-        new_key = f'{key}_cat'
-        adata.obs[new_key] = adata.obs[key].astype('category')
-        sce.pp.harmony_integrate(adata, key = new_key, basis, adjusted_basis, **kwargs)
+        adata.obs[key] = adata.obs[key].astype('category')
+        sce.pp.harmony_integrate(adata, key, basis, adjusted_basis, **kwargs)
     elif method =='scvi':
         try:
             import scvi
