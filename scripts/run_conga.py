@@ -741,22 +741,20 @@ obsm_tag_tcr = None if args.use_exact_tcrdist_nbrs else 'X_pca_tcr'
 if use_nbr_pickle:
     # reloading if no cells removed and restarting
     all_nbrs = pd.read_pickle(args.nbr_fracs_file)
-    try:
-        nndists_gex = adata.obs['nndists_gex'] 
-        nndists_tcr = adata.obs['nndists_tcr'] 
-    except:
-        print('nndist values not found in adata. Consider using preprcessed version "_final.h5ad"')
+    if 'nndists_gex' not in adata.obs_keys():
+        try:
+            nndists_gex = adata.obs['nndists_gex'] 
+            nndists_tcr = adata.obs['nndists_tcr'] 
+        except:
+            print('nndist values not found in adata. Consider using preprcessed version "_final.h5ad"')
 else:
-    all_nbrs, nndists_gex, nndists_tcr =conga.preprocess.calc_nbrs(
+    all_nbrs = conga.preprocess.calc_nbrs(
         adata, args.nbr_fracs,
         also_calc_nndists = True, 
         nbr_frac_for_nndists = nbr_frac_for_nndists,
         obsm_tag_tcr = obsm_tag_tcr, 
         use_exact_tcrdist_nbrs = args.use_exact_tcrdist_nbrs
     )
-    # stash these in obs array, they are used in a few places...
-    adata.obs['nndists_gex'] = nndists_gex
-    adata.obs['nndists_tcr'] = nndists_tcr
 
     #save as a pickle for reruns
     nbr_pickle = args.outfile_prefix+'_all_nbrs.pkl'

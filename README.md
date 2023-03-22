@@ -262,11 +262,11 @@ python ~/conga/scripts/run_conga.py \
 # Updates
 * 2023-03-20 Batch integration enabled
 
-`Scanorama`, `Harmony`, and `BBKNN` are now enabled. To use these, you must fist install:
+`Scanorama`, `Harmony`,  `BBKNN`, and `scVI` are now enabled. To use these, you must fist install:
 
-`pip install scanorama harmonypy bbknn`
+`pip install scanorama harmonypy bbknn scvi-tools`
 
-`Scanorama` and `Harmony` are applied using the new `conga.preprocess.batch_integration` function.
+`Scanorama`,`Harmony`, and `scVI` are applied using the new `conga.preprocess.batch_integration` function.
 
 `X_pca_gex` is replaced with the batch corrected version, and the original stored in `X_pca_gex_unintegrated`
 
