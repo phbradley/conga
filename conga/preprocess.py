@@ -1019,11 +1019,16 @@ def batch_integration(
     assert method in ['scanorama', 'harmony', 'scvi']
 
     if method == 'scanorama':
+
         sce.pp.scanorama_integrate(adata, key, basis, adjusted_basis, **kwargs)
+
     elif method == 'harmony':
+
         adata.obs[key] = adata.obs[key].astype('category')
         sce.pp.harmony_integrate(adata, key, basis, adjusted_basis, **kwargs)
+
     elif method =='scvi':
+        
         try:
             import scvi
         except:

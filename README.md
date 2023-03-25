@@ -259,18 +259,51 @@ python ~/conga/scripts/run_conga.py \
 --outfile_prefix ../merged_pbmc_outs/merged_pbmc
 ```
 
-# Updates
-* 2023-03-20 Batch integration enabled
+# Batch integration
 
-`Scanorama`, `Harmony`,  `BBKNN`, and `scVI` are now enabled. To use these, you must fist install:
+`Scanorama`, `Harmony`,  `bbknn`, and `scVI` are now enabled. To use these, you must fist install:
 
 `pip install scanorama harmonypy bbknn scvi-tools`
 
-`Scanorama`,`Harmony`, and `scVI` are applied using the new `conga.preprocess.batch_integration` function.
+The option to use these can be involed in `run_conga.py` using `--batch_integration_method`
+and specifiying the `--batch_integration_key`. The output from `merge_samples.py` above 
+will have `adata.obs["batch"]`, which we can use as our key. Using `Harmony` as an example:
 
-`X_pca_gex` is replaced with the batch corrected version, and the original stored in `X_pca_gex_unintegrated`
+```
+python ~/conga/scripts/run_conga.py \
+--gex_data merged_pbmc_gex.h5ad \
+--gex_data_type h5ad \
+--clones_file merged_pbmc_clones.tsv \
+--organism human \
+--graph_vs_graph \
+--batch_integration_method harmony \
+--batch_integration_key batch \
+--outfile_prefix ../merged_pbmc_outs/merged_pbmc
+```
 
-`BBKNN` is applied using `use_bbknn` and setting the `bbknn_batch_key` in `conga.preprocess.cluster_and_tsne_and_umap`
+Interactively, `Scanorama`,`Harmony`, and `scVI` can be applied using `conga.preprocess.batch_integration`.
+
+```
+adata = conga.preprocess.filter_and_scale( adata )
+adata = conga.preprocess.batch_integration(adata, method = 'harmony', key = 'batch')
+adata = conga.preprocess.reduce_to_single_cell_per_clone(adata)
+adata = conga.preprocess.cluster_and_tsne_and_umap( adata )
+```
+`X_pca_gex` is replaced with the batch corrected embedding. The original can be found in `X_pca_gex_unintegrated`
+
+`bbknn` is applied using `use_bbknn = True` and setting the `bbknn_batch_key` in `conga.preprocess.cluster_and_tsne_and_umap`
+Here, `bbknn` is replacing `sc.pp.neighbors()` for making the neighbor graph from `X_pca_gex`.
+```
+adata = conga.preprocess.filter_and_scale( adata )
+adata = conga.preprocess.reduce_to_single_cell_per_clone(adata)
+adata = conga.preprocess.cluster_and_tsne_and_umap( adata, use_bbknn=True, bbknn_batch_key= 'batch')
+```
+
+NOTE: Batch correction is only applied on gene expression, of course.
+
+
+# Updates
+* 2023-03-20 Batch integration enabled. `sc.pp.pca()` now wrapped in `conga.preprocess.filter_and_scale()`
 
 * 2023-03-17 Revamp of `calc_nbrs` using `faiss`
 

@@ -127,8 +127,8 @@ parser.add_argument('--num_random_samples_for_tcr_matching', type=int,
                     default=50000)
 parser.add_argument('--clustering_method', choices=['louvain','leiden'])
 parser.add_argument('--clustering_resolution', type=float, default = 1.0)
-parser.add_argument('--use_bbknn', action= 'store_true', default = False)
-parser.add_argument('--bbknn_batch_key', type=str, nargs = 1, default=None )
+parser.add_argument('--batch_integration_method', choices=['scanorama','harmony','scvi','bbknn'], default=None)
+parser.add_argument('--batch_integration_key', type=str, nargs = 1, default=None )
 parser.add_argument('--make_hotspot_raw_feature_plots', action='store_true',
                     help='The default is just to plot the nbrhood-averaged'
                     ' values')
@@ -467,16 +467,13 @@ if args.restart is None: ################################## load GEX/TCR data
 
         print('pmhc_var_names:', adata.uns['pmhc_var_names'])
 
-    if args.use_bbknn:
-        try:
-            import bbknn
-        except:
-            print('BBKNN is not available. Please install.')
-        assert args.bbknn_batch_key is not None,'Specify obs column for BBKNN'
-        bbknn_batch_key = args.bbknn_batch_key.pop(0) # cannot be passed as a list
+    use_bbknn = True if args.batch_integration_method == 'bbknn' else False
+    if args.batch_integration_method is not None:
+        assert args.batch_integration_key is not None, 'Specify obs column for batch integration'
+        batch_key = args.batch_integration_key.pop(0) # cannot be passed as a list
     else:
-        bbknn_batch_key = args.bbknn_batch_key
-
+        batch_key = None
+        
     if args.bad_barcodes_file:
         bad_barcodes = frozenset([x[:-1] for x in open(args.bad_barcodes_file,
                                                        'rU')])
@@ -505,6 +502,10 @@ if args.restart is None: ################################## load GEX/TCR data
         min_genes_per_cell = args.min_genes_per_cell,
         max_percent_mito = args.max_percent_mito,
         outfile_prefix_for_qc_plots = outfile_prefix_for_qc_plots )
+
+    if args.batch_integration_method is not None and args.batch_integration_method != 'bbknn':
+        print(f'Starting batch integration with {args.batch_integration_method}')
+        adata = conga.preprocess.batch_integration(adata, method = args.batch_integration_method, key = batch_key)
 
     if args.filter_ribo_norm_low_cells:
         # this is sketchy
@@ -559,11 +560,14 @@ if args.restart is None: ################################## load GEX/TCR data
                              else args.clustering_resolution)
 
     print('run cluster_and_tsne_and_umap'); sys.stdout.flush()
+    if args.batch_integration_method == 'bbknn':
+        print(f'Starting batch integration with {args.batch_integration_method}')
+
     adata = conga.preprocess.cluster_and_tsne_and_umap(
         adata, clustering_resolution = clustering_resolution,
         clustering_method=args.clustering_method,
-        use_bbknn=args.use_bbknn,
-        bbknn_batch_key=bbknn_batch_key)
+        use_bbknn=use_bbknn,
+        bbknn_batch_key=batch_key)
 
     ###########################################################################
 else: ### restarting from a previous conga run
@@ -576,6 +580,9 @@ else: ### restarting from a previous conga run
     if 'organism' not in adata.uns_keys():
         assert args.organism
         adata.uns['organism'] = args.organism
+
+    if 'log1p' in adata.uns_keys():
+        adata.uns['log1p']["base"] = None #work around Anndata bug
 
     util.setup_uns_dicts(adata)
 
@@ -603,8 +610,8 @@ else: ### restarting from a previous conga run
         adata = conga.preprocess.cluster_and_tsne_and_umap(
             adata, clustering_method=args.clustering_method,
             clustering_resolution=args.clustering_resolution,
-            use_bbknn=args.use_bbknn,
-            bbknn_batch_key=bbknn_batch_key)
+            use_bbknn=use_bbknn,
+            bbknn_batch_key=batch_key)
 
 
     if args.shuffle_tcr_kpcs:
@@ -667,8 +674,8 @@ if args.exclude_gex_clusters:
     adata = conga.preprocess.cluster_and_tsne_and_umap(
         adata, clustering_method=args.clustering_method,
         clustering_resolution=args.clustering_resolution,
-        use_bbknn=args.use_bbknn,
-        bbknn_batch_key=bbknn_batch_key)
+        use_bbknn=use_bbknn,
+        bbknn_batch_key=batch_key)
 
 if args.subset_to_CD4 or args.subset_to_CD8:
     assert not (args.subset_to_CD4 and args.subset_to_CD8)
