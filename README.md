@@ -102,9 +102,8 @@ running CoNGA:
 ```
 conda create -n conga_env ipython python=3.9
 conda activate conga_env
-conda install seaborn scikit-learn statsmodels numba pytables
-pip install scanpy fastcluster python-louvain leidenalg igraph
-conda install pyyaml 
+conda install seaborn scikit-learn statsmodels numba pytables pyyaml
+pip install scanpy fastcluster python-louvain leidenalg igraph faiss-cpu
 conda install -c intel tbb # optional
 ```
 
