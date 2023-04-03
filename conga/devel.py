@@ -14,7 +14,6 @@ from sklearn.metrics import pairwise_distances
 from sklearn.decomposition import PCA
 from scipy.stats import hypergeom, mannwhitneyu, linregress, norm, ttest_ind, poisson
 import scipy.sparse as sps
-from scipy.sparse import issparse, csr_matrix
 from statsmodels.stats.multitest import multipletests
 from collections import Counter, OrderedDict
 import scanpy as sc
@@ -45,6 +44,12 @@ try:
 except:
     print('conga.devel:: failed to read human TFs list; prob not a big deal')
     human_tf_gene_names = []
+
+T_class_module_genes = Path.joinpath( Path(util.path_to_data),'T_cell_prediction_markers.tsv')
+assert exists(T_class_module_genes)
+
+models_path = Path.joinpath( Path(util.path_to_data), 'prediction_models')
+assert exists(models_path)
 
 def compute_distance_correlations( adata, verbose=False ):
     ''' return pvalues, rvalues  (each 1 1d numpy array of shape (num_clones,))
@@ -2503,6 +2508,34 @@ def create_conga_hits_adata(
 
     return adata
 
+def predict_T_cell_subset (adata, model = 'gradientBoost', use_raw = True):
+
+    assert adata.uns['organism'] == 'human', 'Model currently only supports human'
+    assert model in ['logreg','MLP','gradientBoost']
+    model_file = Path.joinpath( Path(models_path), f'{model}.sav')
+    assert exists(model_file), 'Model not found'
+    T_class_model = pd.read_pickle(model_file)
+    gs_df = pd.read_csv(T_class_module_genes, sep='\t' )
+
+    
+    # check if scores logged already
+    if 'Tcell_subset_scores' not in adata.uns_keys():
+        subsets = gs_df.cluster.unique()
+        for subset in subsets:
+            gene_set = gs_df.gene[gs_df.cluster == subset].tolist()
+            sc.tl.score_genes(adata, gene_set, score_name = subset, use_raw=use_raw)
+        cols_keeps = subsets.tolist()
+        print("logging adata.uns['Tcell_subset_scores']")
+        adata.uns['Tcell_subset_scores'] = adata.obs[cols_keeps].copy()
+        adata.obs = adata.obs.drop(columns = cols_keeps )
+
+    # prediction based on module scores
+    X = adata.uns['Tcell_subset_scores']
+    y_pred = T_class_model.predict(X)
+    adata.obs[f'T_cell_subset_{model}'] = y_pred
+    print(f"Prediction logged in adata.obs['T_cell_subset_{model}']")
+
+    return adata
 
 ## TEMPORARY CODE GRAVEYARD
 

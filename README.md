@@ -302,6 +302,17 @@ NOTE: Batch correction is only applied on gene expression, of course.
 
 
 # Updates
+
+* 2023-04-03 Addition of human T cell subset prediction model. 
+
+`conga.devel.predict_T_cell_subset()` uses a curated sets of genes characteristic of T cell subset and
+scores their expression for input into one of multiple available pre-trained models that will predict a label
+for each cell. Gradient boosted decision trees `gradientBoost`, logistic regression `logreg`, and 
+multilayer perceptron `MLP` models are available. 
+
+This is still developmental and meant to quickly provide some structure to the dataset.  
+
+
 * 2023-03-20 Batch integration enabled. `sc.pp.pca()` now wrapped in `conga.preprocess.filter_and_scale()`
 
 * 2023-03-17 Revamp of `calc_nbrs` using `faiss`
