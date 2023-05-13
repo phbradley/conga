@@ -64,7 +64,7 @@ parser.add_argument('--clones_file',
                     ' setup_10x_for_conga.py (for example)')
 parser.add_argument('--organism',
                     choices=['mouse', 'human', 'mouse_gd', 'human_gd',
-                             'human_ig'])
+                             'human_ig', 'rhesus', 'rhesus_gd'])
 parser.add_argument('--nbr_fracs', type=float, nargs='*', default=[0.01,0.1],
                     help='Size of neighborhoods to use in building K'
                     ' nearest neighbor graphs, expressed as a fraction'

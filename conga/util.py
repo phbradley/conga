@@ -73,6 +73,8 @@ organism2vdj_type = {
     'mouse_gd':TCR_GD_VDJ_TYPE,
     'human_ig':IG_VDJ_TYPE,
     'mouse_ig':IG_VDJ_TYPE,
+    'rhesus':TCR_AB_VDJ_TYPE,
+    'rhesus_gd':TCR_GD_VDJ_TYPE,
 }
 
 def is_vdj_gene( gene_upper, organism, include_constant_regions=False ):

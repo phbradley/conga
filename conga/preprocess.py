@@ -52,7 +52,7 @@ def add_mait_info_to_adata_obs( adata, key_added = 'is_invariant' ):
     tcrs = retrieve_tcrs_from_adata(adata)
     organism = 'human' if 'organism' not in adata.uns_keys() else \
                adata.uns['organism']
-    if 'human' in organism:
+    if 'human' or 'rhesus' in organism:
         is_mait = [ tcr_scoring.is_human_mait_alpha_chain(x[0]) for x in tcrs ]
         is_inkt = [ tcr_scoring.is_human_inkt_tcr(x) for x in tcrs ]
     else:

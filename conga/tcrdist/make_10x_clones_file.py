@@ -52,12 +52,12 @@ def fixup_gene_name( gene, gene_suffix, expected_gene_names ):
 def get_ab_from_10x_chain(chain, organism):
     ''' Returns None if the chain is not valid for this 'organism'
     '''
-    if organism in ['human', 'mouse']:
+    if organism in ['human', 'mouse', 'rhesus']:
         if chain in ['TRA','TRB']:
             return chain[2]
         else:
             return None
-    elif organism in ['human_gd','mouse_gd']:
+    elif organism in ['human_gd','mouse_gd', 'rhesus_gd']:
         if chain in ['TRA','TRG','TRD']:
             return 'A' if chain=='TRG' else 'B'
         else:

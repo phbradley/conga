@@ -41,6 +41,9 @@ default_logo_genes = {
     'mouse': ['Cd4', 'Cd8a', 'Cd8b1', 'Ccr7', 'Sell',
               'Itgal', 'Prf1', 'Gzma', 'Il2rb', 'Gzmk', 'Ifng',
               'Ccl5', 'Cxcr3', 'Zbtb16', 'Nkg7', 'Klrd1'],
+    'rhesus': ['CD4','CD8A','CD8B','CCR7','SELL',
+              'GNLY','PRF1','GZMA','IL7R','IKZF2','KLRD1',
+              'CCL5','ZNF683','KLRB1','NKG7','HLA-DRB1' ],
     # should probably specialize these
     'human_gd': ['CD4','CD8A','CD8B','CCR7','SELL',
                  'GNLY','PRF1','GZMA','IL7R','IKZF2','KLRD1',
@@ -48,6 +51,9 @@ default_logo_genes = {
     'mouse_gd': ['Cd4', 'Cd8a', 'Cd8b1', 'Ccr7', 'Sell',
                  'Itgal', 'Prf1', 'Gzma', 'Il2rb', 'Gzmk', 'Ifng',
                  'Ccl5', 'Cxcr3', 'Zbtb16', 'Nkg7', 'Klrd1'],
+    'rhesus_gd': ['CD4','CD8A','CD8B','CCR7','SELL',
+                 'GNLY','PRF1','GZMA','IL7R','IKZF2','KLRD1',
+                 'CCL5','ZNF683','KLRB1','NKG7','HLA-DRB1' ],
     # b cells
     'human_ig': ['IL4R','TCL1A','SELL','CRIP1','CD27',
                  'ZFP36','HLA-C','HLA-DRB1','COTL1','JCHAIN','XBP1',
@@ -58,6 +64,7 @@ default_logo_genes = {
 default_gex_header_genes = {
     'human': ['clone_sizes','CD4','CD8A','CD8B','SELL','GNLY','GZMA','CCL5','ZNF683','IKZF2','PDCD1','KLRB1'],
     'mouse': ['clone_sizes','Cd4', 'Cd8a', 'Cd8b1', 'Sell', 'Itgal', 'Gzma', 'Ccl5', 'Il2rb', 'Ikzf2', 'Pdcd1', 'Zbtb16'],
+    'rhesus': ['clone_sizes','CD4','CD8A','CD8B','SELL','GNLY','GZMA','CCL5','ZNF683','IKZF2','PDCD1','KLRB1'],
     'human_gd': ['clone_sizes','CD4','CD8A','CD8B','SELL','GNLY','GZMA','CCL5','ZNF683','IKZF2','PDCD1','KLRB1'],
     'mouse_gd': ['clone_sizes','Cd4', 'Cd8a', 'Cd8b1', 'Sell', 'Itgal', 'Gzma', 'Ccl5', 'Il2rb', 'Ikzf2', 'Pdcd1', 'Zbtb16'],
     'human_ig': ['clone_sizes','IL4R','TCL1A','SELL','IGKC','HLA-DRB1','CD27','JCHAIN','XBP1','COTL1','EGR1','IGHM'],
@@ -2029,11 +2036,11 @@ def make_clone_batch_clustermaps(
                     .format( batch_key, num_choices)
 
 
-        if show_mait_and_inkt_clones and organism in ['human','mouse']:
+        if show_mait_and_inkt_clones and organism in ['human','mouse','rhesus']:
             colors = []
             for ii in top_clone_indices:
                 tcr = tcrs[ii]
-                if organism == 'human':
+                if organism in ['human','rhesus']:
                     celltype = 2 * tcr_scoring.is_human_mait_alpha_chain(tcr[0])+\
                                tcr_scoring.is_human_inkt_tcr(tcr)
                 elif organism == 'mouse':
