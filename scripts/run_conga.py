@@ -687,7 +687,7 @@ if args.subset_to_CD4 or args.subset_to_CD8:
         adata, clustering_method=args.clustering_method,
         clustering_resolution=args.clustering_resolution,
         use_bbknn=use_bbknn,
-        bbknn_batch_key=bbknn_batch_key)
+        bbknn_batch_key=batch_key)
 
 # this will probably not happen anymore, since we are computing these
 # inside preprocess.cluster_and_tsne_and_umap if X_pca_tcr is missing.
