@@ -266,17 +266,17 @@ def read_dataset(
 
     if suffix_for_non_gene_features is not None:
         feature_types_colname = util.get_feature_types_varname( adata )
-        assert feature_types_colname, \
-            'cant identify non-gene features, no feature_types data column'
-
-        ab_mask = np.array(adata.var[feature_types_colname] !=
-                           util.GENE_EXPRESSION_FEATURE_TYPE)
-        print(f'adding {suffix_for_non_gene_features} to {np.sum(ab_mask)}'
-              f' non-GEX features: {adata.var_names[ab_mask]}')
-        newnames = [ x+suffix_for_non_gene_features if y else x
-                     for x,y in zip(adata.var_names, ab_mask)]
-        adata.var.index = newnames
-
+        if feature_types_colname:
+            ab_mask = np.array(adata.var[feature_types_colname] !=
+                               util.GENE_EXPRESSION_FEATURE_TYPE)
+            print(f'adding {suffix_for_non_gene_features} to {np.sum(ab_mask)}'
+                  f' non-GEX features: {adata.var_names[ab_mask]}')
+            newnames = [ x+suffix_for_non_gene_features if y else x
+                         for x,y in zip(adata.var_names, ab_mask)]
+            adata.var.index = newnames
+        else:
+            print('WARNING: cant identify non-gene features, no feature_types '
+                  'data column present in adata.var')
 
     if make_var_names_unique:
         adata.var_names_make_unique() # added
@@ -397,6 +397,9 @@ def read_dataset(
     adata = adata[mask,:].copy()
     adata.uns['conga_stats']['num_cells_w_tcr'] = adata.shape[0]
 
+    if np.sum(mask)==0:
+        return adata # seem to get an error below; who cares anyhow?
+
     if not missing_kpca_file: # stash the kPCA info in adata.obsm
         X_kpca = np.array( [ barcode2kpcs[x] for x in adata.obs.index ] )
         adata.obsm['X_pca_tcr'] = X_kpca
@@ -444,7 +447,7 @@ def filter_normalize_and_hvg(
     if max_genes_per_cell is None:
         # change from 2000 to 2500 on 2020-10-24.
         # Ideally these parameters would be set on a per-dataset basis
-        max_genes_per_cell=2500
+        max_genes_per_cell=3500 # increase from 2500 to 3500 on 2023-03-08
         # on a per-dataset basis
         print('max_genes_per_cell not set. Using default',
               max_genes_per_cell)

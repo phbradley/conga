@@ -58,7 +58,7 @@ def infer_cdr3_nucleotides(
                         allow_internal_mismatches=aim,
                         allow_allele_changes=False,
                     )
-                    if allow_internal_mismatches:
+                    if aim: # changed 2023-06-14, was: if allow_internal_mismatches:
                         total_inserts += 1
                     #print(j, allow_internal_mismatches, best_inserts, total_inserts,
                     #      cdr3, cdr3_nucseq)

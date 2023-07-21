@@ -1540,7 +1540,8 @@ def find_hotspot_features(
                 rate = 10*elapsed_time
             else:
                 rate = 0
-            print(f'computing H matrix {ii:6d} {num_clones:6d} {rate:12.6f}')
+            print(f'computing H matrix {ii:6d} {num_clones:6d} {rate:12.6f}',
+                  flush=True)
             sys.stdout.flush()
             last_time = time.time()
         X_ii = X[ii,:]
