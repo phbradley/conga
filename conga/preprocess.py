@@ -1874,6 +1874,14 @@ def calc_tcrdist_nbrs_umap_clusters_cpp(
     #     adata.uns['neighbors']['params']['n_pcs'] = n_pcs
     adata.uns['neighbors']['distances'] = distances
     adata.uns['neighbors']['connectivities'] = connectivities
+    adata.uns['neighbors']['distances_key'] = 'distances'
+    adata.uns['neighbors']['connectivities_key'] = 'connectivities'
+
+    try: # later versions of scanpy/anndata...
+        adata.obsp['distances'] = distances
+        adata.obsp['connectivities'] = connectivities
+    except:
+        print('WARNING failed to store distances/connectivities in adata.obsp')
 
     # as far as I can tell, these are only used if there are too many connected
     # components in the nbr graph... see the infinite while loop up above.
