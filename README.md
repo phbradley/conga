@@ -1,5 +1,10 @@
 # Clonotype Neighbor Graph Analysis (CoNGA) -- version 0.1.1
 
+***NOTE*** We are currently debugging an incompatibility between the
+CoNGA package and the `anndata` library (versions >=0.9.0). Until we get it
+figured out, please make sure you are using `anndata<=0.8.0`, and let us know
+if you see anything strange. Thanks.
+
 This repository contains the `conga` python package and associated scripts
 and workflows. `conga` was developed to detect correlation between
 T cell gene expression profile and TCR sequence in single-cell datasets. We've just
