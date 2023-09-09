@@ -168,11 +168,11 @@ def convert_svg_to_png(
             exit()
 
     tools_to_test = CONVERT_MAP.keys()
-    if os.getenv('CONGA_PNG_TO_SVG_UTILITY') != None
+    if os.getenv('CONGA_PNG_TO_SVG_UTILITY') != None:
         tools_to_test = [os.getenv('CONGA_PNG_TO_SVG_UTILITY')]
     
     for tool_name in tools_to_test:
-        if not fn in CONVERT_MAP.keys():
+        if not tool_name in CONVERT_MAP.keys():
             errmsg = 'Error: unknown conversion tool: {}\n'.format(tool_name)
             print(errmsg)
             stderr.write( errmsg )
