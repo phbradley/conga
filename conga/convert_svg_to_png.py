@@ -2,6 +2,7 @@ import os
 from os import system
 from os.path import isfile
 from sys import stderr, exit
+from collections import OrderedDict
 
 # modify this (ie PATH_TO_INKSCAPE) if you have command line inkscape installed
 #   in a different place
@@ -141,13 +142,13 @@ def convert_with_magick(svgfile, pngfile):
 
     return False
 
-CONVERT_MAP = {
-    'convert': convert_with_convert,
-    'inkscape': convert_with_inkscape,
-    'rsvg': convert_with_rsvg,
-    'cairosvg': convert_with_cairosvg,
-    'magick': convert_with_magick,
-}
+CONVERT_MAP = OrderedDict([
+    ('convert', convert_with_convert),
+    ('inkscape', convert_with_inkscape),
+    ('rsvg', convert_with_rsvg),
+    ('cairosvg', convert_with_cairosvg),
+    ('magick', convert_with_magick),
+])
 
 def convert_svg_to_png(
         svgfile,
