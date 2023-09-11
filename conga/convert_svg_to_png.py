@@ -2,6 +2,7 @@ import os
 from os import system
 from os.path import isfile
 from sys import stderr, exit
+from shutil import which
 from collections import OrderedDict
 
 # modify this (ie PATH_TO_INKSCAPE) if you have command line inkscape installed
@@ -157,8 +158,6 @@ def convert_svg_to_png(
         allow_missing=False,
         allow_failure=True
 ):
-    from shutil import which
-
     if not isfile(svgfile):
         errmsg = 'Error: convert_svg_to_png: svgfile does not exist: {}\n'.format(svgfile)
         print(errmsg)
