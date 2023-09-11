@@ -49,7 +49,7 @@ def convert_with_inkscape(svgfile, pngfile):
 
         if isfile( pngfile ):
             ## success
-            return
+            return True
         else:
             print(f'conga.convert_svg_to_png: inkscape failed, command="{cmd}"')
 
@@ -77,7 +77,7 @@ def convert_with_inkscape(svgfile, pngfile):
 
         if isfile( pngfile ):
             ## success
-            return
+            return True
 
         # this is the old syntax
         cmd = '{} --export-png {} {}'.format( PATH_TO_INKSCAPE, pngfile_full, svgfile_full )
@@ -119,7 +119,7 @@ def convert_with_cairosvg(svgfile, pngfile):
 
         if isfile( pngfile ):
             ## success
-            return
+            return True
         else:
             print(f'conga.convert_svg_to_png: 3rd try failed, command="{cmd}"')
 
@@ -137,7 +137,7 @@ def convert_with_magick(svgfile, pngfile):
 
         if isfile( pngfile ):
             ## success
-            return
+            return True
         else:
             print(f'conga.convert_svg_to_png: 4th try failed, command="{cmd}"')
 
@@ -163,7 +163,7 @@ def convert_svg_to_png(
         print(errmsg)
         stderr.write( errmsg )
         if allow_missing:
-            return
+            return True
         else:
             exit()
 
