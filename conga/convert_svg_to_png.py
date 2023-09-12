@@ -24,7 +24,7 @@ if isfile(ALT_PATH_TO_INKSCAPE) and not isfile(PATH_TO_INKSCAPE):
 ## like cairosvg
 ##
 
-def convert_with_convert(svgfile, pngfile):
+def convert_with_convert(svgfile, pngfile, verbose=False):
     if which('convert') is not None:
         cmd = 'convert {} {}'.format( svgfile, pngfile )
         if verbose:
@@ -39,7 +39,7 @@ def convert_with_convert(svgfile, pngfile):
         
     return False
 
-def convert_with_inkscape(svgfile, pngfile):
+def convert_with_inkscape(svgfile, pngfile, verbose=False):
     if which('inkscape') is not None:
         ## cmdline inkscape: new options
         cmd = 'inkscape -o {} {}'.format( pngfile, svgfile )
@@ -92,7 +92,7 @@ def convert_with_inkscape(svgfile, pngfile):
 
     return False
 
-def convert_with_rsvg(svgfile, pngfile):
+def convert_with_rsvg(svgfile, pngfile, verbose=False):
     if which('rsvg-convert') is not None:
         ## another possibility
         cmd = 'rsvg-convert {} -o {}'.format( svgfile, pngfile )
@@ -109,7 +109,7 @@ def convert_with_rsvg(svgfile, pngfile):
     return False
 
 
-def convert_with_cairosvg(svgfile, pngfile):
+def convert_with_cairosvg(svgfile, pngfile, verbose=False):
     if which('cairosvg') is not None:
         ## another possibility
         cmd = f'cairosvg -f png -o {pngfile} {svgfile}'
@@ -127,7 +127,7 @@ def convert_with_cairosvg(svgfile, pngfile):
 
 
 
-def convert_with_magick(svgfile, pngfile):
+def convert_with_magick(svgfile, pngfile, verbose=False):
     if which('magick') is not None:
         ## another possibility
         cmd = 'magick convert {} {}'.format( svgfile, pngfile )
@@ -178,7 +178,7 @@ def convert_svg_to_png(
             stderr.write( errmsg )
             continue
         
-        success = CONVERT_MAP[tool_name](svgfile, pngfile)
+        success = CONVERT_MAP[tool_name](svgfile, pngfile, verbose)
         if success:
             return
 
