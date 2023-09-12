@@ -187,7 +187,12 @@ def assign_label_reps_and_colors_based_on_most_common_genes_in_repertoire( tcr_i
 
     return ## we modified the elements of the tcr_infos list in place
 
-def assign_colors_to_conga_tcrs( tcrs, organism, return_sorted_color_tuples=False ):
+def assign_colors_to_conga_tcrs(
+        tcrs,
+        organism,
+        return_sorted_color_tuples=False,
+        use_vfams=False,
+):
     ''' tcrs is a list [ ( (va,ja,cdr3a,*),(vb,jb,cdr3b,*)), ... ]
 
     returns a list of 4 lists [ va_colors, ja_colors, vb_colors, jb_colors ] each of length = len(tcrs)
@@ -200,10 +205,18 @@ def assign_colors_to_conga_tcrs( tcrs, organism, return_sorted_color_tuples=Fals
     color_lists = []
     sorted_color_tuples = []
 
+    def get_vfam(gene):
+        pos = 4
+        while pos<len(gene) and gene[pos].isdigit():
+            pos += 1
+        return gene[4:pos]
+
     for i_ab in range(2):
         for i_vj in range(2):
             genes = [ x[i_ab][i_vj] for x in tcrs ]
             count_reps = [ all_genes[organism][x].count_rep for x in genes ]
+            if use_vfams and i_vj==0:
+                count_reps = [get_vfam(x) for x in genes]
             counts = Counter( count_reps )
             uniq_count_reps_sorted = [x[0] for x in counts.most_common()]
             color_tuples = list( zip(uniq_count_reps_sorted,

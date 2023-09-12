@@ -2,13 +2,14 @@
 from .basic import *
 from . import score_trees_devel
 from .tcrdist_svg_basic import (
-    make_text, SVG_tree_plotter, rgb_from_fraction, create_file)
+    make_text, SVG_tree_plotter, rgb_from_fraction, create_file, make_amino_acids_text)
 from . import util
 from . import html_colors
 from . import tcr_sampler
 import scipy.stats
 import numpy as np
 import pandas as pd
+import re
 
 #from functools import reduce
 #from mannwhitneyu import mannwhitneyu as mannwhitneyu_exact #too slow
@@ -22,7 +23,7 @@ gap_character = '-' ## different from some other places
 min_cluster_size = 1
 
 
-tree_width = 750 #hack=450
+#tree_width = 750 #hack=450
 ymargin = 30 ## right now we dont want top text to get cut off
 xmargin = 10
 
@@ -39,6 +40,9 @@ def _pad_to_middle( s, num ): ## with spaces
     return ' '*before + s + ' '*after
 
 def _get_primary_number( gene_name ):
+    if re.match('TRBJ[0-9]-[0-9]', gene_name):
+        return int(gene_name[4]+gene_name[6])
+
     tmp = gene_name[:]
     while tmp and not tmp[0].isdigit():
         tmp = tmp[1:]
@@ -74,6 +78,8 @@ def make_tall_tcr_tree(
         verbose=False,
         cmap=None,
         node_score_func=None, # takes list of leaves, returns node score
+        tree_width=750,
+        color_by_vfams=False,
 ):
     ''' tcrs is a list of tuples: tcrs = [ (atcr1,btcr1), (atcr2,btcr2), ....
     atcr1 = (va1, ja1, cdr3a1, cdr3a_nucseq1, *)
@@ -110,7 +116,7 @@ def make_tall_tcr_tree(
         ))
 
     va_colors, ja_colors, vb_colors, jb_colors = util.assign_colors_to_conga_tcrs(
-        tcrs, organism)
+        tcrs, organism, use_vfams=color_by_vfams)
 
     junctions['va_color'] = va_colors
     junctions['ja_color'] = ja_colors
@@ -276,6 +282,8 @@ def make_tall_tcr_tree(
     header = ['']*num_columns
 
     #for old_index, tcr in enumerate( tcrs ):
+    AACOLORS = 'AACOLORS'
+
     for old_index, tcr in junctions.iterrows():
         ## 1. cdr3s, indels
         ## 2. clonality text
@@ -285,33 +293,34 @@ def make_tall_tcr_tree(
 
         text0 = ''
         htext = ''
-        CDR_START,CDR_STOP = (3,-2) if not dont_trim_labels else (0,None)
+        CDR_START,CDR_STOP,CDR_MAXLEN = (3,-2,15) if not dont_trim_labels else \
+                                        (0,None,20)
         if 'A' in ab:
             if ignore_nucseqs:
-                text0 += _pad_to_middle(tcr.cdr3a[CDR_START:CDR_STOP], 15)
+                text0 += _pad_to_middle(tcr.cdr3a[CDR_START:CDR_STOP], CDR_MAXLEN)
                 htext += '  cdr3a  '
             else:
                 text0 += '{} {} {}'.format(
-                    _pad_to_middle(tcr.cdr3a[CDR_START:CDR_STOP], 15),
-                    _pad_to_middle(tcr.cdr3a_protseq_masked[CDR_START:CDR_STOP], 15),
+                    _pad_to_middle(tcr.cdr3a[CDR_START:CDR_STOP], CDR_MAXLEN),
+                    _pad_to_middle(tcr.cdr3a_protseq_masked[CDR_START:CDR_STOP], CDR_MAXLEN),
                     _pad_to_middle(tcr.a_indels, 6))
                 htext += '  cdr3a,cdr3a_masked,a_indels  '
         if 'B' in ab:
             if text0:
                 text0 += ' '
             if ignore_nucseqs:
-                text0 += _pad_to_middle(tcr.cdr3b[CDR_START:CDR_STOP], 15)
+                text0 += _pad_to_middle(tcr.cdr3b[CDR_START:CDR_STOP], CDR_MAXLEN)
                 if htext:
                     htext += '     '
                 htext += '    cdr3b'
             else:
                 text0 += '{} {} {}'.format(
-                    _pad_to_middle(tcr.cdr3b[CDR_START:CDR_STOP], 15),
-                    _pad_to_middle(tcr.cdr3b_protseq_masked[CDR_START:CDR_STOP], 15),
+                    _pad_to_middle(tcr.cdr3b[CDR_START:CDR_STOP], CDR_MAXLEN),
+                    _pad_to_middle(tcr.cdr3b_protseq_masked[CDR_START:CDR_STOP], CDR_MAXLEN),
                     _pad_to_middle(tcr.b_indels, 6))
                 htext += '  cdr3b,cdr3b_masked,b_indels  '
 
-        text_columns[ icol ].append( ( text0, 'black' ) )
+        text_columns[ icol ].append( ( text0, AACOLORS ) )
         header[icol] = htext
         icol += 1
 
@@ -351,7 +360,7 @@ def make_tall_tcr_tree(
 
     ## now go through and figure out how wide each of the text columns is
     x_offset = xmargin
-    for col,header_tag in zip( text_columns, header ):
+    for col, header_tag in zip( text_columns, header ):
         assert len(col) == num_tcrs
         maxlen = max((len(x[0]) for x in col ))
         if not maxlen: continue
@@ -359,9 +368,14 @@ def make_tall_tcr_tree(
             new_index = old2new_index[ old_index ]
             ypos = node_position[ new_index ]
             lower_left = [ x_offset, ypos+0.5*label_fontsize*0.75 ]
-            cmds.append(
-                make_text(text, lower_left, label_fontsize, color=color,
-                          font_family=font_family))
+            if color == AACOLORS:
+                cmds.extend(
+                    make_amino_acids_text(text, lower_left, label_fontsize,
+                                          font_family=font_family))
+            else:
+                cmds.append(
+                    make_text(text, lower_left, label_fontsize, color=color,
+                              font_family=font_family))
         if header_tag:
             max_ypos = max( node_position.values() )
             lower_left = [ x_offset, max_ypos+2.0*label_fontsize*0.75 ]
