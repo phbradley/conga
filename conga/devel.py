@@ -812,10 +812,10 @@ def find_gex_cluster_degs(
 
 
     new_rank_genes_genes, var_group_positions, var_group_labels = [],[],[]
-    allow_gene_repeats = False
+    allow_gene_repeats = True # 2023-04-26 change from False
     min_rank_genes_log2fold_change = 1.0
     max_rank_genes_pval_adj=0.05
-    n_genes_for_plotting = 5
+    n_genes_for_plotting = 7
 
     for group in good_clusters:
         my_genes = []

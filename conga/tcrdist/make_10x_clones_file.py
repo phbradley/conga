@@ -351,7 +351,7 @@ def read_tcr_data_batch(
         clonotype = l.raw_clonotype_id
 
         assert l.productive in [ 'None', 'False', 'True']
-        if clonotype =='None':
+        if clonotype =='None': # I think this includes contigs w/ is_cell=False, e.g.
             continue
         if clonotype not in clonotype2barcodes:
             clonotype2barcodes[clonotype] = []
@@ -605,8 +605,10 @@ def setup_filtered_clonotype_dicts(
 
     ## look for len1 pairs_tuples that overlap with two different len2 pairs_tuples
     merge_into_pairs = []
-    for pt1 in pairs_tuple2clonotypes:
+    for ii, pt1 in enumerate(pairs_tuple2clonotypes):
         if len(pt1) == 1:
+            if verbose and ii%500==0:
+                print('look for overlaps:', ii, len(pairs_tuple2clonotypes))
             overlaps = []
             for pt2 in pairs_tuple2clonotypes:
                 if len(pt2) == 2 and pt2[0] == pt1[0]:
@@ -682,9 +684,19 @@ def setup_filtered_clonotype_dicts(
                                    for x in old_good_clonotypes )
     new_num_barcodes = sum(len(x) for x in new_clonotype2barcodes.values())
 
+    paired_barcode_fraction = (new_num_barcodes/old_num_paired_barcodes
+                               if old_num_paired_barcodes else 1.)
+
+
     print('old_unpaired_barcodes:', old_num_unpaired_barcodes,
           'old_paired_barcodes:', old_num_paired_barcodes,
-          'new_stringent_paired_barcodes:', new_num_barcodes)
+          'new_stringent_paired_barcodes:', new_num_barcodes,
+          'paired_barcode_fraction:', paired_barcode_fraction)
+
+    if paired_barcode_fraction<0.75:
+        print('WARNING:: make_10x_clones_file.setup_filtered_clonotype_dicts:',
+              'paired_barcode_fraction=', paired_barcode_fraction,
+              'which seems a little low (warning threshold=0.75)')
 
     return new_clonotype2tcrs, new_clonotype2barcodes
 

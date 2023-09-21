@@ -119,6 +119,47 @@ def make_text( text, lower_left, fontsize,
         .format( lower_left[0], lower_left[1], fontsize, font_weight, font_family, color, text )
     return cmd
 
+def make_amino_acids_text(
+        text,
+        lower_left,
+        fontsize,
+        font_family = MONOSPACE_FONT_FAMILY,
+        font_weight = 'bold', #'normal',
+):
+    ''' returns cmds list
+    '''
+
+
+    #consider updating these, maybe stare at the colors here:
+    #  https://johndecember.com/html/spec/colorsvghex.html
+
+    aacolor = {}
+    for aa in "G"       :aacolor[aa] = CB_ORANGE #"orange" ## special for glycine
+    for aa in "STYC"    :aacolor[aa] = CB_GREEN #"green"
+    for aa in "NQ"      :aacolor[aa] = CB_PURPLE #"purple"
+    for aa in "KRH"     :aacolor[aa] = CB_BLUE #"blue"
+    for aa in "DE"      :aacolor[aa] = CB_RED #"red"
+    for aa in "P"       :aacolor[aa] = "black" ##
+    for aa in "AWFLIMV" :aacolor[aa] = "black" ##
+    for aa in "WF"      :aacolor[aa] = "#2F4F4F" ## "darkslategray"
+    for aa in "IV"      :aacolor[aa] = "#696969"  # "dimgray"
+    for aa in "A"       :aacolor[aa] = "#808080" # "gray"
+    for aa in "Y"       :aacolor[aa] = "#556B2F" ## "darkolivegreen"
+    for aa in "P"       :aacolor[aa] = "#8B4513" # "saddlebrown"
+
+
+    cmds = []
+
+    for ii, aa in enumerate(text):
+        color = aacolor.get(aa,'black')
+        cmds.append(make_text(
+            aa, [lower_left[0] + ii*fontsize*0.6, lower_left[1]], fontsize,
+            color=color, font_family=font_family, font_weight=font_weight
+        ))
+
+    return cmds
+
+
 
 class SVG_tree_plotter:
     def __init__( self, cmap=None ):
