@@ -9,7 +9,7 @@ from setuptools import setup #, find_packages
 setup(
     name='conga',
 
-    version='0.1',
+    version='0.1.2',
 
     author='Phil Bradley',
     author_email= 'pbradley@fredhutch.org',

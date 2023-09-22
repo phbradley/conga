@@ -1,9 +1,15 @@
-# Clonotype Neighbor Graph Analysis (CoNGA) -- version 0.1.1
+# Clonotype Neighbor Graph Analysis (CoNGA) -- version 0.1.2
 
 This repository contains the `conga` python package and associated scripts
 and workflows. `conga` was developed to detect correlation between
-T cell gene expression profile and TCR sequence in single-cell datasets. We've just
-recently added support for gamma delta TCRs and for B cells, too.
+T cell gene expression profile and TCR sequence in single-cell datasets. 
+We have since added support for gamma delta TCRs and for B cells, too.
+
+`conga` currently supports:
+- human TCRab, TCRgd, and Ig
+- mouse TCRab, TCRgd, and Ig
+- rhesus TCRab and TCRgd *NEW*
+
 `conga` is in active development right now so the interface may change in
 the next few months. Questions and requests can be directed to `pbradley` at `fredhutch` dot `org` or
 `stefan.schattgen` at `stjude` dot `org`.
@@ -83,51 +89,15 @@ top of the [google colab jupyter notebook](colab_conga_pipeline.ipynb)
 ([link to the notebook on colab](https://colab.research.google.com/github/phbradley/conga/blob/master/colab_conga_pipeline.ipynb))
 are the necessary installation commands from within a notebook environment.
 
-## Overview
-
-1. Install the wonderful `scanpy` python package for single-cell analysis
-([docs](https://scanpy.readthedocs.io/en/stable/installation.html)). For
-example, with `pip`:
-```
-pip3 install scanpy[leiden]
-```
-
-2. Download the CoNGA github repository and (optional but recommended) compile the
-C++ TCRdist implementation; for example with `git` and `make`:
-```
-git clone https://github.com/phbradley/conga.git && cd conga/tcrdist_cpp && make
-```
-
-3. Make sure you have a tool that can convert `.svg` files to `.png` files, like
-inkscape, imagemagick convert, rsvg-convert, cairosvg (see below for details if
-you don't already have one).
-
-**NOTE** we recognize that this is really lame, but right now you can't do
-`import conga` within a python script or notebook without first adding the install
-location to your python path (e.g., `sys.path.append('/path/to/github-repos/conga/')`.
-Running the scripts in the `conga/scripts/` folder from the command line does not
-require this. We hope to smooth this out in the near future.
-
-**UPDATE** Thanks to Neal Smith for helping us get set up with a very simple
-`setup.py` script, so now (in theory) one can `cd` to the top-most `conga` directory
-and type (after activating the relevant virtual environment):
-
-```
-pip install -e .
-```
-This should install the python dependencies and make it so you can just
-`import conga` without fiddling with `sys.path`.
-You will still need to have an svg--->png conversion tool like `convert` or `inkscape`
-installed (more details on that below).
-
-
 ## Details
+
+1. Create a virtual enviroment and install required packages.
 
 Here are some commands that would create an `anaconda` python environment for
 running CoNGA:
 
 ```
-conda create -n conga_new_env ipython python=3.6
+conda create -n conga_new_env ipython python=3.9
 conda activate conga_new_env   # or: "source activate conga_new_env" depending on your conda setup
 conda install seaborn scikit-learn statsmodels numba pytables
 conda install -c conda-forge python-igraph leidenalg louvain notebook
@@ -136,18 +106,18 @@ pip install scanpy
 pip install fastcluster # optional
 conda install pyyaml #optional for using yaml-formatted configuration files for scripts
 ```
+2. Clone the `conga` github repository
 
-If you do not have the command line tool `convert` from Imagemagick, or Inkscape, installed, you
-could also add `conda install -c conda-forge imagemagick`. See the section below on SVG to PNG
-conversion for more details.
-
-Next, clone the `conga` repository (type this command wherever you want the `conga/` directory to appear):
+Type this command wherever you want the `conga/` directory to appear:
 ```
 git clone https://github.com/phbradley/conga.git
 ```
+
 If you don't have `git` installed you could go click on the big green `Code`
 button on the [CoNGA github page](https://github.com/phbradley/conga) and
 download and unpack the software that way.
+
+3. Compile C++ programs (optional, but highly recommended)
 
 *NEW* We recently added a C++ implementation of TCRdist to speed neighbor calculations on
 large datasets and to compute the background TCRdist distributions for the new
@@ -171,6 +141,18 @@ g++ -O3 -std=c++11 -Wall -I ./include/ -o ./bin/find_neighbors ./src/find_neighb
 g++ -O3 -std=c++11 -Wall -I ./include/ -o ./bin/calc_distributions ./src/calc_distributions.cc
 g++ -O3 -std=c++11 -Wall -I ./include/ -o ./bin/find_paired_matches ./src/find_paired_matches.cc
 ```
+
+4. Install `conga` into your virtually environment.
+
+`cd` to the top-most `conga` directory and make sure your virtual environment is activated.
+Then install `conga` into the environment with `pip`:
+```
+pip install -e .
+```
+
+5. Ensure you have a tool for SVG to PNG conversion available.
+
+See the section below on SVG to PNG conversion for more details. 
 
 ## Even more details
 
@@ -278,8 +260,35 @@ python ~/conga/scripts/run_conga.py \
 --graph_vs_graph \
 --outfile_prefix ../merged_pbmc_outs/merged_pbmc
 ```
+# Merging multiple TCR files for alignment with a single aggregate GEX matrix
+
+Often times, multiple GEX count matrices are aggregated together using `cellranger aggr`
+while the outputs of the TCR libraries remain as individual folders. The barcode suffix of 
+each GEX library is changed during this process while those of the samples' TCR
+filtered_contig_annotations.csv file remains the default "1". We will need to adjust the barcode 
+suffixes of the TCR outputs in order to merge the information with the aggregate GEX matrix. 
+For this we can use `conga.tcrdist.make_10x_clone_file.make_10x_clone_file_batch`. 
+Here, the barcode suffix of the TCR library can be updated to match with samples' corresponding 
+GEX library suffix, and all the resulting TCR clones tables will merged into a single output run
+with the GEX file through `run_conga.py`, or interactively. 
+
+The function uses a csv-format metadata table to guide the merging. The file should have tow columns,
+'file' with the path to the filtered_contig_annotations.csv file, and 'batch_id' which should contain the value
+of the samples' barcode suffix in the GEX matrix we are trying to merge with.
+
+| file | batch_id |
+| --- | --- |
+| sample_1_filtered_contig_annotations.csv | 1 |
+| sample_2_filtered_contig_annotations.csv | 2 |
+| sample_3_filtered_contig_annotations.csv | 3 |
+
+```
+organism = 'human'
+conga.tcrdist.make_10x_clone_file.make_10x_clone_file_batch('path/to/metadata.csv', organism, 'path/to/clones_file_output.tsv )
+```
 
 # Updates
+* 2023-09-21: Rhesus alpha beta and gamma delta T cells are now supported.
 * 2021-09-10: Rescale the adata.X gene expression matrix after reducing to a
 single clone. In very rare cases, not doing this was leading to wonky GEX UMAPs and
 clusters, seemingly due to GEX PC components dominated by individual genes.
