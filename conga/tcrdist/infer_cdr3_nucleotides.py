@@ -167,6 +167,27 @@ def infer_cdr3_nucleotides(
 
 
 
+def find_best_j_gene(
+        organism,
+        ab,
+        cdr3,
+):
+    assert ab in ['A','B']
 
+    j_genes = [x for x,y in all_genes[organism].items()
+               if y.chain == ab and y.region == 'J' and '*' not in y.protseq]
+
+    all_matches = []
+    for jg in j_genes:
+        jseq = all_genes[organism][jg].cdrs[0]
+        matches = 0
+        for a,b in zip(reversed(cdr3), reversed(jseq)):
+            if a==b:
+                matches += 1
+            else:
+                break
+        all_matches.append((matches, jg))
+    matches, jg = max(all_matches)
+    return jg, matches
 
 

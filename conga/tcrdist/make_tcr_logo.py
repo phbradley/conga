@@ -205,7 +205,6 @@ def make_tcr_logo(
                                       'none', 'black', stroke_width=1 ) )
 
 
-
     #print ic,L,size,y0,y1
 
     ## now show each column
@@ -264,12 +263,13 @@ def make_tcr_logo(
 
         prev_gap_column_width = gap_column_width
 
+    x0 += xpad
 
     ## now the J-logo
     cmds.append( tcrdist_svg_basic.make_stack( (x0,y0), (x0+vj_logo_width,y1), jl ) )
 
     cmds.append( tcrdist_svg_basic.rectangle( ( x0-boxpad,y0-boxpad), (x0 + vj_logo_width+boxpad,y1+boxpad ),
-                                      'none', 'black', stroke_width=1 ) )
+                                              'none', 'black', stroke_width=1 ) )
 
     if junction_bars: ## label V-logo down below
         text = 'J'+greek_letter
@@ -514,7 +514,7 @@ def make_tcr_logo_for_tcrs(
 
     cmds = make_default_logo_svg_cmds(
         [xmargin,ymargin], default_width, default_height, organism, infos,
-        chain,tcrdist_calculator = tcrdist_calculator,
+        chain, tcrdist_calculator = tcrdist_calculator,
         add_fake_alleles = add_fake_alleles, show_full_cdr3 = show_full_cdr3 )
 
 

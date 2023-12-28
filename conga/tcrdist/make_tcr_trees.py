@@ -353,11 +353,14 @@ def make_tcr_tree_svg_commands(
 
 
     ## write out the glyph-cluster sizes
+    cluster_size_fontsize = 10 # was 15
     for glyph_edge in glyph_edges:
         real_size = glyph_edge[3]
         loc = glyph_location[glyph_edge]
         ## silly xloc, was hard-coded to 5
-        cmds.append( tcrdist_svg_basic.make_text('%3d'%real_size, ( upper_left[0]+xmargin-5, loc+glyph_height/2.) , 15,
+        #left = upper_left[0]+xmargin-5 # old way
+        left = upper_left[0] # new way
+        cmds.append( tcrdist_svg_basic.make_text('%3d'%real_size, ( left, loc+glyph_height/2.) , cluster_size_fontsize,
                                                  font_family=font_family))
 
 
