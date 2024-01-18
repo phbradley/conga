@@ -14,6 +14,8 @@ all_genes = {}
 class TCR_Gene:
     def __init__( self, l ):
         # l comes from pandas dataframe.itertuples
+        assert l.chain in ['A','B']
+        assert l.region in ['D','J','V']
         self.id = l.id
         self.organism = l.organism
         self.chain = l.chain
@@ -55,7 +57,7 @@ for l in df.itertuples():
 
 verbose = ( __name__ == '__main__' )
 
-for organism,genes in all_genes.items():
+for organism, genes in all_genes.items():
 
     for ab in 'AB':
         org_merged_loopseqs = {}

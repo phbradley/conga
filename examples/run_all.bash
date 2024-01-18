@@ -5,7 +5,8 @@
 #
 # change this to point to the correct python executable
 #PYTHON=/home/pbradley/anaconda2/envs/scanpy_new/bin/python
-PYTHON=/home/pbradley/anaconda2/envs/scanpy_2021a/bin/python
+#PYTHON=/home/pbradley/anaconda2/envs/scanpy_2021a/bin/python
+PYTHON=/home/pbradley/miniconda3/envs/scanpy_2022/bin/python
 
 # change this to point to the place where you put the conga repository
 CONGA_REPO=/home/pbradley/gitrepos/conga/
@@ -40,9 +41,10 @@ $cmd > ${OUTPREFIX}.log 2> ${OUTPREFIX}.err &
 
 # Human melanoma B cells, merged clonotype definitions based on distance
 OUTPREFIX="bcr_hs_melanoma"
+#OUTPREFIX="bcr_hs_melanoma_new_db"
 CLONES="${DATADIR}sc5p_v1p1_hs_melanoma_10k_b_filtered_contig_annotations_tcrdist_clones_condensed.tsv"
 GEX="${DATADIR}sc5p_v1p1_hs_melanoma_10k_filtered_feature_bc_matrix.h5"
 
-cmd="nice $PYTHON $SCRIPT --all --organism human_ig --clones_file $CLONES --gex_data $GEX --gex_data_type 10x_h5 --outfile_prefix $OUTPREFIX"
+cmd="nice $PYTHON $SCRIPT --all --organism human_ig --clones_file $CLONES --gex_data $GEX --gex_data_type 10x_h5 --outfile_prefix $OUTPREFIX " #--no_kpca "
 echo ; echo $cmd
 $cmd > ${OUTPREFIX}.log 2> ${OUTPREFIX}.err &

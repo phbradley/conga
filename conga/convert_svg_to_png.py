@@ -15,6 +15,7 @@ ALT_PATH_TO_INKSCAPE='/Applications/Inkscape.app/Contents/Resources/bin/inkscape
 # if the fonts in the tcr logos look bad, try uncommenting one of the other three lines below this one
 #MONOSPACE_FONT_FAMILY = 'monospace'
 #MONOSPACE_FONT_FAMILY = 'courier'
+#MONOSPACE_FONT_FAMILY = 'Noto Sans Mono'
 MONOSPACE_FONT_FAMILY = 'DejaVu Sans Mono'
 
 if isfile(ALT_PATH_TO_INKSCAPE) and not isfile(PATH_TO_INKSCAPE):
@@ -36,7 +37,7 @@ def convert_with_convert(svgfile, pngfile, verbose=False):
             return True
         else:
             print(f'conga.convert_svg_to_png: convert failed, command="{cmd}"')
-        
+
     return False
 
 def convert_with_inkscape(svgfile, pngfile, verbose=False):
@@ -170,14 +171,14 @@ def convert_svg_to_png(
     tools_to_test = CONVERT_MAP.keys()
     if os.getenv('CONGA_PNG_TO_SVG_UTILITY') != None:
         tools_to_test = [os.getenv('CONGA_PNG_TO_SVG_UTILITY')]
-    
+
     for tool_name in tools_to_test:
         if not tool_name in CONVERT_MAP.keys():
             errmsg = 'Error: unknown conversion tool: {}\n'.format(tool_name)
             print(errmsg)
             stderr.write( errmsg )
             continue
-        
+
         success = CONVERT_MAP[tool_name](svgfile, pngfile, verbose)
         if success:
             return
