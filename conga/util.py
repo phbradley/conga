@@ -45,9 +45,17 @@ ANTIBODY_CAPTURE_FEATURE_TYPE = 'Antibody Capture'
 EXPECTED_FEATURE_TYPES = [GENE_EXPRESSION_FEATURE_TYPE, ANTIBODY_CAPTURE_FEATURE_TYPE]
 
 FUNNY_MOUSE_TRBV_GENE = '5830405F06Rik' # actually seems to be a tcr v gene transcript or correlate with one
-FUNNY_HUMAN_IG_GENES = ['AC233755.1', 'AC233755.2', # seem to be associated with one or more IGHV genes
-                        'CH17-224D4.2', # chr14 bac, suspiciously high correlation with tcr features??
-                        'IGLL5' ] # correlated with IGLJ1
+FUNNY_HUMAN_IG_GENES = [
+    'AC233755.1', 'AC233755.2', # seem to be associated with one or more IGHV genes
+    'CH17-224D4.2', # chr14 bac, suspiciously high correlation with tcr features??
+    'IGLL5', # correlated with IGLJ1
+]
+FUNNY_HUMAN_TR_GENES = [
+    'TRD-AS1', # overlaps TRA
+    'ENSG00000251002', # overlaps TRA (alt name for TRD-AS1)
+    'ENSG00000288882', # overlaps TRB
+    'ENSG00000289938', # overlaps TRB
+]
 
 def run_command( cmd, verbose=False ):
 
@@ -87,6 +95,7 @@ def is_vdj_gene( gene_upper, organism, include_constant_regions=False ):
         return ( gene.startswith('trav') or gene.startswith('trbv') or
                  gene.startswith('traj') or gene.startswith('trbj') or
                  gene.startswith('trbd') or gene_upper == FUNNY_MOUSE_TRBV_GENE or
+                 gene_upper in FUNNY_HUMAN_TR_GENES or
                  ( include_constant_regions and (gene.startswith('trac') or gene.startswith('trbc'))))
 
     elif vdj_type == TCR_GD_VDJ_TYPE:
