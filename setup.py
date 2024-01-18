@@ -24,7 +24,7 @@ setup(
         'Natural Language :: English',
     ],
 
-    install_requires=["scanpy", "leidenalg", "natsort"],
+    install_requires=["scanpy", "leidenalg"],
 
     packages=['conga','conga.tcrdist'],
     #packages=find_packages(),
