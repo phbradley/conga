@@ -5,7 +5,6 @@ from .all_genes import all_genes
 #import parse_tsv
 from collections import Counter
 from itertools import chain
-from natsort import natsorted
 import sys
 import pandas as pd
 from ..util import organism2vdj_type, IG_VDJ_TYPE
@@ -27,7 +26,7 @@ def fixup_gene_name( gene, gene_suffix, expected_gene_names ):
     # This should select the lowest allele
     if '*' not in gene:
         toTest = gene + '*'
-        for geneName in natsorted(expected_gene_names.keys()):
+        for geneName in sorted(expected_gene_names.keys()):
            if geneName.startswith(toTest):
                 gene = geneName
 
