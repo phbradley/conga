@@ -334,7 +334,7 @@ def make_logo_plots(
         ignore_tcr_cluster_colors = False,
         show_real_clusters_gex = False, # for the tcr clumping hack
         good_bicluster_tcr_scores=None,
-        rank_genes_uns_tag = 'rank_genes_good_biclusters',
+        rank_genes_uns_tag = 'rank_genes_good_biclusters', # set to None to remove from plot
         include_alphadist_in_tcr_feature_logos=False,
         max_expn_for_gene_logo = 2.5, # or max over the clps, if larger
         show_pmhc_info_in_logos = False,
@@ -359,6 +359,9 @@ def make_logo_plots(
         gex_header_tcr_score_names = ['imhc', 'cdr3len', 'cd8', 'nndists_tcr'],
         include_full_tcr_cluster_names_in_logo_lines=False,
         lit_matches=None, # show an additional 'logo' with lit-matches
+
+        ## makes pdf version make_graph_vs_graph_logos and make_tcr_clumping_plots, expect large file sizes
+        save_pdf = False
 
 ):
     ''' need:
@@ -634,7 +637,7 @@ or arguments to the conga.plotting.make_logo_plots function.
     batch_bars_width = 0 if not make_batch_bars else \
                        single_batch_bar_width * len(batch_keys)
     title_logo_width = 0.75
-    rg_logo_width = 1.5
+    rg_logo_width = 0 if rank_genes_uns_tag is None else 1.5
     score_logo_width = 0.0 if good_bicluster_tcr_scores is None else 0.5
     lit_logo_width = 0.0 if lit_matches is None else 0.5
     tcr_logo_width = 8
@@ -1457,6 +1460,11 @@ or arguments to the conga.plotting.make_logo_plots function.
     print('making:', logo_pngfile)
     plt.savefig(logo_pngfile, dpi=300)
 
+    if save_pdf:
+        logo_pdffile = logo_pngfile.replace(".png", ".pdf")
+        print('making:', logo_pdffile)
+        plt.savefig(logo_pdffile, dpi=300)
+
     if not nocleanup:
         for tmpfile in tmpfiles:
             if exists(tmpfile):
@@ -1806,6 +1814,7 @@ def make_summary_figure(
         ax.set_position([box.x0+0.04, box.y0, box.width, box.height])
     print('making:', pngfile)
     plt.savefig(pngfile)
+
 
     # store results and help message
     adata.uns['conga_results'][figure_tag] = pngfile
