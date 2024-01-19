@@ -181,6 +181,9 @@ def find_alternate_alleles(
     j_prefix = j_gene[:j_gene.index('*')+1]
     alternate_j_alleles = [ x for x in all_genes[organism] if x.startswith(j_prefix) and x != j_gene]
 
+    best_v_gene = vg
+    best_num_matched = 0 # initialize in case of problems like hitting the continue statement
+
     for vg in [v_gene]+alternate_v_alleles:
         v_nucseq = get_v_cdr3_nucseq( organism, vg )
         if not v_nucseq:
