@@ -26,7 +26,7 @@ def fixup_gene_name( gene, gene_suffix, expected_gene_names ):
     # This should select the lowest allele
     if '*' not in gene:
         toTest = gene + '*'
-        for geneName in sorted(expected_gene_names.keys()):
+        for geneName in sorted(expected_gene_names):
            if geneName.startswith(toTest):
                 gene = geneName
 
