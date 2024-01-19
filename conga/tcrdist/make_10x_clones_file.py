@@ -29,6 +29,7 @@ def fixup_gene_name( gene, gene_suffix, expected_gene_names ):
         for geneName in sorted(expected_gene_names):
            if geneName.startswith(toTest):
                 gene = geneName
+                break
 
     if gene in expected_gene_names:
         return gene # ALL DONE
