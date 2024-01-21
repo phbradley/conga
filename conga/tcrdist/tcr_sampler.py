@@ -21,6 +21,8 @@ default_mismatch_score_for_cdr3_nucseq_probabilities = -4 ## blast is -3
 default_mismatch_score_for_junction_analysis = -4 ## blast is -3
 
 def count_matches( a,b,mismatch_score=-3 ):
+    if len(a)==0 or len(b) == 0:
+        return 0
     assert a[0].lower() == a[0]
     #assert a[0].upper() == a[0]
     ## from the beginning
@@ -40,6 +42,8 @@ def count_matches( a,b,mismatch_score=-3 ):
     return num_matches
 
 def count_aa_matches( a,b,mismatch_score=-3 ):
+    if len(a)==0 or len(b) == 0:
+        return 0
     ## from the beginning
     assert a[0].upper() == a[0]
     match_score    = 1
