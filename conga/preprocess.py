@@ -428,6 +428,7 @@ def filter_normalize_and_hvg(
         exclude_sexlinked = False,
         outfile_prefix_for_qc_plots = None,
         normalize_antibody_features_CLR=True, # centered log normalize
+        add_variable_genes=None, # list of extra genes to add
 ):
     '''Filters cells and genes to find highly variable genes'''
     if not exclude_TR_genes:
@@ -572,6 +573,16 @@ def filter_normalize_and_hvg(
               len(force_variable_genes), np.sum(hvg_mask))
         print('will still exclude TR/IG genes as appropriate, and sex-linked',
               'genes if requested')
+
+    if add_variable_genes is not None:
+        add_mask = np.array([x in add_variable_genes for x in adata.var_names])
+        old_inds = set(np.nonzero(hvg_mask)[0])
+        new_inds = set(np.nonzero(hvg_mask|add_mask)[0])
+        added_inds = new_inds - old_inds
+        if len(added_inds):
+            for ind in added_inds:
+                print(f'adding {adata.var_names[ind]} as variable gene')
+        hvg_mask = hvg_mask | add_mask
 
     # exclude TCR genes
     if exclude_TR_genes:
@@ -786,6 +797,7 @@ def filter_and_scale(
         outfile_prefix_for_qc_plots= None,
         normalize_antibody_features_CLR=True, # centered log normalize
         hvg_batch_key=None,
+        add_variable_genes=None, # for HVG
 ):
     ## filter, normalize, identify highly variable genes ('hvg')
     adata = filter_normalize_and_hvg(
@@ -798,6 +810,7 @@ def filter_and_scale(
         outfile_prefix_for_qc_plots=outfile_prefix_for_qc_plots,
         normalize_antibody_features_CLR=normalize_antibody_features_CLR,
         hvg_batch_key = hvg_batch_key,
+        add_variable_genes = add_variable_genes,
     )
 
 
@@ -1399,6 +1412,16 @@ def calculate_tcrdist_nbrs_cpp(
     knn_indices = np.loadtxt(knn_indices_filename, dtype=np.int32)
     print(f'reading array of size {N}x{num_nbrs} from {knn_distances_filename}')
     knn_distances = np.loadtxt(knn_distances_filename, dtype=np.float32)
+
+    if knn_indices.shape == (N,):
+        assert num_nbrs==1
+        knn_indices = knn_indices[:,None]
+    if knn_distances.shape == (N,):
+        assert num_nbrs==1
+        knn_distances = knn_distances[:,None]
+
+    assert knn_indices.shape == (N,num_nbrs)
+    assert knn_distances.shape == (N,num_nbrs)
 
     if sort_nbrs:
         print('argsort!')

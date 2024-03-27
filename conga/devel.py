@@ -2080,7 +2080,24 @@ def make_single_chain_clumping_logos(
             **logo_plot_args)
 
 
+def unlog_X_array(X_in):
+    from scipy.sparse import csr_matrix
+    assert type(X_in) is csr_matrix
 
+    X = X_in.copy()
+    d = X.data
+    np.expm1(d, out=d)
+
+    lens = X.getnnz(axis=1)
+
+    idx = np.r_[0,lens[:-1].cumsum()]
+
+    mins = np.minimum.reduceat(d, idx)
+
+    minsr = np.repeat(mins, lens)
+
+    d /= minsr
+    return X
 
 
 def assign_cd4_and_cd8_by_clusters(
@@ -2090,6 +2107,7 @@ def assign_cd4_and_cd8_by_clusters(
         n_gex_pcs = 40,
         n_neighbors = 10,
         verbose = False,
+        strict = False,
 ):
     ''' adds new string column with name=key_added to adata.obs, values are
     'cd4' or 'cd8'
@@ -2176,6 +2194,33 @@ def assign_cd4_and_cd8_by_clusters(
             cd8=cd8,
             ))
     adata.obs[key_added] = cd48s
+
+    if strict:
+        genes = cd4_genes + cd8_genes
+        assert len(genes) == 3
+        if all(x in adata.raw.var_names for x in genes):
+            # need all the genes
+            X = unlog_X_array(adata.raw.X)
+            cd4_index = adata.raw.var_names.get_loc(cd4_genes[0])
+            cd8a_index = adata.raw.var_names.get_loc(cd8_genes[0])
+            cd8b_index = adata.raw.var_names.get_loc(cd8_genes[1])
+            cd4vals = X[:,cd4_index].toarray()[:,0]
+            cd8vals = (X[:,cd8a_index].toarray()+X[:,cd8b_index].toarray())[:,0]
+            cd4_mask = (cd4vals>0.5) & (cd8vals<0.5)
+            cd8_mask = (cd8vals>1.5) & (cd4vals<0.5) # require 2 CD8 counts
+            old_cd4_mask = (adata.obs[key_added] == 'cd4')
+            old_cd8_mask = (adata.obs[key_added] == 'cd8')
+            num_flip_to_cd4 = np.sum(cd4_mask & old_cd8_mask)
+            num_flip_to_cd8 = np.sum(cd8_mask & old_cd4_mask)
+            print('assign_cd4_and_cd8_by_clusters:: strict: num_flip_to_cd8:',
+                  num_flip_to_cd8, 'num_flip_to_cd4:', num_flip_to_cd4)
+            cd48s[cd4_mask] = 'cd4'
+            cd48s[cd8_mask] = 'cd8'
+            adata.obs[key_added] = cd48s
+        else:
+            print('WARNING: assign_cd4_and_cd8_by_clusters strict requested',
+                  'but we dont have all 3 cd4/cd8 genes in adata.raw.var_names')
+
     return pd.DataFrame(dfl)
 
 
@@ -2186,6 +2231,7 @@ def split_into_cd4_and_cd8_subsets(
         max_iterations = 5,
         verbose = False,
         min_cells_for_iteration = 25,
+        strict = False,
 ):
     ''' returns adata_cd4, adata_cd8
 
@@ -2198,7 +2244,7 @@ def split_into_cd4_and_cd8_subsets(
 
     '''
 
-    assign_cd4_and_cd8_by_clusters(adata, verbose=verbose)
+    assign_cd4_and_cd8_by_clusters(adata, verbose=verbose, strict=strict)
 
     ad4 = adata[adata.obs.cd4_or_cd8 == 'cd4'].copy()
     ad8 = adata[adata.obs.cd4_or_cd8 == 'cd8'].copy()
@@ -2224,7 +2270,7 @@ def split_into_cd4_and_cd8_subsets(
         dfl = []
         for ad in [ad4,ad8]:
             ad.uns['organism'] = adata.uns['organism']
-            assign_cd4_and_cd8_by_clusters(ad, verbose=verbose)
+            assign_cd4_and_cd8_by_clusters(ad, verbose=verbose, strict=strict)
 
         ad4_new = ad4[ad4.obs.cd4_or_cd8 == 'cd4'].concatenate(
             ad8[ad8.obs.cd4_or_cd8 == 'cd4'], index_unique=None)

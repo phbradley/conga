@@ -115,6 +115,8 @@ parser.add_argument('--subset_to_CD4', action='store_true')
 parser.add_argument('--subset_to_CD8', action='store_true')
 parser.add_argument('--subset_to_CD4_cells', action='store_true') # tmp testing
 parser.add_argument('--subset_to_CD8_cells', action='store_true') # tmp testing
+parser.add_argument('--min_cells_after_subsetting', type=int, default=15)
+parser.add_argument('--min_clones', type=int, default=15)
 parser.add_argument('--bad_barcodes_file')
 parser.add_argument('--exclude_vgene_strings', type=str, nargs='*')
 
@@ -229,6 +231,10 @@ parser.add_argument('--kpca_default_kernel_Dmax', type=float,
 parser.add_argument('--checkpoint', action='store_true',
                     help='Save a scanpy h5ad checkpoint file after'
                     ' preprocessing')
+
+parser.add_argument('--counts_already_logged', action='store_true',
+                    help='tell conga that the counts are already log1p-ed and '
+                    'normalized')
 
 args = parser.parse_args()
 
@@ -380,6 +386,19 @@ if args.restart is None: ################################## load GEX/TCR data
         suffix_for_non_gene_features = args.suffix_for_non_gene_features,
     )
 
+    if adata.shape[0] < args.min_clones:
+        print('ERROR too few cells:', adata.shape[0])
+        print('DONE')
+        sys.exit()
+
+    if args.counts_already_logged:
+        conga.preprocess.set_raw_matrix_is_logged_to_true(adata)
+        print('--counts_already_logged = True, assuming X matrix is already logged')
+        maxcount = adata.X[0:10,:].data.max()
+        print(f'max count for first 10 cells: {maxcount:.3f}')
+        assert maxcount<25
+
+
     if args.rerun_kpca and args.clones_file is None:
         # do this (compute tcrdist kernel pcs) now rather than before
         #   dataset loading if we don't have a clones file
@@ -485,12 +504,23 @@ if args.restart is None: ################################## load GEX/TCR data
 
     outfile_prefix_for_qc_plots = None if args.qc_plots is None else \
                                   args.outfile_prefix
+    add_variable_genes = None
+    if (args.subset_to_CD8_cells or args.subset_to_CD4_cells or
+        args.subset_to_CD8 or args.subset_to_CD4):
+        # make sure that these genes in the the HVG set (unless they are dropped)
+        if args.organism == 'human':
+            add_variable_genes = ['CD8A','CD8B','CD4']
+        elif args.organism == 'mouse':
+            add_variable_genes = ['Cd8a','Cd8b','Cd4']
+
     adata = conga.preprocess.filter_and_scale(
         adata,
         max_genes_per_cell = args.max_genes_per_cell,
         min_genes_per_cell = args.min_genes_per_cell,
         max_percent_mito = args.max_percent_mito,
-        outfile_prefix_for_qc_plots = outfile_prefix_for_qc_plots )
+        outfile_prefix_for_qc_plots = outfile_prefix_for_qc_plots,
+        add_variable_genes = add_variable_genes,
+    )
 
     if args.filter_ribo_norm_low_cells:
         # this is sketchy
@@ -516,16 +546,27 @@ if args.restart is None: ################################## load GEX/TCR data
 
     if args.subset_to_CD4_cells or args.subset_to_CD8_cells:
         adata_cd4, adata_cd8 = conga.devel.split_into_cd4_and_cd8_subsets(
-            adata, verbose= True)
+            adata, verbose= True, strict=True)
+        adata_cd4.obs.to_csv(args.outfile_prefix+'cd4_obs.tsv', sep='\t')
+        adata_cd8.obs.to_csv(args.outfile_prefix+'cd8_obs.tsv', sep='\t')
         if args.subset_to_CD4_cells:
             adata = adata_cd4
         else:
             adata = adata_cd8
-
+        print('num cells after subsetting:', adata.shape[0])
+        if adata.shape[0] < args.min_cells_after_subsetting:
+            print('ERROR too few cells after subsetting:', adata.shape[0])
+            print('DONE')
+            sys.exit()
 
     print('run reduce_to_single_cell_per_clone'); sys.stdout.flush()
     adata = conga.preprocess.reduce_to_single_cell_per_clone(
         adata, average_clone_gex=args.average_clone_gex )
+
+    if adata.shape[0] < args.min_clones:
+        print('ERROR too few clonotypes:', adata.shape[0])
+        print('DONE')
+        sys.exit()
 
     if args.include_protein_features:
         # this fills X_pca_gex_only, X_pca_gex (combo), X_pca_prot
