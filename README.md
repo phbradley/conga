@@ -1,5 +1,7 @@
 # Clonotype Neighbor Graph Analysis (CoNGA) -- version 0.1.2
 
+## dev branch for new code for matching datasets to metaconga features (clumps and cdr3aa-bias clusters)
+
 This repository contains the `conga` python package and associated scripts
 and workflows. `conga` was developed to detect correlation between
 T cell gene expression profile and TCR sequence in single-cell datasets. 
