@@ -149,6 +149,7 @@ def find_tcr_clumping(
         clusters_gex=None, # if passed, will look for clumps within clusters
         preserve_vj_pairings = False,
         bg_tcrs = None, # usually better to leave this None
+        use_conservative_pvalues_for_intra_cluster_clumps = True,
 ):
     ''' Returns a pandas dataframe with the following columns:
     - clone_index
@@ -315,8 +316,14 @@ def find_tcr_clumping(
                                   (bgroups!=bgroups[ii]) &
                                   ii_cluster_mask)
                 mu = max_nbrs * ii_freqs[radius]
-                pval = (len(radii) * num_clones *
-                        poisson.sf(num_nbrs-1, mu ))
+                # choice for multiple-testing correction: use num_clones or just
+                # the size of this specific cluster...
+                if use_conservative_pvalues_for_intra_cluster_clumps:
+                    pval = (len(radii) * num_clones *
+                            poisson.sf(num_nbrs-1, mu ))
+                else:
+                    pval = (len(radii) * ii_cluster_mask.sum() *
+                            poisson.sf(num_nbrs-1, mu ))
                 if pval <= pvalue_threshold:
                     is_clumped[ii] = True
                     # if count was 0, will be pseudocount

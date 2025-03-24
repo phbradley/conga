@@ -58,6 +58,22 @@ def rgb_from_fraction( fraction ):
     return '#{:02x}{:02x}{:02x}'.format(red,green,blue)
 
 
+def hex_rgb_from_rgb_float_tuple(rgb):
+    assert 0 <= rgb[0] <= 1.001
+    assert 0 <= rgb[1] <= 1.001
+    assert 0 <= rgb[2] <= 1.001
+
+    red   = min(255, int(rgb[0]*256))
+    green = min(255, int(rgb[1]*256))
+    blue  = min(255, int(rgb[2]*256))
+    
+    assert 0<=red  <=255
+    assert 0<=green<=255
+    assert 0<=blue <=255
+
+    return '#{:02x}{:02x}{:02x}'.format(red, green, blue)
+
+
 
 
 #jet_colors =[ "#00007F", "blue"   , "#007FFF", "cyan"   , "#7FFF7F", "yellow" , "#FF7F00", "red"    , "#7F0000" ]
@@ -91,6 +107,9 @@ def rectangle( upper_left, lower_right, fill, stroke, stroke_width=1, dashed=Fal
         .format( upper_left[0], upper_left[1], lower_right[1]-upper_left[1], lower_right[0]-upper_left[0],
                  fill, stroke, stroke_width, stroke_dasharray_style )
 
+def circle( center, radius, fill, stroke, stroke_width=1):
+    return (f'<circle cx="{center[0]}" cy="{center[1]}" r="{radius}" '
+            f'stroke="{stroke}" fill="{fill}" stroke-width="{stroke_width}"/>\n')
 
 def line( p0, p1, line_width, color, dashed=False ):
     stroke_dasharray_style= ';stroke-dasharray:5,5' if dashed else ''

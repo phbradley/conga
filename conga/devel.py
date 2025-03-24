@@ -18,6 +18,7 @@ from scipy.sparse import issparse, csr_matrix
 from statsmodels.stats.multitest import multipletests
 from collections import Counter, OrderedDict
 import scanpy as sc
+from .tags import *
 from . import preprocess
 from . import tcr_scoring
 from . import util
@@ -771,6 +772,95 @@ def find_hotspot_nbrhoods(
     else:
         return pd.DataFrame()
 
+def calc_raw_gex_score(adata, mask, genes, normed=False):
+    ''' score the cells/clones where mask is true based on expression of the genes list
+
+    if normed is true, use Z-normalized expression, otherwise use raw log1p values
+
+    returns a single number, or np.nan if mask.sum()==0 or none of the genes are present
+    '''
+    if mask.sum()==0:
+        return np.nan
+    X = adata.raw.X
+    count = 0
+    score = 0.
+    for gene in genes:
+        if gene not in adata.raw.var_names:
+            continue
+        ind = adata.raw.var_names.get_loc(gene)
+        col = X[:,ind].toarray()[:,0]
+        if normed:
+            col -= col.mean()
+            sd = col.std()
+            if sd > 1e-3:
+                col /= sd
+            col = np.maximum(-10, np.minimum(10, col))
+        score += col[mask].mean()
+        count += 1
+    if count:
+        return score/count
+    else:
+        return np.nan
+
+
+def score_gex_clusters_naive_vs_memory(
+        adata,
+        outfile_prefix,
+):
+    ''' experimental
+
+    score each GEX cluster based on expression of some marker naive vs memory genes
+    
+    creates a TSV file:
+    outfile = outfile_prefix+'_cluster_gene_scores.tsv'
+    
+    '''
+    angry_genes  = 'B2M IL32 S100A4 CCL5 PFN1 SH3BGRL3 HLA-C ANXA1 HLA-A CD99'.split()
+    # drop some widely expressed genes?? add some cytotox genes
+    angry2_genes = 'IL32 CCL5 PFN1 NKG7 CST7 GZMA GZMH GZMK CTSW SRGN'.split()
+
+    naive_genes  = 'LEF1 CCR7 SELL MAL TCF7 NELL2 BACH2 EEF1A1 EEF1B2'.split()
+    # not sure about these EEF1 genes...
+    naive2_genes = 'LEF1 CCR7 SELL MAL TCF7 NELL2 BACH2'.split()
+
+    cd8_angry_genes = 'NKG7 CST7 GZMA GZMH GZMK CTSW SRGN CD74 PRF1'.split()
+    cd4_angry_genes = 'S100A10 S100A11 CD52 S100A6 ACTB VIM TMSB4X'.split()
+
+
+    all_genes = {
+        'naive': naive_genes,
+        'angry': angry_genes,
+        'naive2': naive2_genes,
+        'angry2': angry2_genes,
+        'angry_cd4': angry_genes + cd4_angry_genes,
+        'angry_cd8': angry_genes + cd8_angry_genes,
+    }
+
+    genes_union = set()
+    for _,genes in all_genes.items():
+        genes_union.update(genes)
+
+
+    dfl = []
+    for leiden in adata.obs.clusters_gex.unique():
+        mask = np.array(adata.obs.clusters_gex==leiden)
+        outl = dict(
+            leiden_gex=leiden,
+            num_clones=mask.sum(),
+            )
+        for tag, genes in all_genes.items():
+            outl[tag] = calc_raw_gex_score(adata, mask, genes)
+            outl[tag+'_norm'] = calc_raw_gex_score(adata, mask, genes, normed=True)
+        for gene in genes_union:
+            outl[gene] = calc_raw_gex_score(adata, mask, [gene])
+            outl[gene+'_norm'] = calc_raw_gex_score(adata, mask, [gene], normed=True)
+        dfl.append(outl)
+
+    df = pd.DataFrame(dfl)
+    outfile = outfile_prefix+'_cluster_gene_scores.tsv'
+    df.to_csv(outfile, sep='\t', index=False)
+    print('made:', outfile)
+
 
 def find_gex_cluster_degs(
         adata,
@@ -780,6 +870,9 @@ def find_gex_cluster_degs(
     if len(set(adata.obs['clusters_gex'])) <= 1:
         print('conga.devel.find_gex_cluster_degs:: too few clusters')
         return
+
+
+    score_gex_clusters_naive_vs_memory(adata, outfile_prefix)
 
     # look at differentially expressed genes in gex clusters
     obs_tag = 'clusters_gex_for_degs'
@@ -808,6 +901,7 @@ def find_gex_cluster_degs(
     )
     pngfile = outfile_prefix+'_gex_cluster_degs.png'
     plt.savefig(pngfile, bbox_inches="tight")
+    adata.uns.setdefault('conga_results',{})[GEX_CLUSTERS_DEGS] = pngfile
     print('made:', pngfile)
 
 
@@ -817,11 +911,24 @@ def find_gex_cluster_degs(
     max_rank_genes_pval_adj=0.05
     n_genes_for_plotting = 7
 
+    dfl = []
     for group in good_clusters:
         my_genes = []
         for igene,gene in enumerate( adata.uns[key_added]['names'][group] ):
             log2fold = adata.uns[key_added]['logfoldchanges'][group][igene]
             pval_adj = adata.uns[key_added]['pvals_adj'][group][igene]
+            score    = adata.uns[key_added]['scores'][group][igene]
+            if pval_adj<0.05:
+                dfl.append(dict(
+                    leiden=group,
+                    rank=igene,
+                    score=score,
+                    gene=gene,
+                    pval_adj=pval_adj,
+                    log2fold=log2fold,
+                    is_tf=gene in human_tf_gene_names,
+                ))
+
             #print('rank_gene:',group, igene, gene, log2fold, pval_adj)
             if len(my_genes) >= n_genes_for_plotting:
                 continue
@@ -847,6 +954,12 @@ def find_gex_cluster_degs(
             var_group_labels.append( group )
             new_rank_genes_genes.extend( my_genes )
 
+    results = pd.DataFrame(dfl)
+    outfile = outfile_prefix+'_gex_cluster_degs.tsv'
+    results.to_csv(outfile, sep='\t', index=False)
+    print('made:', outfile)
+
+
     if new_rank_genes_genes:
         sc.pl.stacked_violin(
             adata, var_names = new_rank_genes_genes, groupby=obs_tag,
@@ -857,6 +970,7 @@ def find_gex_cluster_degs(
             var_group_rotation = 1.0 )
         pngfile = outfile_prefix+'_gex_cluster_degs_violin.png'
         plt.savefig(pngfile, bbox_inches="tight")
+        adata.uns.setdefault('conga_results',{})[GEX_CLUSTERS_DEGS_VIOLINPLOT] = pngfile
         print('made:',pngfile)
 
         sc.pl.dotplot(
@@ -865,6 +979,7 @@ def find_gex_cluster_degs(
             var_group_positions=var_group_positions)
         pngfile = outfile_prefix+'_gex_cluster_degs_dotplot.png'
         plt.savefig(pngfile, bbox_inches="tight")
+        adata.uns.setdefault('conga_results',{})[GEX_CLUSTERS_DEGS_DOTPLOT] = pngfile
         print('made:', pngfile)
 
         # this plot_scatter seems to have moved in scanpy; need to update
@@ -2313,10 +2428,11 @@ def split_into_cd4_and_cd8_subsets(
         barcodes = list(all_barcodes[clone_ids==clone_id])
         counts = Counter([barcode_map[x] for x in barcodes]).most_common()
         if len(counts)>1 and verbose:
-            print('split clone:', counts)
+            print('split clone:', counts, tcr)
 
         if len(counts)>1 and counts[0][1] == counts[1][1] and allow_split_clones:
             # clone is split between cd4 and cd8, split by cell assignments
+            print('really split clone:', counts, tcr)
             for barcode in barcodes:
                 new_barcode_map[barcode] = barcode_map[barcode]
         else:

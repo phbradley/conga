@@ -11,6 +11,18 @@ from .html_colors import CB_RED, CB_GREEN, CB_BLUE, CB_ORANGE, CB_PURPLE
 all_text_height = {20:15.5, 100:75.}
 all_text_width  = {20:12.5, 100:60.}
 
+logo_aacolor = {}
+for aa in "G"       :logo_aacolor[aa] = CB_ORANGE #"orange" ## special for glycine
+for aa in "STYC"    :logo_aacolor[aa] = CB_GREEN #"green"
+for aa in "NQ"      :logo_aacolor[aa] = CB_PURPLE #"purple"
+for aa in "KRH"     :logo_aacolor[aa] = CB_BLUE #"blue"
+for aa in "DE"      :logo_aacolor[aa] = CB_RED #"red"
+for aa in "P"       :logo_aacolor[aa] = "black" ## for right now
+for aa in "AWFLIMV" :logo_aacolor[aa] = "black" ## do we want special W,F
+for aa in "J"       :logo_aacolor[aa] = "green" # huh?
+for aa in ".-"      :logo_aacolor[aa] = "black"
+
+
 def rgb_from_fraction(fraction, cmap=None):
 
     assert fraction >=0 and fraction<=1
@@ -212,8 +224,12 @@ def color_stack( upper_left, lower_right, letters, colors, values ):
     width  = lower_right[0] - upper_left[0]
     height = lower_right[1] - upper_left[1]
 
+    if height<1e-2 or width<1e-2 or sum(values)<1e-6:
+        return '' #### EARLY RETURN
+
     ## draw them proportional to their values
     total = sum(values)
+
 
     ## draw from the top down
     height_sum = 0.
@@ -266,16 +282,16 @@ def text_in_box( upper_left, lower_right, text, color ):
 
 def protein_logo( upper_left, lower_right, pwm, scale={} ):## scale[pos] should be in range [0,1]
 
-    aacolor = {}
-    for aa in "G"       :aacolor[aa] = CB_ORANGE #"orange" ## special for glycine
-    for aa in "STYC"    :aacolor[aa] = CB_GREEN #"green"
-    for aa in "NQ"      :aacolor[aa] = CB_PURPLE #"purple"
-    for aa in "KRH"     :aacolor[aa] = CB_BLUE #"blue"
-    for aa in "DE"      :aacolor[aa] = CB_RED #"red"
-    for aa in "P"       :aacolor[aa] = "black" ## for right now
-    for aa in "AWFLIMV" :aacolor[aa] = "black" ## do we want to make W,F something different??
-    for aa in "J":aacolor[aa] = "green"
-    for aa in ".-":aacolor[aa] = "black"
+    aacolor = logo_aacolor
+    # for aa in "G"       :aacolor[aa] = CB_ORANGE #"orange" ## special for glycine
+    # for aa in "STYC"    :aacolor[aa] = CB_GREEN #"green"
+    # for aa in "NQ"      :aacolor[aa] = CB_PURPLE #"purple"
+    # for aa in "KRH"     :aacolor[aa] = CB_BLUE #"blue"
+    # for aa in "DE"      :aacolor[aa] = CB_RED #"red"
+    # for aa in "P"       :aacolor[aa] = "black" ## for right now
+    # for aa in "AWFLIMV" :aacolor[aa] = "black" ## do we want to make W,F something different??
+    # for aa in "J":aacolor[aa] = "green"
+    # for aa in ".-":aacolor[aa] = "black"
 
     width  = lower_right[0] - upper_left[0]
     height = lower_right[1] - upper_left[1]

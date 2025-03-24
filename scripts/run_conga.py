@@ -174,6 +174,7 @@ parser.add_argument('--pretty_gvg_logos', action='store_true')
 parser.add_argument('--max_genes_per_cell', type=int)
 parser.add_argument('--min_genes_per_cell', type=int)
 parser.add_argument('--max_percent_mito', type=float)
+parser.add_argument('--force_variable_genes')
 
 # if your input AnnData file has integer-valued columns defining
 #  batch/tissue/donor/etc you can pass the column names with this option
@@ -513,6 +514,11 @@ if args.restart is None: ################################## load GEX/TCR data
         elif args.organism == 'mouse':
             add_variable_genes = ['Cd8a','Cd8b','Cd4']
 
+    if args.force_variable_genes:
+        with open(args.force_variable_genes,'r') as f:
+            force_genes = [x.strip() for x in f]
+        adata.uns['force_variable_genes'] = force_genes
+            
     adata = conga.preprocess.filter_and_scale(
         adata,
         max_genes_per_cell = args.max_genes_per_cell,
@@ -765,6 +771,7 @@ all_nbrs, nndists_gex, nndists_tcr = conga.preprocess.calc_nbrs(
     use_exact_tcrdist_nbrs = args.use_exact_tcrdist_nbrs,
 )
 
+conga.preprocess.add_mait_info_to_adata_obs(adata) # generally useful
 
 #
 if args.analyze_junctions:

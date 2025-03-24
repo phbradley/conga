@@ -124,6 +124,10 @@ def make_tcr_logo(
     if not show_full_cdr3: center_cdr3 = center_cdr3[3:-2]
     L = len(center_cdr3)
 
+    if not L: # weird edge case...
+        print('WARNING: make_tcr_logo.make_tcr_logo -- center tcr cdr3 has len <= 5')
+        return [] # return empty list of cmds
+
     pwm = {}
     junction_pwm = {}
     gap_count = {}

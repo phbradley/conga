@@ -295,6 +295,7 @@ def read_dataset(
             print('WARNING:: reading dataset without clones file',
                   'kernel PCs will not be set ie X_pca_tcr array',
                   'will be missing from adata.obsm!!!!!!!!!!!!!', sep='\n')
+        adata.uns['conga_stats']['num_cells_w_tcr'] = adata.shape[0]
         return adata ########################################## EARLY RETURN
 
 

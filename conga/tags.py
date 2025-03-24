@@ -41,6 +41,9 @@ GEX_CLUSTERS_TCRDIST_TREES = 'gex_clusters_tcrdist_trees'
 TCR_CLUSTERS_TCRDIST_TREES = 'tcr_clusters_tcrdist_trees'
 CONGA_THRESHOLD_TCRDIST_TREE = 'conga_threshold_tcrdist_tree'
 BATCH_UMAPS = 'batch_umaps'
+GEX_CLUSTERS_DEGS = 'gex_clusters_degs'
+GEX_CLUSTERS_DEGS_DOTPLOT = 'gex_clusters_degs_dotplot'
+GEX_CLUSTERS_DEGS_VIOLINPLOT = 'gex_clusters_degs_violinplot'
 
 # this gets added to table_tag or figure_tag to maek the key for storing help
 #   messages in adata.uns['conga_results']
