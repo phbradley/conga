@@ -3933,6 +3933,8 @@ default_content_order = [
     HOTSPOT_TCR_UMAP,
     HOTSPOT_TCR_CLUSTERMAP,
     BATCH_UMAPS,
+    AACLUSTER_MATCH_BARS,
+    AACLUSTER_MATCH_UMAPS,
 ]
 
 # figure tags:

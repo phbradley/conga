@@ -107,6 +107,9 @@ parser.add_argument('--plot_cluster_gene_compositions', action='store_true')
 parser.add_argument('--analyze_CD4_CD8', action='store_true')
 parser.add_argument('--analyze_proteins', action='store_true')
 parser.add_argument('--analyze_special_genes', action='store_true')
+parser.add_argument('--match_metaconga_aaclusters', choices=['cd4', 'cd8', None],
+                    default = None)
+
 
 # options for subsetting the data
 parser.add_argument('--exclude_gex_clusters', type=int, nargs='*')
@@ -317,6 +320,27 @@ if args.no_kpca:
 #     # to the 10x AGBT dataset format
 #     assert 'pmhc_var_names' in adata.uns or args.tenx_agbt
 
+if args.match_metaconga_aaclusters is not None:
+    if args.subset_to_CD4_cells:
+        assert args.match_metaconga_aaclusters == 'cd4'
+    elif args.subset_to_CD8_cells:
+        assert args.match_metaconga_aaclusters == 'cd8'
+    else:
+        print((('WARNING!!! '*10)+'\n')*50)
+        print(f'--match_metaconga_aaclusters {args.match_metaconga_aaclusters}')
+        print('Strongly suggest that you also add '
+              f'--subset_to_{args.match_metaconga_aaclusters.upper()}_cells')
+
+
+    if args.force_variable_genes is None:
+        path_to_mc_data = conga.util.path_to_data / 'metaconga'
+        
+        variable_genes_file = (
+            path_to_mc_data / 'hsgenes_1000_plus_cdr3aa_bias_top30_degs.tsv')
+        args.force_variable_genes = str(variable_genes_file)
+        print('WARNING: --match_metaconga_aaclusters',
+              'adding --force_variable_genes', variable_genes_file)
+
 if args.batch_keys:
     assert args.gex_data_type == 'h5ad' # need the info already in the obs dict
 
@@ -518,7 +542,7 @@ if args.restart is None: ################################## load GEX/TCR data
         with open(args.force_variable_genes,'r') as f:
             force_genes = [x.strip() for x in f]
         adata.uns['force_variable_genes'] = force_genes
-            
+
     adata = conga.preprocess.filter_and_scale(
         adata,
         max_genes_per_cell = args.max_genes_per_cell,
@@ -1025,6 +1049,17 @@ if args.analyze_proteins:
 
 if args.analyze_special_genes:
     conga.devel.analyze_special_genes(adata, args.outfile_prefix)
+
+
+if args.match_metaconga_aaclusters is not None:
+    cd48 = args.match_metaconga_aaclusters
+    assert cd48 in ['cd4','cd8']
+    matches = conga.metaconga_match.find_aacluster_matches(
+        adata, cd48,
+    )
+    conga.metaconga_match.plot_aacluster_matches(
+        adata, matches, args.outfile_prefix,
+    )
 
 
 batch_bias_results = None
