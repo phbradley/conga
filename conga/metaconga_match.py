@@ -9,17 +9,7 @@ from sys import exit
 from os.path import exists
 import os
 from pathlib import Path
-from collections import Counter, namedtuple#, OrderedDict
-#import time #debugging
-#import random
-#matplotlib.use('Agg')
-#from scipy import stats
-#from sklearn.metrics import pairwise_distances
-#from sklearn.decomposition import PCA
-#from scipy.stats import hypergeom, mannwhitneyu, linregress, norm, ttest_ind, poisson
-#import scipy.sparse as sps
-#from scipy.sparse import issparse, csr_matrix
-#from statsmodels.stats.multitest import multipletests
+from collections import Counter, namedtuple
 
 # package imports
 from .tags import *
@@ -29,8 +19,6 @@ from . import util
 from . import correlations
 from . import plotting
 from . import tcr_clumping
-#from .tcrdist.all_genes import all_genes
-#import sys
 
 # these are annoying
 import warnings
@@ -53,32 +41,32 @@ all_aacluster_tags = {
 }
 
 
+# aacluster_groups = {
+#     'cd4': [
+#         [[0,1,3,10,12], 'blood-Treg'],
+#         [[2,4,6,13], 'tissue-Treg'],
+#         #[[0,1,2,3,4,6,10,12,13], 'treg'],
+#         [[7,8,11,14,16], 'cytotoxic'],
+#         [[9], 'unknown'],
+#         [[5], 'thymic'],
+#         #[[15,17], 'unk2_small1'],
+#     ], # drop 18
+#     'cd8': [
+#         [[0,3,5,6,11,14], 'hobit-helios'],
+#         [[1,2,4], 'temra'],
+#         [[10,12], 'nk12'],
+#         [[8], 'cxcr5'],
+#         [[13,15,16], 'thymic'],
+#         #[[9], 'mait'],
+#         #[[7], 'cd4'],
+#         #[[17,18,19], 'small'],
+#     ], # drop 20
+# }
 aacluster_groups = {
     'cd4': [
-        [[0,1,3,10,12], 'blood-treg'],
-        [[2,4,6,13], 'tissue-treg'],
-        #[[0,1,2,3,4,6,10,12,13], 'treg'],
-        [[7,8,11,14,16], 'cytotoxic'],
-        [[9], 'unknown'],
-        [[5], 'thymic'],
-        #[[15,17], 'unk2_small1'],
-    ], # drop 18
-    'cd8': [
-        [[0,3,5,6,11,14], 'hobit-helios'],
-        [[1,2,4], 'temra'],
-        [[10,12], 'nk12'],
-        [[8], 'cxcr5'],
-        [[13,15,16], 'thymic'],
-        #[[9], 'mait'],
-        #[[7], 'cd4'],
-        #[[17,18,19], 'small'],
-    ], # drop 20
-}
-aacluster_groups = {
-    'cd4': [
-        [[0,1,3,10,12], 'blood-treg'],
-        [[2,4,6,13], 'tissue-treg'],
-        #[[0,1,2,3,4,6,10,12,13], 'treg'],
+        [[0,1,3,10,12], 'blood-Treg'],
+        [[2,4,6,13], 'tissue-Treg'],
+        #[[0,1,2,3,4,6,10,12,13], 'Treg'],
         [[7,8,11,14,16], 'cytotoxic'],
         [[9], 'unknown'],
         [[5], 'Thymic'],
@@ -121,7 +109,7 @@ def get_categorical_colors(ncolors):
 
 
 
-def encode_tcr_seqs(
+def _encode_tcr_seqs(
         tcr_df,
         min_cdr3len,
         max_cdr3len,
@@ -130,8 +118,14 @@ def encode_tcr_seqs(
         fg_trim=4,
         verbose=False,
 ):
-    ''' This is for computing CDR3aa-bias-cluster enrichment scores
+    ''' This is helper for computing CDR3aa-bias-cluster enrichment scores
 
+    tcr_df should have columns: va vb cdr3a cdr3b 
+
+    returns vecs with shape == (tcr_df.shape[0], num_cols)
+
+    cols:
+    
     cdr3a aas
     cdr3b aas
     cdr3a lens
@@ -190,8 +184,11 @@ def get_cdr3aa_bias_tcr_scores(
         min_cdr3len=7,
         max_cdr3len=21,
 ):
+    ''' returns cd4_scores, cd8_scores
+
+    tcr_df should have columns: va vb cdr3a cdr3b 
     '''
-    '''
+    
     from .tcrdist.amino_acids import amino_acids
 
     # read the aacluster enrichments (V, cdr3len, cdr3aa)
@@ -235,7 +232,7 @@ def get_cdr3aa_bias_tcr_scores(
     enrich_cd4 = enrichdf_cd4[cols].to_numpy().T
     enrich_cd8 = enrichdf_cd8[cols].to_numpy().T
 
-    vecs = encode_tcr_seqs(tcr_df, min_cdr3len, max_cdr3len, va_genes, vb_genes)
+    vecs = _encode_tcr_seqs(tcr_df, min_cdr3len, max_cdr3len, va_genes, vb_genes)
 
     assert vecs.shape == (tcr_df.shape[0], enrich_cd8.shape[0])
 
@@ -253,7 +250,9 @@ def get_cdr3aa_bias_deg_scores(
         skip_ribosomal=True,
         topn_for_good_score=5, # ie, the 3rd highest score
 ):
-    '''
+    ''' returns cd4_scores, cd8_scores
+
+    clonotype score is based on expression of top DEGs for metaconga AAclusters
     '''
 
     dfl = []
@@ -323,12 +322,13 @@ _tfs_listfile= util.path_to_data / 'Lambert_et_al_PMID_29425488_TF_names_v_1.01.
 human_tf_gene_names = [x.split()[0] for x in open(_tfs_listfile,'r')]
 
 
-def find_degs_for_subset(
+def _find_degs_for_subset(
         inds,
         adata,
         pval_threshold=0.05,
 ):
-
+    ''' Helper function for running scanpy DEG code on a set of indices from adata
+    '''
 
     inds = set(inds)
     assert 0 <= min(inds) and max(inds) < adata.shape[0]
@@ -583,7 +583,7 @@ def find_aacluster_matches(
             mask = np.array(obs[f'real_overlap_mask_{c}'])
             inds = np.nonzero(mask)[0]
 
-            dfdegs = find_degs_for_subset(inds, adata)
+            dfdegs = _find_degs_for_subset(inds, adata)
             if dfdegs.shape[0] > 0:
                 overlap_pval_type = obs[col+'_type'].iloc[0]
                 dfdegs['neg_abs_score'] = -1 * np.abs(dfdegs.score)

@@ -334,7 +334,7 @@ if args.match_metaconga_aaclusters is not None:
 
     if args.force_variable_genes is None:
         path_to_mc_data = conga.util.path_to_data / 'metaconga'
-        
+
         variable_genes_file = (
             path_to_mc_data / 'hsgenes_1000_plus_cdr3aa_bias_top30_degs.tsv')
         args.force_variable_genes = str(variable_genes_file)
