@@ -1,8 +1,6 @@
 # Clonotype Neighbor Graph Analysis (CoNGA) -- version 0.1.2
 
-## Development branch containg new code for matching datasets to "metaconga" features (clumps and cdr3aa-bias clusters) as described in the [preprint](https://doi.org/10.1101/2025.05.31.657155). See a few examples at the end of the [Examples](#examples) section.
-
-[link to first example](#metaconga-tcr-cluster-matching-10k-pbmc-from-human-disease)
+## This is a development branch containg new code for matching datasets to "metaconga" features (TCR clusters aka "clumps" and CDR3AA-bias clusters) as described in the [new preprint](https://doi.org/10.1101/2025.05.31.657155). There are a few examples at the end of the [Examples](#examples) section ([link to first relevant example](#metaconga-tcr-cluster-matching-10k-pbmc-from-human-disease) ).
 
 This repository contains the `conga` python package and associated scripts
 and workflows. `conga` was developed to detect correlation between
@@ -28,18 +26,18 @@ https://www.nature.com/articles/s41587-021-00989-2
 
 # Table of Contents
 
-* [Running](https://github.com/phbradley/conga#running)
-* [Installation](https://github.com/phbradley/conga#installation)
-* [Migrating Seurat data to CoNGA](https://github.com/phbradley/conga#migrating-seurat-data-to-conga)
-* [Merging multiple datasets for CoNGA analysis](https://github.com/phbradley/conga#merging-multiple-datasets-into-a-single-object-for-conga-analysis)
-* [Updates](https://github.com/phbradley/conga#updates)
-* [SVG to PNG](https://github.com/phbradley/conga#svg-to-png)
-* [Testing CoNGA without going through the pain of installing it](https://github.com/phbradley/conga#testing-conga-without-going-through-the-pain-of-installing-it)
-    - [Docker](https://github.com/phbradley/conga#docker)
-    - [Google colab](https://github.com/phbradley/conga#google-colab)
+* [Running](#running)
+* [Installation](#installation)
+* [Migrating Seurat data to CoNGA](#migrating-seurat-data-to-conga)
+* [Merging multiple datasets for CoNGA analysis](#merging-multiple-datasets-into-a-single-object-for-conga-analysis)
+* [Updates](#updates)
+* [SVG to PNG](#svg-to-png)
+* [Testing CoNGA without going through the pain of installing it](#testing-conga-without-going-through-the-pain-of-installing-it)
+    - [Docker](#docker)
+    - [Google colab](#google-colab)
 * [Examples](#examples)
-* [The CoNGA data model: where stuff is stored](https://github.com/phbradley/conga#conga-data-model-where-stuff-is-stored)
-* [Frequently Asked Questions](https://github.com/phbradley/conga#frequently-asked-questions)
+* [The CoNGA data model: where stuff is stored](#conga-data-model-where-stuff-is-stored)
+* [Frequently Asked Questions](#frequently-asked-questions)
 
 # Running
 
