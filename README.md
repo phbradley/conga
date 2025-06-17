@@ -1,6 +1,8 @@
 # Clonotype Neighbor Graph Analysis (CoNGA) -- version 0.1.2
 
-## Development branch containg new code for matching datasets to "metaconga" features (clumps and cdr3aa-bias clusters) as described in the [preprint](https://doi.org/10.1101/2025.05.31.657155). See a few examples at the end of the Examples section.
+## Development branch containg new code for matching datasets to "metaconga" features (clumps and cdr3aa-bias clusters) as described in the [preprint](https://doi.org/10.1101/2025.05.31.657155). See a few examples at the end of the [Examples](#examples) section.
+
+[link to first example](#metaconga-tcr-cluster-matching-10k-pbmc-from-human-disease)
 
 This repository contains the `conga` python package and associated scripts
 and workflows. `conga` was developed to detect correlation between
@@ -35,7 +37,7 @@ https://www.nature.com/articles/s41587-021-00989-2
 * [Testing CoNGA without going through the pain of installing it](https://github.com/phbradley/conga#testing-conga-without-going-through-the-pain-of-installing-it)
     - [Docker](https://github.com/phbradley/conga#docker)
     - [Google colab](https://github.com/phbradley/conga#google-colab)
-* [Examples](https://github.com/phbradley/conga#examples)
+* [Examples](#examples)
 * [The CoNGA data model: where stuff is stored](https://github.com/phbradley/conga#conga-data-model-where-stuff-is-stored)
 * [Frequently Asked Questions](https://github.com/phbradley/conga#frequently-asked-questions)
 
