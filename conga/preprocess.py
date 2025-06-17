@@ -105,6 +105,8 @@ def normalize_and_log_the_raw_matrix(
         ngenes = adata.raw.shape[1]
     n_ab_features = adata.raw.shape[1] - ngenes
 
+
+    
     X_gex = adata.raw.X[:,:ngenes]
 
     counts_per_cell = np.sum( X_gex, axis=1 ).A1 # A1 since X_gex is sparse
@@ -230,8 +232,16 @@ def read_adata(
               "should be one of ['h5ad', '10x_mtx', '10x_h5', 'loom']")
         exit()
 
+
+        
     if adata.isview: # ran into trouble with AnnData views vs copies
         adata = adata.copy()
+
+    # borrow this from scanpy _normalize_data
+    if issubclass(adata.X.dtype.type, (int, np.integer)):
+        adata.X = adata.X.astype(np.float32)  # TODO: Check if float64 should be used
+
+        
     return adata
 
 def read_dataset(
@@ -538,7 +548,8 @@ def filter_normalize_and_hvg(
             assert removed_at_end # want to make this assumption somewhere else
 
     #normalize and log data
-    sc.pp.normalize_per_cell(adata, counts_per_cell_after=1e4)
+    sc.pp.normalize_total(adata, target_sum=1e4)
+    #sc.pp.normalize_per_cell(adata, counts_per_cell_after=1e4)
     sc.pp.log1p(adata)
 
     #find and filter by highly variable genes

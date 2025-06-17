@@ -1,6 +1,6 @@
 # Clonotype Neighbor Graph Analysis (CoNGA) -- version 0.1.2
 
-## dev branch for new code for matching datasets to metaconga features (clumps and cdr3aa-bias clusters)
+## Development branch containg new code for matching datasets to "metaconga" features (clumps and cdr3aa-bias clusters) as described in the [preprint](https://doi.org/10.1101/2025.05.31.657155). See a few examples at the end of the Examples section.
 
 This repository contains the `conga` python package and associated scripts
 and workflows. `conga` was developed to detect correlation between
@@ -632,6 +632,21 @@ value of 10 to zero (blue) with more significant scores trending toward red at
 a value of 1e-8:
 
 ![tcrdist_tree](_images/bcr_hs_melanoma_conga_score_lt_10.0_tcrdist_tree.png)
+
+## Metaconga TCR cluster matching: 10k PBMC from human disease
+
+```
+# DOWNLOAD FROM:
+# https://www.10xgenomics.com/datasets/10k_5p_Human_diseased_PBMC_ALL_Fresh
+
+# SETUP
+python conga/scripts/setup_10x_for_conga.py --filtered_contig_annotations_csvfile 10k_5p_Human_diseased_PBMC_ALL_Fresh_vdj_t_filtered_contig_annotations.csv --organism human --no_kpca
+
+# RUN
+python conga/scripts/run_conga.py --match_metaconga_clumps --no_kpca --organism human --clones_file new_10x_datasets/10k_5p_Human_diseased_PBMC_ALL_Fresh_vdj_t_filtered_contig_annotations_tcrdist_clones.tsv  --gex_data new_10x_datasets/10k_5p_Human_diseased_PBMC_ALL_Fresh_count_filtered_feature_bc_matrix.h5 --gex_data_type 10x_h5 --outfile_prefix mcc_match_10k_5p
+```
+
+![matching_umaps](_images/mcc_match_10k_5p_metaconga_match_clumps_umaps.png)
 
 # CoNGA data model: where stuff is stored
 

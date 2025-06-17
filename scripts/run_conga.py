@@ -109,6 +109,7 @@ parser.add_argument('--analyze_proteins', action='store_true')
 parser.add_argument('--analyze_special_genes', action='store_true')
 parser.add_argument('--match_metaconga_aaclusters', choices=['cd4', 'cd8', None],
                     default = None)
+parser.add_argument('--match_metaconga_clumps', action='store_true')
 
 
 # options for subsetting the data
@@ -1057,10 +1058,17 @@ if args.match_metaconga_aaclusters is not None:
     matches = conga.metaconga_match.find_aacluster_matches(
         adata, cd48,
     )
+    # this next function also saves somes results TSV files
     conga.metaconga_match.plot_aacluster_matches(
         adata, matches, args.outfile_prefix,
     )
 
+if args.match_metaconga_clumps:
+    conga.metaconga_match.find_clump_matches(adata)
+
+    # this next function also saves somes results TSV files
+    conga.metaconga_match.plot_clump_matches(adata, args.outfile_prefix)
+    
 
 batch_bias_results = None
 if args.find_batch_biases: #####################################################

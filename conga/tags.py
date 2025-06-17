@@ -13,6 +13,8 @@ GRAPH_VS_GRAPH_STATS = 'graph_vs_graph_stats'
 GRAPH_VS_GRAPH = 'graph_vs_graph'
 TCR_DB_MATCH = 'tcr_db_match'
 TCR_CLUMPING = 'tcr_clumping'
+METACONGA_MATCH_CLUMPS = 'metaconga_match_clumps'
+METACONGA_MATCH_AACLUSTERS = 'metaconga_match_aaclusters'
 
 TCR_GRAPH_VS_GEX_FEATURES = 'tcr_graph_vs_gex_features'
 TCR_GENES_VS_GEX_FEATURES = 'tcr_genes_vs_gex_features'
@@ -44,8 +46,9 @@ BATCH_UMAPS = 'batch_umaps'
 GEX_CLUSTERS_DEGS = 'gex_clusters_degs'
 GEX_CLUSTERS_DEGS_DOTPLOT = 'gex_clusters_degs_dotplot'
 GEX_CLUSTERS_DEGS_VIOLINPLOT = 'gex_clusters_degs_violinplot'
-AACLUSTER_MATCH_BARS = 'aacluster_match_bars'
-AACLUSTER_MATCH_UMAPS = 'aacluster_match_umaps'
+METACONGA_MATCH_AACLUSTERS_BARS = 'metaconga_match_aaclusters_bars'
+METACONGA_MATCH_AACLUSTERS_UMAPS = 'metaconga_match_aaclusters_umaps'
+METACONGA_MATCH_CLUMPS_UMAPS = 'metaconga_match_clumps_umaps'
 
 # this gets added to table_tag or figure_tag to maek the key for storing help
 #   messages in adata.uns['conga_results']

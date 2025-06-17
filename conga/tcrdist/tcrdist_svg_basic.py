@@ -2,8 +2,7 @@ from os import system
 from os.path import exists
 import base64 ## png encoding
 import math
-from . import basic ## convert_svg_to_png
-from .basic import MONOSPACE_FONT_FAMILY
+from .basic import MONOSPACE_FONT_FAMILY, convert_svg_to_png
 from .html_colors import CB_RED, CB_GREEN, CB_BLUE, CB_ORANGE, CB_PURPLE
 
 
@@ -78,7 +77,7 @@ def create_file( cmds, width, height, filename, create_png = False, background_c
     if create_png:
         assert filename.endswith('.svg')
         pngfile = filename[:-4]+'.png'
-        basic.convert_svg_to_png( filename, pngfile )
+        convert_svg_to_png( filename, pngfile )
 
 
 ## this will work if oldfile was created using create_file
@@ -131,6 +130,7 @@ def make_text( text, lower_left, fontsize,
         .format( lower_left[0], lower_left[1], fontsize, font_weight, font_family, color, text )
     return cmd
 
+
 def make_amino_acids_text(
         text,
         lower_left,
@@ -170,7 +170,6 @@ def make_amino_acids_text(
         ))
 
     return cmds
-
 
 
 class SVG_tree_plotter:
@@ -230,7 +229,6 @@ def color_stack( upper_left, lower_right, letters, colors, values ):
     ## draw them proportional to their values
     total = sum(values)
 
-
     ## draw from the top down
     height_sum = 0.
     lines = []
@@ -280,18 +278,17 @@ def text_in_box( upper_left, lower_right, text, color ):
 
 
 
-def protein_logo( upper_left, lower_right, pwm, scale={} ):## scale[pos] should be in range [0,1]
-
+def protein_logo(
+        upper_left,
+        lower_right,
+        pwm,
+        scale={}, ## scale[pos] should be in range [0,1]
+        xmag = 1.0, # make the letters wider by this factor
+        xmag_W = 1.0,
+):
+    '''returns cmds all merged together as a single string
+    '''
     aacolor = logo_aacolor
-    # for aa in "G"       :aacolor[aa] = CB_ORANGE #"orange" ## special for glycine
-    # for aa in "STYC"    :aacolor[aa] = CB_GREEN #"green"
-    # for aa in "NQ"      :aacolor[aa] = CB_PURPLE #"purple"
-    # for aa in "KRH"     :aacolor[aa] = CB_BLUE #"blue"
-    # for aa in "DE"      :aacolor[aa] = CB_RED #"red"
-    # for aa in "P"       :aacolor[aa] = "black" ## for right now
-    # for aa in "AWFLIMV" :aacolor[aa] = "black" ## do we want to make W,F something different??
-    # for aa in "J":aacolor[aa] = "green"
-    # for aa in ".-":aacolor[aa] = "black"
 
     width  = lower_right[0] - upper_left[0]
     height = lower_right[1] - upper_left[1]
@@ -317,8 +314,10 @@ def protein_logo( upper_left, lower_right, pwm, scale={} ):## scale[pos] should 
             if freq * scaled_height>1: ## at least one pixel high
                 y0 = upper_y + totfreq * scaled_height
                 y1 = upper_y + (totfreq+freq) * scaled_height
-                x0 = upper_left[0] + pos*letter_width
-                x1 = upper_left[0] + (pos+1)*letter_width
+                extra_x = (letter_width*(xmag_W-1.0)/2 if aa=='W' else
+                           letter_width*(xmag  -1.0)/2)
+                x0 = upper_left[0] + pos*letter_width - extra_x
+                x1 = upper_left[0] + (pos+1)*letter_width + extra_x
                 cmds.append( text_in_box( (x0,y0), (x1,y1), aa, aacolor[aa] ) )
             totfreq += freq
             #print pos,aa,freq,totfreq,sum(pwm[pos].values()),pwm[pos]

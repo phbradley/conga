@@ -1836,6 +1836,8 @@ def make_tcr_db_match_plot(
     table_tag = TCR_DB_MATCH
     figure_tag = TCR_DB_MATCH_PLOT
 
+    required_cols = 'db_epitope db_epitope_gene db_mhc_trim'.split()
+
     util.setup_uns_dicts(adata) # shouldn't be necessary
 
     results = adata.uns['conga_results'].get(table_tag, None)
@@ -1849,7 +1851,13 @@ def make_tcr_db_match_plot(
         print('conga.plotting.make_db_matches_figure:: no significant hits')
         return
 
+    if any(x not in results.columns for x in required_cols):
+        print('conga.plotting.make_db_matches_figure:: missing some columns from'
+              'results:', [x for x in required_cols if x not in results.columns])
+        return
+    
     results = results.sort_values('pvalue_adj').drop_duplicates('clone_index')
+    
 
     missing_epitope = results.db_epitope==''
     results.loc[missing_epitope,'db_epitope'] = results.db_epitope_gene[missing_epitope]
@@ -3933,8 +3941,10 @@ default_content_order = [
     HOTSPOT_TCR_UMAP,
     HOTSPOT_TCR_CLUSTERMAP,
     BATCH_UMAPS,
-    AACLUSTER_MATCH_BARS,
-    AACLUSTER_MATCH_UMAPS,
+    METACONGA_MATCH_AACLUSTERS_BARS,
+    METACONGA_MATCH_AACLUSTERS_UMAPS,
+    METACONGA_MATCH_CLUMPS,
+    METACONGA_MATCH_CLUMPS_UMAPS,
 ]
 
 # figure tags:

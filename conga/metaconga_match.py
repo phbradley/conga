@@ -261,7 +261,7 @@ def get_cdr3aa_bias_deg_scores(
         degsfile = Path.joinpath(
             path_to_mc_data, f'{degs_runtag}_{cd48}_deg_results.tsv')
 
-        dfdegs = pd.read_table(degsfile)
+        dfdegs = pd.read_table(degsfile, low_memory=False)
 
         dfdegs = dfdegs[dfdegs.pval_adj <= max_pval_adj].copy()
 
@@ -710,7 +710,7 @@ def plot_aacluster_matches(
         matches,
         outfile_prefix,
         pval_threshold_for_bars = 1e-3,
-        pval_threshold_for_overlap_umaps = 1e-6,
+        pval_threshold_for_overlap_umaps = 1e-4,
         MAX_UMAP_ROWS=10,
         PLOT_GEX_CLUSTERS_UMAP = False, # set True to show umaps colored by GEX clusters
         gexcluster_degs = None, # pass to also show degs from the closest GEX cluster
@@ -721,6 +721,10 @@ def plot_aacluster_matches(
     has (pvals, degs, obs)
     
     '''
+    if matches.pvals.empty:
+        print('metaconga_match:: plot_aacluster_matches: no hits')
+        return
+    
     assert matches.pvals.cd48.nunique() == 1
     cd48 = matches.pvals.cd48.iloc[0]
 
@@ -867,9 +871,10 @@ def plot_aacluster_matches(
             
 
     plt.tight_layout()
-    pngfile = outfile_prefix+'_aacluster_match_bars.png'
+    pngtag = METACONGA_MATCH_AACLUSTERS_BARS
+    pngfile = f'{outfile_prefix}_{pngtag}.png'
     plt.savefig(pngfile)
-    adata.uns.setdefault('conga_results',{})[AACLUSTER_MATCH_BARS] = pngfile
+    adata.uns.setdefault('conga_results',{})[pngtag] = pngfile
     print('made:', pngfile)
 
 
@@ -1061,9 +1066,267 @@ def plot_aacluster_matches(
 
     if nrows:
         plt.tight_layout()
-        pngfile = f'{outfile_prefix}_aacluster_match_umaps.png'
-        adata.uns.setdefault('conga_results',{})[AACLUSTER_MATCH_UMAPS] = pngfile
+        pngtag = METACONGA_MATCH_AACLUSTERS_UMAPS
+        pngfile = f'{outfile_prefix}_{pngtag}.png'
+        adata.uns.setdefault('conga_results',{})[pngtag] = pngfile
         plt.savefig(pngfile, dpi=150)
         print('made:', pngfile)
 
 
+
+def _process_clump_matches(adata, results):
+    if results.empty: # early return if empty
+        return results
+
+    CLUMPS = 'big_combo_tcrs_2024-02-02a_gp4'
+    DB = CLUMPS+'_ten_tcrs.tsv'
+    NEWINFO = CLUMPS+'_MCC10_NG200_groups_info_MCC10_extras_new_matches.tsv'
+    OLDINFO = CLUMPS+'_MCC10_NG200_groups_info_MCC10_extras.tsv'
+
+    results.rename(columns={'query_index':'clone_index'}, inplace=True)
+    barcodes = list(adata.obs.index)
+    results['barcode'] = [barcodes[x] for x in results.clone_index]
+    results.sort_values(['pvalue_adj','tcrdist'], inplace=True)
+
+    goodcols = 'db_index db_clumping_group db_va db_cdr3a db_vb db_cdr3b'.split()
+    dropcols = [x for x in results.columns if x.startswith('db_') and x not in goodcols]
+    print('_process_clump_matches:: dropcols:', dropcols)
+    results.drop(columns=dropcols, inplace=True)
+    
+    # load some clumps info files for annotations
+    # newer, probably higher quality literature matches, includes sars-cov2
+    fname = Path.joinpath(path_to_mc_data, NEWINFO)
+    info = pd.read_table(fname, low_memory=False)
+
+    # some older, probably lower-quality literature matches
+    fname = Path.joinpath(path_to_mc_data, OLDINFO)
+    old_info = pd.read_table(fname, low_memory=False)
+
+    assert info.clumping_group.value_counts().max() == 1
+    cols = 'lit_match1 lit_match1_frac'.split()
+    info = info.join(old_info.set_index('clumping_group')[cols], on='clumping_group')
+
+    # add the center tcr sequence to the info file (replace old bogus v/j/cdr3 info)
+    db_fname = Path.joinpath(path_to_mc_data, DB)
+    db_df = pd.read_table(db_fname, low_memory=False)
+    db_df = db_df[db_df.is_group_center]
+    cols = 'va ja cdr3a vb jb cdr3b'.split()
+    info.drop(columns=cols, inplace=True)
+    info = info.join(db_df.set_index('clumping_group')[cols], on='clumping_group')
+    info.rename(columns = {x:'center_'+x for x in cols},
+                inplace=True)
+
+    cols = (['center_'+x for x in 'va ja cdr3a vb jb cdr3b'.split()] + 
+            ('leiden lit_match1 cmv_pval_adj hla_pval_adj locus allele umap_1 umap_2 '
+             'pmhc antigen_species antigen_gene CD8A CD8B CD4').split())
+    
+    results = results.join(info.set_index('clumping_group')[cols],
+                           on='db_clumping_group', rsuffix='_r')
+
+    
+    results.rename(columns = {x:'mcc_'+x for x in cols}, inplace=True)
+
+    rename = dict(db_clumping_group= 'mcc_clumping_group',
+                  mcc_lit_match1= 'mcc_old_lit_match_pmhc',
+                  mcc_allele= 'mcc_hla_allele',
+                  mcc_pmhc= 'mcc_new_lit_match_pmhc',
+                  mcc_antigen_species= 'mcc_new_lit_match_antigen_species',
+                  mcc_antigen_gene= 'mcc_new_lit_match_antigen_gene')
+    
+    results.rename(columns = rename, inplace=True)
+
+    return results
+
+
+def find_clump_matches(
+        adata,
+        num_random_samples_for_bg_freqs = 200000,
+        adjusted_pvalue_threshold = 1.0,
+):
+    DB = 'big_combo_tcrs_2024-02-02a_gp4_ten_tcrs.tsv'
+    
+    fg_df = adata.obs.copy()
+
+    db_fname = Path.joinpath(path_to_mc_data, DB)
+    
+    db_df = pd.read_table(db_fname, low_memory=False)
+        
+    results = tcr_clumping.find_significant_tcrdist_matches(
+        fg_df, db_df, adata.uns['organism'],
+        #background_tcrs_df = bg_df,
+        adjusted_pvalue_threshold = adjusted_pvalue_threshold,
+        num_random_samples_for_bg_freqs=num_random_samples_for_bg_freqs,
+    )
+
+    results = _process_clump_matches(adata, results)
+
+    if not results.empty:
+
+        # store results in adata.uns
+        table_tag = METACONGA_MATCH_CLUMPS
+        adata.uns.setdefault('conga_results', {})[table_tag] = results
+
+    return
+
+
+def plot_clump_matches(adata, outfile_prefix):
+    import seaborn as sns
+    table_tag = METACONGA_MATCH_CLUMPS
+    
+    if ('conga_results' not in adata.uns or
+        table_tag not in adata.uns['conga_results']):
+        print('metaconga_match:: plot_clump_matches: no results stored in adata, '
+              'Make sure to call metaconga_match.find_clump_matches first')
+        return
+
+    results = adata.uns['conga_results'][table_tag]
+
+    leiden_colors = get_categorical_colors(21) # match the colors in the paper...
+
+    # save results to TSV file
+    outfile = f'{outfile_prefix}_{table_tag}.tsv'
+    results.to_csv(outfile, sep='\t', index=False)
+
+    # what plots to show
+    # -- colored by pvalue_adj
+    # -- colored by leiden
+    # -- colored by cmv pval adj
+    # -- colored by hla pval adj
+    # -- colored by lit match
+    # -- colored by old lit match
+
+    colortags = 'evalue leiden cmv hla new_lit old_lit'.split()
+    fancytags = [ # same order as colortags
+        'E-value of match to clump\n"E-value" = raw P-value multiplied by the number of tests\nSo significant hits start around E=1.0 and smaller',
+        'GEX leiden group',
+        'CMV association',
+        'HLA association',
+        'literature matches',
+        'literature matches (old)',
+    ]
+    
+    figure_tag = METACONGA_MATCH_CLUMPS_UMAPS
+    
+    pngfile = f'{outfile_prefix}_{figure_tag}.png'
+    nrows, ncols, plotno = len(colortags), 2, 0
+    plt.figure(figsize=(ncols*6, nrows*6))
+
+    # for plotting, one match per clonotype
+    res = results.sort_values('pvalue_adj tcrdist'.split()).drop_duplicates(
+        'clone_index')
+
+    # plot the more significant stuff on top
+    res.sort_values('pvalue_adj tcrdist'.split(), ascending=False, inplace=True)
+
+    def pval_mapper(x):
+        if x >= 1:
+            return 0
+        else:
+            return np.sqrt(-1*np.log10(x))
+    def pval_unmapper(x):
+        return 10**(-1*(x**2))
+        
+    for colortag, fancytag in zip(colortags, fancytags):
+        for xytag in 'gex tcr'.split():
+            xy = adata.obsm[f'X_{xytag}_2d']
+
+            inds = list(res.clone_index)
+            res['x'] = xy[inds][:,0]
+            res['y'] = xy[inds][:,1]
+
+            plotno += 1
+            plt.subplot(nrows, ncols, plotno)
+
+            # show all the points in light gray
+            plt.scatter(xy[:,0], xy[:,1], c='#EFEFEF', s=5)
+
+            cmap, vmin, vmax = None, None, None
+            mask = np.ones((res.shape[0],), dtype=bool)
+            if colortag == 'leiden':
+                res['c'] = [leiden_colors[x] for x in res.mcc_leiden]
+            elif colortag == 'evalue':
+                res['c'] = [pval_mapper(x) for x in res.pvalue_adj]
+                vmin, vmax = 0, 4.01
+                cmap = sns.cubehelix_palette(dark=0.1, light=.9, as_cmap=True)
+            elif colortag == 'cmv':
+                res['c'] = [pval_mapper(x) for x in res.mcc_cmv_pval_adj]
+                vmin, vmax = 0, 4.01
+                cmap = sns.cubehelix_palette(dark=0.1, light=.9, as_cmap=True)
+            elif colortag == 'hla':
+                res['c'] = [pval_mapper(x) for x in res.mcc_hla_pval_adj]
+                vmin, vmax = 0, 4.01
+                cmap = sns.cubehelix_palette(dark=0.1, light=.9, as_cmap=True)
+            elif colortag in ['new_lit','old_lit']:
+                col = f'mcc_{colortag}_match_pmhc'
+                mask = ~np.array(res[col].isna())
+                lit_counts = res[mask][col].value_counts()
+                pmhcs_sorted = list(lit_counts.index)
+                colormap = dict(zip(pmhcs_sorted,
+                                    get_categorical_colors(len(pmhcs_sorted))))
+                res['c'] = res[col].map(colormap)
+
+            plt.scatter(res[mask].x, res[mask].y, c=res[mask].c, s=15,
+                        vmin=vmin, vmax=vmax, cmap=cmap)
+            
+            if colortag in ['hla','cmv','evalue']:
+                if colortag == 'evalue':
+                    cbar = plt.colorbar(label = 'E-value of match')
+                else:
+                    cbar = plt.colorbar(label = 'E-value of association')
+                locs = cbar.get_ticks()
+                #print('locs:', locs, cbar.vmax)
+                locs = [x for x in locs if x<cbar.vmax]
+                labels = [f'{pval_unmapper(x):.0e}' for x in locs]
+                labels[0] = '>= '+labels[0]
+                labels[-1] = '<= '+labels[-1]
+                cbar.set_ticks(locs)
+                cbar.set_ticklabels(labels, fontsize=6)
+                
+
+
+            if colortag == 'hla':
+                for l in res.itertuples():
+                    if l.mcc_hla_pval_adj<1:
+                        #text = f'{l.mcc_hla_allele} {l.mcc_hla_pval_adj:9.2e}'
+                        text = l.mcc_hla_allele
+                        plt.text(l.x, l.y, text, fontsize=6)
+            elif colortag == 'new_lit':
+                for _,row in res[mask].drop_duplicates(
+                        'mcc_new_lit_match_pmhc').iterrows():
+                    tag = (row.mcc_new_lit_match_pmhc + "_" +
+                           str(row.mcc_new_lit_match_antigen_gene) + "_" +
+                           str(row.mcc_new_lit_match_antigen_species))
+                    plt.scatter([],[],color=colormap[row.mcc_new_lit_match_pmhc],
+                                label=tag)
+                plt.legend(fontsize=6)
+            elif colortag == 'old_lit':
+                for _,row in res[mask].drop_duplicates(
+                        'mcc_old_lit_match_pmhc').iterrows():
+                    plt.scatter([],[],color=colormap[row.mcc_old_lit_match_pmhc],
+                                label=row.mcc_old_lit_match_pmhc)
+                plt.legend(fontsize=6)
+                
+            plt.xticks([],[])
+            plt.yticks([],[])
+            plt.xlabel(f'{xytag.upper()} UMAP1')
+            plt.ylabel(f'{xytag.upper()} UMAP2')
+
+            title = f'{xytag.upper()} UMAP colored by matches to metaconga clumps\n'
+            if colortag == 'evalue':
+                title += f'Colors show {fancytag}'
+            else:
+                title += f'Colors show matched-clump {fancytag}'
+            plt.title(title)
+    plt.tight_layout()
+    plt.savefig(pngfile, dpi=120)
+    print('made:', pngfile)
+
+    # store results and help message
+    adata.uns['conga_results'][figure_tag] = pngfile
+    help_message = """GEX and TCR UMAPs showing the location of significant
+    matches to the metaconga clumping groups"""
+    adata.uns['conga_results'][figure_tag+HELP_SUFFIX] = help_message
+    util.make_figure_helpfile(figure_tag, adata)
+
+
+                                   
