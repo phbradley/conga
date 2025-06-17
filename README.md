@@ -643,10 +643,44 @@ a value of 1e-8:
 python conga/scripts/setup_10x_for_conga.py --filtered_contig_annotations_csvfile 10k_5p_Human_diseased_PBMC_ALL_Fresh_vdj_t_filtered_contig_annotations.csv --organism human --no_kpca
 
 # RUN
-python conga/scripts/run_conga.py --match_metaconga_clumps --no_kpca --organism human --clones_file new_10x_datasets/10k_5p_Human_diseased_PBMC_ALL_Fresh_vdj_t_filtered_contig_annotations_tcrdist_clones.tsv  --gex_data new_10x_datasets/10k_5p_Human_diseased_PBMC_ALL_Fresh_count_filtered_feature_bc_matrix.h5 --gex_data_type 10x_h5 --outfile_prefix mcc_match_10k_5p
+python conga/scripts/run_conga.py --match_metaconga_clumps --no_kpca --organism human --clones_file 10k_5p_Human_diseased_PBMC_ALL_Fresh_vdj_t_filtered_contig_annotations_tcrdist_clones.tsv  --gex_data 10k_5p_Human_diseased_PBMC_ALL_Fresh_count_filtered_feature_bc_matrix.h5 --gex_data_type 10x_h5 --outfile_prefix mcc_match_10k_5p
 ```
 
 ![matching_umaps](_images/mcc_match_10k_5p_metaconga_match_clumps_umaps.png)
+
+## Metaconga CDR3AA-bias cluster matching (CD8+ clusters): 10k PBMC from healthy donor
+
+```
+# DOWNLOAD FROM:
+# https://www.10xgenomics.com/datasets/human-pbmc-from-a-healthy-donor-10-k-cells-v-2-2-standard-4-0-0
+
+# SETUP
+python conga/scripts/setup_10x_for_conga.py --filtered_contig_annotations_csvfile sc5p_v2_hs_PBMC_10k_t_filtered_contig_annotations.csv --organism human --no_kpca
+
+# RUN
+python conga/scripts/run_conga.py --match_metaconga_aaclusters cd8 --subset_to_CD8_cells --no_kpca --organism human --clones_file sc5p_v2_hs_PBMC_10k_t_filtered_contig_annotations_tcrdist_clones.tsv --gex_data sc5p_v2_hs_PBMC_10k_filtered_feature_bc_matrix.h5 --gex_data_type 10x_h5 --outfile_prefix mcc_cd8_aamatch_sc5p
+```
+
+![matching_bars](_images/mcc_cd8_aamatch_sc5p_bars.png)
+
+![matching_umaps](_images/mcc_cd8_aamatch_sc5p_umaps.png)
+
+## Metaconga CDR3AA-bias cluster matching (CD4+ clusters): 10k PBMC from healthy donor
+
+```
+# DOWNLOAD FROM:
+# https://www.10xgenomics.com/datasets/human-pbmc-from-a-healthy-donor-10-k-cells-v-2-2-standard-4-0-0
+
+# SETUP
+python conga/scripts/setup_10x_for_conga.py --filtered_contig_annotations_csvfile sc5p_v2_hs_PBMC_10k_t_filtered_contig_annotations.csv --organism human --no_kpca
+
+# RUN
+python conga/scripts/run_conga.py --match_metaconga_aaclusters cd4 --subset_to_CD4_cells --no_kpca --organism human --clones_file sc5p_v2_hs_PBMC_10k_t_filtered_contig_annotations_tcrdist_clones.tsv --gex_data sc5p_v2_hs_PBMC_10k_filtered_feature_bc_matrix.h5 --gex_data_type 10x_h5 --outfile_prefix mcc_cd4_aamatch_sc5p
+```
+
+![matching_bars](_images/mcc_cd4_aamatch_sc5p_bars.png)
+
+![matching_umaps](_images/mcc_cd4_aamatch_sc5p_umaps.png)
 
 # CoNGA data model: where stuff is stored
 
