@@ -1,4 +1,4 @@
-# Clonotype Neighbor Graph Analysis (CoNGA) -- version 0.1.2
+# Clonotype Neighbor Graph Analysis (CoNGA)
 
 ## This is a development branch containg new code for matching datasets to "metaconga" features (TCR clusters aka "clumps" and CDR3AA-bias clusters) as described in the [new preprint](https://doi.org/10.1101/2025.05.31.657155). There are a few examples at the end of the [Examples](#examples) section ([link to first relevant example](#metaconga-tcr-cluster-matching-10k-pbmc-from-human-disease) ).
 
@@ -635,6 +635,18 @@ a value of 1e-8:
 
 ## Metaconga TCR cluster matching: 10k PBMC from human disease
 
+Here we look for significant sequence matches between TCRs in a new dataset
+and a set of 2,173 TCR clusters discovered in the metaconga atlas.
+The metaconga TCR clusters (also referred to as "clumps" since they were found with
+the TCR clumping algorithm) have been annotated with
+* putative epitope specificity based on literature matching
+* putative HLA restriction based on TCR-HLA co-occurrence in the large
+Emerson CMV cohort (PMID: 28369038). These can be fuzzy since many HLA alleles
+co-occur in haplotype blocks (e.g. DR and DQ allele combinations), so a TCR might
+be associated with several and it's hard to say for sure which is the true restriction.
+* putative specificity for CMV epitopes based on TCR-CMV+ co-occurrence in the Emerson
+cohort.
+
 ```
 # DOWNLOAD FROM:
 # https://www.10xgenomics.com/datasets/10k_5p_Human_diseased_PBMC_ALL_Fresh
@@ -645,6 +657,14 @@ python conga/scripts/setup_10x_for_conga.py --filtered_contig_annotations_csvfil
 # RUN
 python conga/scripts/run_conga.py --match_metaconga_clumps --no_kpca --organism human --clones_file 10k_5p_Human_diseased_PBMC_ALL_Fresh_vdj_t_filtered_contig_annotations_tcrdist_clones.tsv  --gex_data 10k_5p_Human_diseased_PBMC_ALL_Fresh_count_filtered_feature_bc_matrix.h5 --gex_data_type 10x_h5 --outfile_prefix mcc_match_10k_5p
 ```
+
+This image would be generated as part of the CoNGA output and included in the
+"<outfile_prefix>_results_summary.html" file.
+
+From these results we might infer that this donor is positive for HLA-A*02:01 and
+HLA-DRB1*07:01, positive for CMV, and had been vaccinated against and/or infected with
+SARS-CoV2 (from the two A0201-YLQ-specific TCRs, green dots in the penultimate row of
+panels).
 
 ![matching_umaps](_images/mcc_match_10k_5p_metaconga_match_clumps_umaps.png)
 

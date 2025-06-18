@@ -1,0 +1,41 @@
+cd48	cluster	cluster_name	group_name
+cd4	0	btreg2	blood-Treg
+cd4	1	btreg5	blood-Treg
+cd4	2	ttreg3	tissue-Treg
+cd4	3	btreg1	blood-Treg
+cd4	4	ttreg2	tissue-Treg
+cd4	5	thymic	Thymic
+cd4	6	ttreg4	tissue-Treg
+cd4	7	cyto5	cytotoxic
+cd4	8	cyto3	cytotoxic
+cd4	9	unk1	unknown
+cd4	10	btreg3	blood-Treg
+cd4	11	cyto2	cytotoxic
+cd4	12	btreg4	blood-Treg
+cd4	13	ttreg1	tissue-Treg
+cd4	14	cyto1	cytotoxic
+cd4	15	unk2	
+cd4	16	cyto4	cytotoxic
+cd4	17	small1	
+cd4	18	small2	
+cd8	0	helios2	KIR+CD8+
+cd8	1	temra3	TEMRA
+cd8	2	temra2	TEMRA
+cd8	3	helios3	KIR+CD8+
+cd8	4	temra1	TEMRA
+cd8	5	hobit2	KIR+CD8+
+cd8	6	hobhel	KIR+CD8+
+cd8	7	unk1	
+cd8	8	cxcr5	CXCR5-IL10
+cd8	9	maitnk	
+cd8	10	nk2	dNKT
+cd8	11	helios1	KIR+CD8+
+cd8	12	nk1	dNKT
+cd8	13	thymic3	Thymic
+cd8	14	hobit1	KIR+CD8+
+cd8	15	thymic1	Thymic
+cd8	16	thymic2	Thymic
+cd8	17	unk2	
+cd8	18	zen	
+cd8	19	misc	
+cd8	20	small	

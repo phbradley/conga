@@ -5,6 +5,7 @@ import matplotlib
 import matplotlib.pyplot as plt
 import pandas as pd
 import scanpy as sc
+import json
 from sys import exit
 from os.path import exists
 import os
@@ -24,66 +25,22 @@ from . import tcr_clumping
 import warnings
 warnings.simplefilter(action='ignore', category=pd.errors.PerformanceWarning)
 
-## setup some annotation dicts
-all_aacluster_tags = {
-    'cd4':{i:x for i,x in enumerate(
-        '''btreg2 btreg5 ttreg3 btreg1 ttreg2
-        thymic ttreg4 cyto5 cyto3 unk1
-        btreg3 cyto2 btreg4 ttreg1 cyto1
-        unk2 cyto4 small1 small2'''.split())},
+path_to_mc_data = util.path_to_data / 'metaconga'
 
-    'cd8':{i:x for i,x in enumerate(
-        '''helios2 temra3 temra2 helios3 temra1
-        hobit2 hobhel unk1 cxcr5 maitnk
-        nk2 helios1 nk1 thymic3 hobit1
-        thymic1 thymic2 unk2 zen misc
-        small'''.split())},
-}
+# load the names of the CDR3AA bias clusters and cluster-groups
+aacluster_info = pd.read_table(
+    Path.joinpath(path_to_mc_data, 'cdr3aa_bias_cluster_names.tsv'))
 
+# fill in some legacy data structures...
+all_aacluster_tags = {}
+for l in aacluster_info.itertuples():
+    all_aacluster_tags.setdefault(l.cd48,{})[l.cluster] = l.cluster_name
 
-# aacluster_groups = {
-#     'cd4': [
-#         [[0,1,3,10,12], 'blood-Treg'],
-#         [[2,4,6,13], 'tissue-Treg'],
-#         #[[0,1,2,3,4,6,10,12,13], 'treg'],
-#         [[7,8,11,14,16], 'cytotoxic'],
-#         [[9], 'unknown'],
-#         [[5], 'thymic'],
-#         #[[15,17], 'unk2_small1'],
-#     ], # drop 18
-#     'cd8': [
-#         [[0,3,5,6,11,14], 'hobit-helios'],
-#         [[1,2,4], 'temra'],
-#         [[10,12], 'nk12'],
-#         [[8], 'cxcr5'],
-#         [[13,15,16], 'thymic'],
-#         #[[9], 'mait'],
-#         #[[7], 'cd4'],
-#         #[[17,18,19], 'small'],
-#     ], # drop 20
-# }
-aacluster_groups = {
-    'cd4': [
-        [[0,1,3,10,12], 'blood-Treg'],
-        [[2,4,6,13], 'tissue-Treg'],
-        #[[0,1,2,3,4,6,10,12,13], 'Treg'],
-        [[7,8,11,14,16], 'cytotoxic'],
-        [[9], 'unknown'],
-        [[5], 'Thymic'],
-        #[[15,17], 'unk2_small1'],
-    ], # drop 18
-    'cd8': [
-        [[0,3,5,6,11,14], 'HOBIT-HELIOS'],
-        [[1,2,4], 'TEMRA'],
-        [[10,12], 'dNKT'],
-        [[8], 'CXCR5-IL10'],
-        [[13,15,16], 'Thymic'],
-        #[[9], 'mait'],
-        #[[7], 'cd4'],
-        #[[17,18,19], 'small'],
-    ], # drop 20
-}
-
+aacluster_groups = {}
+for cd48, res in aacluster_info.groupby('cd48'):
+    aacluster_groups[cd48] = []
+    for group_name, res2 in res.groupby('group_name'):
+        aacluster_groups[cd48].append([list(res2.cluster), group_name])
 
 aacluster2group = {}
 for cd48, groups in aacluster_groups.items():
@@ -91,14 +48,11 @@ for cd48, groups in aacluster_groups.items():
         for cluster in group:
             aacluster2group[(cd48, cluster)] = ii
 
-
 ######################################
 
 
-
-path_to_mc_data = util.path_to_data / 'metaconga'
-
 def get_categorical_colors(ncolors):
+    'get a list of colors for plotting categories'
     cmap = plt.get_cmap('tab10') if ncolors <= 10 else plt.get_cmap('tab20')
     if ncolors <= 20:
         return cmap.colors[:ncolors]
@@ -120,12 +74,12 @@ def _encode_tcr_seqs(
 ):
     ''' This is helper for computing CDR3aa-bias-cluster enrichment scores
 
-    tcr_df should have columns: va vb cdr3a cdr3b 
+    tcr_df should have columns: va vb cdr3a cdr3b
 
     returns vecs with shape == (tcr_df.shape[0], num_cols)
 
     cols:
-    
+
     cdr3a aas
     cdr3b aas
     cdr3a lens
@@ -186,9 +140,9 @@ def get_cdr3aa_bias_tcr_scores(
 ):
     ''' returns cd4_scores, cd8_scores
 
-    tcr_df should have columns: va vb cdr3a cdr3b 
+    tcr_df should have columns: va vb cdr3a cdr3b
     '''
-    
+
     from .tcrdist.amino_acids import amino_acids
 
     # read the aacluster enrichments (V, cdr3len, cdr3aa)
@@ -408,7 +362,7 @@ def find_aacluster_matches(
     obs = adata.obs.copy() # fill this with new info
     obs['original_index'] = np.arange(obs.shape[0])
     obs['cd48_for_aacluster_matching'] = cd48
-    
+
     # store gex umap coords for plotting
     obs['X_gex_2d_0'] = adata.obsm['X_gex_2d'][:,0]
     obs['X_gex_2d_1'] = adata.obsm['X_gex_2d'][:,1]
@@ -625,7 +579,7 @@ def reduce_to_single_aacluster_match_per_clonotype(
     MAX_CLUSTERS = 25 # just big
     assert matches.obs.cd48_for_aacluster_matching.nunique() == 1
     cd48 = matches.obs.cd48_for_aacluster_matching.iloc[0]
-    
+
     ## now reduce matches to best hit per clonotype
 
     drop_clusters = {'cd8':[], 'cd4':[]}
@@ -704,7 +658,7 @@ def reduce_to_single_aacluster_match_per_clonotype(
     return hits
 
 
-                
+
 def plot_aacluster_matches(
         adata, # so we can stash the pngfiles in adata.uns['conga_results']
         matches,
@@ -719,12 +673,12 @@ def plot_aacluster_matches(
 ):
     ''' matches is the namedtuple returned by find_aacluster_matches
     has (pvals, degs, obs)
-    
+
     '''
     if matches.pvals.empty:
         print('metaconga_match:: plot_aacluster_matches: no hits')
         return
-    
+
     assert matches.pvals.cd48.nunique() == 1
     cd48 = matches.pvals.cd48.iloc[0]
 
@@ -758,7 +712,7 @@ def plot_aacluster_matches(
 
     overlap_pval_map = hits.drop_duplicates('aacluster')\
                            .set_index('aacluster').real_overlap_mask_pval
-    
+
     for USE_CGROUPS in [False, True]:
         for BY_CELLS in [False, True]:
 
@@ -868,7 +822,7 @@ def plot_aacluster_matches(
                             s=5, label=all_aacluster_tags[cd48][c])
             plt.legend(fontsize=7)
 
-            
+
 
     plt.tight_layout()
     pngtag = METACONGA_MATCH_AACLUSTERS_BARS
@@ -1037,7 +991,7 @@ def plot_aacluster_matches(
                 ymn,ymx = plt.ylim()
                 plt.ylim((ymn,ymn+(ymx-ymn)*1.2))
                 plt.xlabel('DEG rank')
-                
+
         if gexcluster_degs is not None:
             topn = 25
             # read gex cluster degs
@@ -1075,6 +1029,14 @@ def plot_aacluster_matches(
 
 
 def _process_clump_matches(adata, results):
+    ''' takes in the results of matching adata tcrs versus metaconga TCR clusters
+
+    adds additional info columns to results based on annotations associated to the
+      metaconga clusters
+
+    sorts results by pvalue but doesn't remove any rows
+
+    '''
     if results.empty: # early return if empty
         return results
 
@@ -1092,7 +1054,7 @@ def _process_clump_matches(adata, results):
     dropcols = [x for x in results.columns if x.startswith('db_') and x not in goodcols]
     print('_process_clump_matches:: dropcols:', dropcols)
     results.drop(columns=dropcols, inplace=True)
-    
+
     # load some clumps info files for annotations
     # newer, probably higher quality literature matches, includes sars-cov2
     fname = Path.joinpath(path_to_mc_data, NEWINFO)
@@ -1116,14 +1078,14 @@ def _process_clump_matches(adata, results):
     info.rename(columns = {x:'center_'+x for x in cols},
                 inplace=True)
 
-    cols = (['center_'+x for x in 'va ja cdr3a vb jb cdr3b'.split()] + 
+    cols = (['center_'+x for x in 'va ja cdr3a vb jb cdr3b'.split()] +
             ('leiden lit_match1 cmv_pval_adj hla_pval_adj locus allele umap_1 umap_2 '
              'pmhc antigen_species antigen_gene CD8A CD8B CD4').split())
-    
+
     results = results.join(info.set_index('clumping_group')[cols],
                            on='db_clumping_group', rsuffix='_r')
 
-    
+
     results.rename(columns = {x:'mcc_'+x for x in cols}, inplace=True)
 
     rename = dict(db_clumping_group= 'mcc_clumping_group',
@@ -1132,7 +1094,7 @@ def _process_clump_matches(adata, results):
                   mcc_pmhc= 'mcc_new_lit_match_pmhc',
                   mcc_antigen_species= 'mcc_new_lit_match_antigen_species',
                   mcc_antigen_gene= 'mcc_new_lit_match_antigen_gene')
-    
+
     results.rename(columns = rename, inplace=True)
 
     return results
@@ -1143,14 +1105,17 @@ def find_clump_matches(
         num_random_samples_for_bg_freqs = 200000,
         adjusted_pvalue_threshold = 1.0,
 ):
+    ''' Compare the TCRs in adata to TCRs in the metaconga TCR clusters to find
+    similar sequences using TCRdist and a background model
+    '''
     DB = 'big_combo_tcrs_2024-02-02a_gp4_ten_tcrs.tsv'
-    
+
     fg_df = adata.obs.copy()
 
     db_fname = Path.joinpath(path_to_mc_data, DB)
-    
+
     db_df = pd.read_table(db_fname, low_memory=False)
-        
+
     results = tcr_clumping.find_significant_tcrdist_matches(
         fg_df, db_df, adata.uns['organism'],
         #background_tcrs_df = bg_df,
@@ -1161,7 +1126,6 @@ def find_clump_matches(
     results = _process_clump_matches(adata, results)
 
     if not results.empty:
-
         # store results in adata.uns
         table_tag = METACONGA_MATCH_CLUMPS
         adata.uns.setdefault('conga_results', {})[table_tag] = results
@@ -1170,9 +1134,15 @@ def find_clump_matches(
 
 
 def plot_clump_matches(adata, outfile_prefix):
+    ''' Generates a PNG file showing the location of TCRs that match
+    metaconga TCR clusters on TCR and GEX UMAP landscapes, colored by
+    a variety of features
+
+    Also saves a TSV file with the matching results
+    '''
     import seaborn as sns
     table_tag = METACONGA_MATCH_CLUMPS
-    
+
     if ('conga_results' not in adata.uns or
         table_tag not in adata.uns['conga_results']):
         print('metaconga_match:: plot_clump_matches: no results stored in adata, '
@@ -1201,12 +1171,12 @@ def plot_clump_matches(adata, outfile_prefix):
         'GEX leiden group',
         'CMV association',
         'HLA association',
-        'literature matches',
-        'literature matches (old)',
+        'literature matches (new)',
+        'literature matches (less reliable)',
     ]
-    
+
     figure_tag = METACONGA_MATCH_CLUMPS_UMAPS
-    
+
     pngfile = f'{outfile_prefix}_{figure_tag}.png'
     nrows, ncols, plotno = len(colortags), 2, 0
     plt.figure(figsize=(ncols*6, nrows*6))
@@ -1225,7 +1195,7 @@ def plot_clump_matches(adata, outfile_prefix):
             return np.sqrt(-1*np.log10(x))
     def pval_unmapper(x):
         return 10**(-1*(x**2))
-        
+
     for colortag, fancytag in zip(colortags, fancytags):
         for xytag in 'gex tcr'.split():
             xy = adata.obsm[f'X_{xytag}_2d']
@@ -1267,7 +1237,7 @@ def plot_clump_matches(adata, outfile_prefix):
 
             plt.scatter(res[mask].x, res[mask].y, c=res[mask].c, s=15,
                         vmin=vmin, vmax=vmax, cmap=cmap)
-            
+
             if colortag in ['hla','cmv','evalue']:
                 if colortag == 'evalue':
                     cbar = plt.colorbar(label = 'E-value of match')
@@ -1281,7 +1251,7 @@ def plot_clump_matches(adata, outfile_prefix):
                 labels[-1] = '<= '+labels[-1]
                 cbar.set_ticks(locs)
                 cbar.set_ticklabels(labels, fontsize=6)
-                
+
 
 
             if colortag == 'hla':
@@ -1305,7 +1275,7 @@ def plot_clump_matches(adata, outfile_prefix):
                     plt.scatter([],[],color=colormap[row.mcc_old_lit_match_pmhc],
                                 label=row.mcc_old_lit_match_pmhc)
                 plt.legend(fontsize=6)
-                
+
             plt.xticks([],[])
             plt.yticks([],[])
             plt.xlabel(f'{xytag.upper()} UMAP1')
@@ -1324,9 +1294,9 @@ def plot_clump_matches(adata, outfile_prefix):
     # store results and help message
     adata.uns['conga_results'][figure_tag] = pngfile
     help_message = """GEX and TCR UMAPs showing the location of significant
-    matches to the metaconga clumping groups"""
+    matches to the metaconga clumping groups (aka TCR clusters)"""
     adata.uns['conga_results'][figure_tag+HELP_SUFFIX] = help_message
     util.make_figure_helpfile(figure_tag, adata)
 
 
-                                   
+
