@@ -719,6 +719,8 @@ found in the [new preprint](https://doi.org/10.1101/2025.05.31.657155), Figure 6
 
 ## Metaconga CDR3AA-bias cluster matching (CD4+ clusters): 10k PBMC from healthy donor
 
+This is the same analysis as above, but for the CD4+ CDR3AA bias clusters.
+
 ```
 # DOWNLOAD FROM:
 # https://www.10xgenomics.com/datasets/human-pbmc-from-a-healthy-donor-10-k-cells-v-2-2-standard-4-0-0
