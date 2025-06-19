@@ -635,7 +635,12 @@ a value of 1e-8:
 
 ## Metaconga TCR cluster matching: 10k PBMC from human disease
 
-Here we look for significant sequence matches between TCRs in a new dataset
+These next three examples look for matches between a query dataset and
+features identified in the metaconga analysis. Check out Figure 6 and
+related text in the [new preprint](https://doi.org/10.1101/2025.05.31.657155) for
+additional explanation.
+
+First we look for significant sequence matches between TCRs in the new dataset
 and a set of 2,173 TCR clusters discovered in the metaconga atlas.
 The metaconga TCR clusters (also referred to as "clumps" since they were found with
 the TCR clumping algorithm) have been annotated with
@@ -670,7 +675,19 @@ row of panels).
 
 ## Metaconga CDR3AA-bias cluster matching (CD8+ clusters): 10k PBMC from healthy donor
 
-Here we look for T cell clonotypes that match 
+Here we use the `--match_metaconga_aaclusters` flag to look for T cell
+clonotypes that match one of the CDR3AA-bias clusters
+identified in the metaconga analysis (see the
+[new preprint](https://doi.org/10.1101/2025.05.31.657155) Figs 3-5).
+The AA-bias clusters were identified by looking for GEX neighborhoods with
+biased CDR3 amino acid frequency distributions. The analysis was conducted after
+splitting the metaconga dataset into CD4+ and CD8+ subsets, since CDR3 sequence
+composition has been shown to differ between CD4+ and CD8+ T cells. So in this
+matching analysis, we ask conga to subset the dataset just to the CD4+ or CD8+
+cells, using the argument `--subset_to_CD4_cells` (or `--subset_to_CD8_cells`),
+and we pass the corresponding `cd4` or `cd8` argument after
+`--match_metaconga_aaclusters` (upper or lower case is fine).
+
 
 ```
 # DOWNLOAD FROM:
@@ -683,7 +700,20 @@ python conga/scripts/setup_10x_for_conga.py --filtered_contig_annotations_csvfil
 python conga/scripts/run_conga.py --match_metaconga_aaclusters cd8 --subset_to_CD8_cells --no_kpca --organism human --clones_file sc5p_v2_hs_PBMC_10k_t_filtered_contig_annotations_tcrdist_clones.tsv --gex_data sc5p_v2_hs_PBMC_10k_filtered_feature_bc_matrix.h5 --gex_data_type 10x_h5 --outfile_prefix mcc_cd8_aamatch_sc5p
 ```
 
+These bar plots show match frequencies (as a fraction of total clonotypes or total
+cells) to the different CDR3AA bias clusters. In the first row, each cluster is
+shown separately, whereas in the second row the clusters are grouped into larger
+functional categories.
+
 ![matching_bars](_images/mcc_cd8_aamatch_sc5p_bars.png)
+
+These GEX UMAP landscapes illustrate the matching process, which uses a TCR score
+capturing distinctive TCR features of each AAbias cluster and a GEX score capturing
+distinctive GEX features. Matching clonotypes in the new query dataset are identified
+by looking for statistically significant overlap between the clonotypes with high
+GEX scores and the clonotypes with high TCR scores. Again, further details can be
+found in the [new preprint](https://doi.org/10.1101/2025.05.31.657155), Figure 6.
+
 
 ![matching_umaps](_images/mcc_cd8_aamatch_sc5p_umaps.png)
 

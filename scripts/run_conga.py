@@ -107,7 +107,8 @@ parser.add_argument('--plot_cluster_gene_compositions', action='store_true')
 parser.add_argument('--analyze_CD4_CD8', action='store_true')
 parser.add_argument('--analyze_proteins', action='store_true')
 parser.add_argument('--analyze_special_genes', action='store_true')
-parser.add_argument('--match_metaconga_aaclusters', choices=['cd4', 'cd8', None],
+parser.add_argument('--match_metaconga_aaclusters',
+                    choices=['cd4', 'cd8', 'CD4', 'CD8', None],
                     default = None)
 parser.add_argument('--match_metaconga_clumps', action='store_true')
 
@@ -322,6 +323,7 @@ if args.no_kpca:
 #     assert 'pmhc_var_names' in adata.uns or args.tenx_agbt
 
 if args.match_metaconga_aaclusters is not None:
+    args.match_metaconga_aaclusters = args.match_metaconga_aaclusters.lower()
     if args.subset_to_CD4_cells:
         assert args.match_metaconga_aaclusters == 'cd4'
     elif args.subset_to_CD8_cells:
