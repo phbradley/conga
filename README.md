@@ -658,17 +658,19 @@ python conga/scripts/setup_10x_for_conga.py --filtered_contig_annotations_csvfil
 python conga/scripts/run_conga.py --match_metaconga_clumps --no_kpca --organism human --clones_file 10k_5p_Human_diseased_PBMC_ALL_Fresh_vdj_t_filtered_contig_annotations_tcrdist_clones.tsv  --gex_data 10k_5p_Human_diseased_PBMC_ALL_Fresh_count_filtered_feature_bc_matrix.h5 --gex_data_type 10x_h5 --outfile_prefix mcc_match_10k_5p
 ```
 
-This image would be generated as part of the CoNGA output and included in the
-"<outfile_prefix>_results_summary.html" file.
+The image below would be generated as one of the CoNGA output PNG files and also
+included in the `<outfile_prefix>_results_summary.html` file.
 
-From these results we might infer that this donor is positive for HLA-A*02:01 and
-HLA-DRB1*07:01, positive for CMV, and had been vaccinated against and/or infected with
-SARS-CoV2 (from the two A0201-YLQ-specific TCRs, green dots in the penultimate row of
-panels).
+From these results we might infer that this donor is positive for HLA-A\*02:01 and
+HLA-DRB1\*07:01, positive for CMV, and has been vaccinated against and/or infected with
+SARS-CoV2 (based on the two A0201-YLQ-specific TCRs, green dots in the penultimate
+row of panels).
 
 ![matching_umaps](_images/mcc_match_10k_5p_metaconga_match_clumps_umaps.png)
 
 ## Metaconga CDR3AA-bias cluster matching (CD8+ clusters): 10k PBMC from healthy donor
+
+Here we look for T cell clonotypes that match 
 
 ```
 # DOWNLOAD FROM:

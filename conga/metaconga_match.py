@@ -48,6 +48,13 @@ for cd48, groups in aacluster_groups.items():
         for cluster in group:
             aacluster2group[(cd48, cluster)] = ii
 
+# load the mapping from original old gex leiden number to the number used in the paper
+rep_clumps_info = pd.read_table(
+    Path.joinpath(path_to_mc_data, 'good_clumps_v1.tsv'))
+old_mcc_leiden_to_new_mcc_leiden = dict(zip(rep_clumps_info.leiden,
+                                            rep_clumps_info.new_leiden))
+
+            
 ######################################
 
 
@@ -778,9 +785,11 @@ def plot_aacluster_matches(
                 plt.legend(ncols=2, loc='upper right', title='AAcluster group',
                            fontsize=7)
             else:
-                for cluster in counts.keys():
+                for cluster in sorted(counts.keys()):
+                    prefix = 'B' if cd48 == 'cd8' else 'D'
                     plt.bar(x=0, height=0, bottom=0, color=catcolors[cluster],
-                            label=all_aacluster_tags[cd48][cluster])
+                            label = (f'{prefix}{cluster}-'
+                                     f'{all_aacluster_tags[cd48][cluster]}'))
                 plt.legend(ncols=2, loc='upper right', title='AAcluster',
                            fontsize=7)
             plt.xticks([],[])
@@ -815,11 +824,12 @@ def plot_aacluster_matches(
                                 label=label)
             plt.legend(fontsize=7)
         else:
-            total = 0.
-            for c, count in hits.aacluster.value_counts().items():
+            for c in sorted(hits.aacluster.unique()):
                 res = hits[hits.aacluster==c]
+                prefix = 'B' if cd48 == 'cd8' else 'D'
+                label = f'{prefix}{c}-{all_aacluster_tags[cd48][c]}'
                 plt.scatter(res.X_gex_2d_0, res.X_gex_2d_1, color=catcolors[c],
-                            s=5, label=all_aacluster_tags[cd48][c])
+                            s=5, label=label)
             plt.legend(fontsize=7)
 
 
@@ -854,7 +864,8 @@ def plot_aacluster_matches(
         title_fontsize = 10
         cluster = row.aacluster
         ctag = all_aacluster_tags[cd48][cluster]
-        cctag = f'C{cluster}-{ctag}'
+        cluster_prefix = 'B' if cd48 == 'cd8' else 'D'
+        cctag = f'{cluster_prefix}{cluster}-{ctag}'
 
         # read the obs file
         tcr_scores = np.array(obs[f'avg_tcr_bias_score_{cluster}'])
@@ -877,7 +888,8 @@ def plot_aacluster_matches(
                 jaccard = (overlap_mask&mask2).sum() / (overlap_mask|mask2).sum()
                 if jaccard>best_jaccard:
                     best_jaccard = jaccard
-                    best_jaccard_cctag = f'C{c2}-{all_aacluster_tags[cd48][c2]}'
+                    best_jaccard_cctag = (f'{cluster_prefix}{c2}-'
+                                          f'{all_aacluster_tags[cd48][c2]}')
         if best_jaccard:
             print('best_jaccard:', best_jaccard, best_jaccard_cctag)
 
@@ -1097,6 +1109,9 @@ def _process_clump_matches(adata, results):
 
     results.rename(columns = rename, inplace=True)
 
+    results['mcc_fig2_gex_group'] = [
+        f'A{old_mcc_leiden_to_new_mcc_leiden[x]}' for x in results.mcc_leiden]
+
     return results
 
 
@@ -1207,8 +1222,8 @@ def plot_clump_matches(adata, outfile_prefix):
             plotno += 1
             plt.subplot(nrows, ncols, plotno)
 
-            # show all the points in light gray
-            plt.scatter(xy[:,0], xy[:,1], c='#EFEFEF', s=5)
+            # show all the points in very very light gray (--lego batman)
+            plt.scatter(xy[:,0], xy[:,1], c='#F6F6F6', s=5)
 
             cmap, vmin, vmax = None, None, None
             mask = np.ones((res.shape[0],), dtype=bool)
@@ -1275,6 +1290,20 @@ def plot_clump_matches(adata, outfile_prefix):
                     plt.scatter([],[],color=colormap[row.mcc_old_lit_match_pmhc],
                                 label=row.mcc_old_lit_match_pmhc)
                 plt.legend(fontsize=6)
+            elif colortag == 'leiden':
+                for new_gex_group, res2 in res.groupby('mcc_fig2_gex_group'):
+                    plt.scatter([],[],color=leiden_colors[res2.mcc_leiden.iloc[0]],
+                                label=new_gex_group)
+                plt.legend(
+                    fontsize=6,
+                    markerscale=0.5,            # Scale down marker size in the legend
+                    handlelength=1.0,           # Reduce length of the legend handles
+                    handletextpad=0.2,          # Reduce space between handle and label
+                    borderpad=0.2,              # Reduce padding inside the legend box
+                    labelspacing=0.2,           # Reduce vertical space between labels
+                    borderaxespad=0.2,          # Reduce space between legend and axes
+                    ncol=3,                     # Split into multiple columns
+                )
 
             plt.xticks([],[])
             plt.yticks([],[])
