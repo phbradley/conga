@@ -1,6 +1,6 @@
 # Clonotype Neighbor Graph Analysis (CoNGA)
 
-## This is a development branch containg new code for matching datasets to "metaconga" features (TCR clusters aka "clumps" and CDR3AA-bias clusters) as described in the [new preprint](https://doi.org/10.1101/2025.05.31.657155). There are a few examples at the end of the [Examples](#examples) section ([link to first relevant example](#metaconga-tcr-cluster-matching-10k-pbmc-from-human-disease) ).
+## This is a development branch containg new code for matching datasets to "metaCoNGA" features (TCR sequence clusters and CDR3AA-bias clusters) as described in the [new preprint](https://doi.org/10.1101/2025.05.31.657155). There are a few examples at the end of the [Examples](#examples) section ([link to first relevant example](#metaconga-tcr-cluster-matching-10k-pbmc-from-human-disease) ).
 
 This repository contains the `conga` python package and associated scripts
 and workflows. `conga` was developed to detect correlation between
@@ -642,8 +642,8 @@ additional explanation.
 
 First we look for significant sequence matches between TCRs in the new dataset
 and a set of 2,173 TCR clusters discovered in the metaconga atlas.
-The metaconga TCR clusters (also referred to as "clumps" since they were found with
-the TCR clumping algorithm) have been annotated with
+The metaconga TCR clusters (sometimes referred to as "clumps" for historical reasons)
+have been annotated with
 * putative epitope specificity based on literature matching
 * putative HLA restriction based on TCR-HLA co-occurrence in the large
 Emerson CMV cohort (PMID: 28369038). These can be fuzzy since many HLA alleles
@@ -668,7 +668,7 @@ included in the `<outfile_prefix>_results_summary.html` file.
 
 From these results we might infer that this donor is positive for HLA-A\*02:01 and
 HLA-DRB1\*07:01, positive for CMV, and has been vaccinated against and/or infected with
-SARS-CoV2 (based on the two A0201-YLQ-specific TCRs, green dots in the penultimate
+SARS-CoV-2 (based on the two A0201-YLQ-specific TCRs, green dots in the penultimate
 row of panels).
 
 ![matching_umaps](_images/mcc_match_10k_5p_metaconga_match_clumps_umaps.png)
