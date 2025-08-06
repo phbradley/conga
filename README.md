@@ -2,7 +2,7 @@
 
 ## This is a development branch containg new code for matching datasets to "metaCoNGA" features (TCR sequence clusters and CDR3AA-bias clusters) as described in the [new preprint](https://doi.org/10.1101/2025.05.31.657155). There are a few examples at the end of the [Examples](#examples) section ([link to first relevant example](#metaconga-tcr-cluster-matching-10k-pbmc-from-human-disease) ).
 
-# NOTE-- we are looking into what might be a bug/incompatibility when using
+- NOTE: we are looking into what might be a bug/incompatibility when using
 scanpy version 1.9.8 (and perhaps similar versions). I just tested scanpy v1.11.1
 and do not see the bug there. For safety it may be good, if you are setting up
 a new python environment, to use either
