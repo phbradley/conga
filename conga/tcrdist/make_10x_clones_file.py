@@ -91,6 +91,14 @@ def read_tcr_data(
 
     clonotype2tcrs, clonotype2barcodes
 
+    important columns:
+    * barcode
+    * raw_clonotype_id
+    * productive
+    * v_gene j_gene cdr3 cdr3_nt
+    * chain
+    * umis
+
     """
 
     expected_gene_names = set(all_genes[organism].keys())
