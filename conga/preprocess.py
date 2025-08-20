@@ -522,8 +522,8 @@ def filter_normalize_and_hvg(
           'percent mito')
     adata.uns['conga_stats']['num_filt_max_percent_mito'] = num_filt
 
-    adata.raw = adata
-
+    # see https://github.com/scverse/scanpy/issues/3073
+    adata.raw = adata.copy() # potential BUGFIX for newer anndata
     feature_types_colname = util.get_feature_types_varname( adata )
     if feature_types_colname:
         mask = (adata.var[feature_types_colname] ==
