@@ -36,6 +36,12 @@ CLONES_FILE_REQUIRED_COLUMNS = 'clone_id va_gene ja_gene cdr3a cdr3a_nucseq vb_g
 all_sexlinked_genes = frozenset('XIST DDX3Y EIF1AY KDM5D LINC00278 NLGN4Y RPS4Y1 TTTY14 TTTY15 USP9Y UTY ZFY'.split())
 
 
+def check_maxs(adata):
+    xmax = adata.X.max()
+    rawnone = adata.raw is None
+    raw_xmax = 0 if rawnone else adata.raw.X.max()
+    print(f'check_maxs: {xmax:.3f} {raw_xmax:.3f} raw_is_None {rawnone}')
+
 def check_if_raw_matrix_is_logged( adata ):
     return adata.uns.get( 'raw_matrix_is_logged', False )
 
@@ -436,6 +442,7 @@ def filter_normalize_and_hvg(
         normalize_antibody_features_CLR=True, # centered log normalize
 ):
     '''Filters cells and genes to find highly variable genes'''
+    check_maxs(adata)
     if not exclude_TR_genes:
         print('WARNING!!! conga.preprocess.filter_normalize_and_hvg::',
               'exclude_TR_genes should be True unless you have a really',
@@ -528,7 +535,9 @@ def filter_normalize_and_hvg(
           'percent mito')
     adata.uns['conga_stats']['num_filt_max_percent_mito'] = num_filt
 
-    adata.raw = adata
+    # scanpy tutorials and examples used to just say adata.raw = adata
+    # but now we need to do this explicitly with newer versions of anndata
+    adata.raw = adata.copy() # BUGFIX: adding .copy()
 
     feature_types_colname = util.get_feature_types_varname( adata )
     if feature_types_colname:
@@ -544,8 +553,12 @@ def filter_normalize_and_hvg(
             assert removed_at_end # want to make this assumption somewhere else
 
     #normalize and log data
-    sc.pp.normalize_per_cell(adata, counts_per_cell_after=1e4)
+    check_maxs(adata)
+    sc.pp.normalize_total(adata, target_sum=1e4)
+    check_maxs(adata)
+    #sc.pp.normalize_per_cell(adata, counts_per_cell_after=1e4)
     sc.pp.log1p(adata)
+    check_maxs(adata)
 
     #find and filter by highly variable genes
     if hvg_batch_key is None:
@@ -607,10 +620,12 @@ def filter_normalize_and_hvg(
     adata.uns['conga_stats']['num_cells_after_filtering'] = adata.shape[0]
 
     # new: normalize the raw matrix here; used to do this later
+    check_maxs(adata)
     adata = normalize_and_log_the_raw_matrix(
         adata,
         normalize_antibody_features_CLR=normalize_antibody_features_CLR
     )
+    check_maxs(adata)
 
     return adata
 
