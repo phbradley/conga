@@ -9,7 +9,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument('--config', help="configuration file *.yml", type=str)
 parser.add_argument('--output_clones_file')
 parser.add_argument('--input_clones_file') # option to skip the 10x parsing if we already have a clones file
-parser.add_argument('--organism', choices=['mouse', 'human', 'mouse_gd', 'human_gd', 'human_ig'], default = None)
+parser.add_argument('--organism', choices=['mouse', 'human', 'mouse_gd', 'human_gd', 'human_ig','rhesus','rhesus_gd'], default = None)
 #parser.add_argument('--n_components', type=int, default=50)
 parser.add_argument('--filtered_contig_annotations_csvfile', help='Required unless --input_clones_file is present')
 parser.add_argument('--consensus_annotations_csvfile', help='Not needed')
