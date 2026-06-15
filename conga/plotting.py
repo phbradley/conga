@@ -41,6 +41,9 @@ default_logo_genes = {
     'mouse': ['Cd4', 'Cd8a', 'Cd8b1', 'Ccr7', 'Sell',
               'Itgal', 'Prf1', 'Gzma', 'Il2rb', 'Gzmk', 'Ifng',
               'Ccl5', 'Cxcr3', 'Zbtb16', 'Nkg7', 'Klrd1'],
+    'rhesus': ['CD4','CD8A','CD8B','CCR7','SELL',
+              'GNLY','PRF1','GZMA','IL7R','IKZF2','KLRD1',
+              'CCL5','ZNF683','KLRB1','NKG7','HLA-DRB1' ],
     # should probably specialize these
     'human_gd': ['CD4','CD8A','CD8B','CCR7','SELL',
                  'GNLY','PRF1','GZMA','IL7R','IKZF2','KLRD1',
@@ -48,6 +51,9 @@ default_logo_genes = {
     'mouse_gd': ['Cd4', 'Cd8a', 'Cd8b1', 'Ccr7', 'Sell',
                  'Itgal', 'Prf1', 'Gzma', 'Il2rb', 'Gzmk', 'Ifng',
                  'Ccl5', 'Cxcr3', 'Zbtb16', 'Nkg7', 'Klrd1'],
+    'rhesus_gd': ['CD4','CD8A','CD8B','CCR7','SELL',
+                 'GNLY','PRF1','GZMA','IL7R','IKZF2','KLRD1',
+                 'CCL5','ZNF683','KLRB1','NKG7','HLA-DRB1' ],
     # b cells
     'human_ig': ['IL4R','TCL1A','SELL','CRIP1','CD27',
                  'ZFP36','HLA-C','HLA-DRB1','COTL1','JCHAIN','XBP1',
@@ -58,6 +64,7 @@ default_logo_genes = {
 default_gex_header_genes = {
     'human': ['clone_sizes','CD4','CD8A','CD8B','SELL','GNLY','GZMA','CCL5','ZNF683','IKZF2','PDCD1','KLRB1'],
     'mouse': ['clone_sizes','Cd4', 'Cd8a', 'Cd8b1', 'Sell', 'Itgal', 'Gzma', 'Ccl5', 'Il2rb', 'Ikzf2', 'Pdcd1', 'Zbtb16'],
+    'rhesus': ['clone_sizes','CD4','CD8A','CD8B','SELL','GNLY','GZMA','CCL5','ZNF683','IKZF2','PDCD1','KLRB1'],
     'human_gd': ['clone_sizes','CD4','CD8A','CD8B','SELL','GNLY','GZMA','CCL5','ZNF683','IKZF2','PDCD1','KLRB1'],
     'mouse_gd': ['clone_sizes','Cd4', 'Cd8a', 'Cd8b1', 'Sell', 'Itgal', 'Gzma', 'Ccl5', 'Il2rb', 'Ikzf2', 'Pdcd1', 'Zbtb16'],
     'human_ig': ['clone_sizes','IL4R','TCL1A','SELL','IGKC','HLA-DRB1','CD27','JCHAIN','XBP1','COTL1','EGR1','IGHM'],
@@ -327,7 +334,7 @@ def make_logo_plots(
         ignore_tcr_cluster_colors = False,
         show_real_clusters_gex = False, # for the tcr clumping hack
         good_bicluster_tcr_scores=None,
-        rank_genes_uns_tag = 'rank_genes_good_biclusters',
+        rank_genes_uns_tag = 'rank_genes_good_biclusters', # set to None to remove from plot
         include_alphadist_in_tcr_feature_logos=False,
         max_expn_for_gene_logo = 2.5, # or max over the clps, if larger
         show_pmhc_info_in_logos = False,
@@ -352,6 +359,9 @@ def make_logo_plots(
         gex_header_tcr_score_names = ['imhc', 'cdr3len', 'cd8', 'nndists_tcr'],
         include_full_tcr_cluster_names_in_logo_lines=False,
         lit_matches=None, # show an additional 'logo' with lit-matches
+
+        ## makes pdf version make_graph_vs_graph_logos and make_tcr_clumping_plots, expect large file sizes
+        save_pdf = False
 
 ):
     ''' need:
@@ -627,7 +637,7 @@ or arguments to the conga.plotting.make_logo_plots function.
     batch_bars_width = 0 if not make_batch_bars else \
                        single_batch_bar_width * len(batch_keys)
     title_logo_width = 0.75
-    rg_logo_width = 1.5
+    rg_logo_width = 0 if rank_genes_uns_tag is None else 1.5
     score_logo_width = 0.0 if good_bicluster_tcr_scores is None else 0.5
     lit_logo_width = 0.0 if lit_matches is None else 0.5
     tcr_logo_width = 8
@@ -1450,6 +1460,11 @@ or arguments to the conga.plotting.make_logo_plots function.
     print('making:', logo_pngfile)
     plt.savefig(logo_pngfile, dpi=300)
 
+    if save_pdf:
+        logo_pdffile = logo_pngfile.replace(".png", ".pdf")
+        print('making:', logo_pdffile)
+        plt.savefig(logo_pdffile, dpi=300)
+
     if not nocleanup:
         for tmpfile in tmpfiles:
             if exists(tmpfile):
@@ -1800,6 +1815,7 @@ def make_summary_figure(
     print('making:', pngfile)
     plt.savefig(pngfile)
 
+
     # store results and help message
     adata.uns['conga_results'][figure_tag] = pngfile
     help_message = """Summary figure for the graph-vs-graph and
@@ -1820,6 +1836,8 @@ def make_tcr_db_match_plot(
     table_tag = TCR_DB_MATCH
     figure_tag = TCR_DB_MATCH_PLOT
 
+    required_cols = 'db_epitope db_epitope_gene db_mhc_trim'.split()
+
     util.setup_uns_dicts(adata) # shouldn't be necessary
 
     results = adata.uns['conga_results'].get(table_tag, None)
@@ -1833,7 +1851,13 @@ def make_tcr_db_match_plot(
         print('conga.plotting.make_db_matches_figure:: no significant hits')
         return
 
+    if any(x not in results.columns for x in required_cols):
+        print('conga.plotting.make_db_matches_figure:: missing some columns from'
+              'results:', [x for x in required_cols if x not in results.columns])
+        return
+    
     results = results.sort_values('pvalue_adj').drop_duplicates('clone_index')
+    
 
     missing_epitope = results.db_epitope==''
     results.loc[missing_epitope,'db_epitope'] = results.db_epitope_gene[missing_epitope]
@@ -2029,11 +2053,11 @@ def make_clone_batch_clustermaps(
                     .format( batch_key, num_choices)
 
 
-        if show_mait_and_inkt_clones and organism in ['human','mouse']:
+        if show_mait_and_inkt_clones and organism in ['human','mouse','rhesus']:
             colors = []
             for ii in top_clone_indices:
                 tcr = tcrs[ii]
-                if organism == 'human':
+                if organism in ['human','rhesus']:
                     celltype = 2 * tcr_scoring.is_human_mait_alpha_chain(tcr[0])+\
                                tcr_scoring.is_human_inkt_tcr(tcr)
                 elif organism == 'mouse':
@@ -3907,6 +3931,9 @@ default_content_order = [
     GRAPH_VS_FEATURES_TCR_CLUSTERMAP,
     GRAPH_VS_SUMMARY,
     GEX_CLUSTERS_TCRDIST_TREES,
+    GEX_CLUSTERS_DEGS,
+    GEX_CLUSTERS_DEGS_DOTPLOT,
+    GEX_CLUSTERS_DEGS_VIOLINPLOT,
     CONGA_THRESHOLD_TCRDIST_TREE,
     HOTSPOT_FEATURES,
     HOTSPOT_GEX_UMAP,
@@ -3914,6 +3941,10 @@ default_content_order = [
     HOTSPOT_TCR_UMAP,
     HOTSPOT_TCR_CLUSTERMAP,
     BATCH_UMAPS,
+    METACONGA_MATCH_AACLUSTERS_BARS,
+    METACONGA_MATCH_AACLUSTERS_UMAPS,
+    METACONGA_MATCH_CLUMPS,
+    METACONGA_MATCH_CLUMPS_UMAPS,
 ]
 
 # figure tags:
