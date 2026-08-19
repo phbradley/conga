@@ -643,7 +643,7 @@ def run_graph_vs_graph(
         results_df['gex_cluster'] = list(clusters_gex[indices])
         results_df['tcr_cluster'] = list(clusters_tcr[indices])
         for tag in 'va ja cdr3a vb jb cdr3b'.split():
-            results_df[tag] = list(adata.obs[tag][indices])
+            results_df[tag] = list(adata.obs[tag].to_numpy()[indices])
         results_df.sort_values('conga_score', inplace=True)
 
     else:
