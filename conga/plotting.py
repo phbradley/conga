@@ -388,7 +388,7 @@ def make_logo_plots(
         batch_keys = adata.uns['batch_keys']
 
     ## unpack data from adata arrays ##################################
-    clone_sizes = adata.obs['clone_sizes']
+    clone_sizes = adata.obs['clone_sizes'].to_numpy()
     if clusters_gex is None:
         clusters_gex = np.array(adata.obs['clusters_gex'])
         if clusters_gex_names is None:
